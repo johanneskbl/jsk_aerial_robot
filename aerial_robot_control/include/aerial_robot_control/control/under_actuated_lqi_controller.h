@@ -47,69 +47,69 @@
 
 namespace aerial_robot_control
 {
-  class UnderActuatedLQIController: public PoseLinearController
+class UnderActuatedLQIController : public PoseLinearController
+{
+public:
+  UnderActuatedLQIController();
+  virtual ~UnderActuatedLQIController();
+
+  void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
+                  boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
+                  boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
+                  boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_rate);
+
+  void activate() override;
+
+protected:
+  ros::Publisher flight_cmd_pub_;  // for spinal
+  ros::Publisher rpy_gain_pub_;    // for spinal
+  ros::Publisher four_axis_gain_pub_;
+  ros::Publisher p_matrix_pseudo_inverse_inertia_pub_;
+
+  bool verbose_;
+  boost::shared_ptr<dynamic_reconfigure::Server<aerial_robot_control::LQIConfig> > lqi_server_;
+  dynamic_reconfigure::Server<aerial_robot_control::LQIConfig>::CallbackType dynamic_reconf_func_lqi_;
+
+  double target_roll_, target_pitch_;
+  double candidate_yaw_term_;
+  std::vector<float> target_base_thrust_;
+
+  int lqi_mode_;
+  bool clamp_gain_;
+  Eigen::MatrixXd K_;
+
+  Eigen::Vector3d lqi_roll_pitch_weight_, lqi_yaw_weight_, lqi_z_weight_;
+  std::vector<double> r_;  // matrix R
+
+  std::vector<Eigen::Vector3d> pitch_gains_, roll_gains_, yaw_gains_, z_gains_;
+
+  bool gyro_moment_compensation_;
+
+  bool realtime_update_;
+  std::thread gain_generator_thread_;
+
+  // private functions
+  virtual bool checkRobotModel();
+  void resetGain()
   {
+    K_ = Eigen::MatrixXd();
+  }
 
-  public:
-    UnderActuatedLQIController();
-    virtual ~UnderActuatedLQIController();
+  virtual void rosParamInit();
+  virtual void controlCore() override;
 
-    void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
-                    boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
-                    boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
-                    boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator,
-                    double ctrl_loop_rate);
+  virtual bool optimalGain();
+  virtual void clampGain();
+  virtual void publishGain();
 
-    void activate() override;
+  virtual void sendCmd() override;
+  virtual void sendFourAxisCommand();
 
-  protected:
+  virtual void allocateYawTerm();
+  void cfgLQICallback(aerial_robot_control::LQIConfig& config, uint32_t level);  // dynamic reconfigure
 
-    ros::Publisher flight_cmd_pub_; // for spinal
-    ros::Publisher rpy_gain_pub_; // for spinal
-    ros::Publisher four_axis_gain_pub_;
-    ros::Publisher p_matrix_pseudo_inverse_inertia_pub_;
+  void sendRotationalInertiaComp();
 
-    bool verbose_;
-    boost::shared_ptr<dynamic_reconfigure::Server<aerial_robot_control::LQIConfig> > lqi_server_;
-    dynamic_reconfigure::Server<aerial_robot_control::LQIConfig>::CallbackType dynamic_reconf_func_lqi_;
-
-    double target_roll_, target_pitch_;
-    double candidate_yaw_term_;
-    std::vector<float> target_base_thrust_;
-
-    int lqi_mode_;
-    bool clamp_gain_;
-    Eigen::MatrixXd K_;
-
-    Eigen::Vector3d lqi_roll_pitch_weight_, lqi_yaw_weight_, lqi_z_weight_;
-    std::vector<double> r_; // matrix R
-
-    std::vector<Eigen::Vector3d> pitch_gains_, roll_gains_, yaw_gains_, z_gains_;
-
-    bool gyro_moment_compensation_;
-
-    bool realtime_update_;
-    std::thread gain_generator_thread_;
-
-    //private functions
-    virtual bool checkRobotModel();
-    void resetGain() { K_ = Eigen::MatrixXd(); }
-
-    virtual void rosParamInit();
-    virtual void controlCore() override;
-
-    virtual bool optimalGain();
-    virtual void clampGain();
-    virtual void publishGain();
-
-    virtual void sendCmd() override;
-    virtual void sendFourAxisCommand();
-
-    virtual void allocateYawTerm();
-    void cfgLQICallback(aerial_robot_control::LQIConfig &config, uint32_t level); //dynamic reconfigure
-
-    void sendRotationalInertiaComp();
-
-    void gainGeneratorFunc();
-  };
+  void gainGeneratorFunc();
 };
+};  // namespace aerial_robot_control

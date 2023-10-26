@@ -40,31 +40,30 @@
 
 namespace aerial_robot_control
 {
-  class UnderActuatedTiltedLQIController: public UnderActuatedLQIController
+class UnderActuatedTiltedLQIController : public UnderActuatedLQIController
+{
+public:
+  UnderActuatedTiltedLQIController()
   {
-  public:
-    UnderActuatedTiltedLQIController() {}
-    virtual ~UnderActuatedTiltedLQIController() = default;
+  }
+  virtual ~UnderActuatedTiltedLQIController() = default;
 
-    void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
-                    boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
-                    boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
-                    boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator,
-                    double ctrl_loop_rate);
+  void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
+                  boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
+                  boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
+                  boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_rate);
 
-  protected:
+protected:
+  ros::Publisher desired_baselink_rot_pub_;
 
-    ros::Publisher desired_baselink_rot_pub_;
+  double trans_constraint_weight_;
+  double att_control_weight_;
 
-    double trans_constraint_weight_;
-    double att_control_weight_;
+  double z_limit_;
 
-    double z_limit_;
-
-    void controlCore() override;
-    bool optimalGain() override;
-    void publishGain() override;
-    void rosParamInit() override;
-
-  };
+  void controlCore() override;
+  bool optimalGain() override;
+  void publishGain() override;
+  void rosParamInit() override;
 };
+};  // namespace aerial_robot_control

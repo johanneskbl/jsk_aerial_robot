@@ -43,46 +43,43 @@ using boost::algorithm::clamp;
 
 namespace aerial_robot_control
 {
-  class UnderActuatedController: public PoseLinearController
-  {
-  public:
-    UnderActuatedController();
-    virtual ~UnderActuatedController() = default;
+class UnderActuatedController : public PoseLinearController
+{
+public:
+  UnderActuatedController();
+  virtual ~UnderActuatedController() = default;
 
-    void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
-                    boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
-                    boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
-                    boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator,
-                    double ctrl_loop_rate) override;
+  void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
+                  boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
+                  boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
+                  boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_rate) override;
 
-    virtual void reset() override;
+  virtual void reset() override;
 
-  protected:
-    ros::Publisher flight_cmd_pub_; //for spinal
-    ros::Publisher rpy_gain_pub_; //for spinal
-    ros::Publisher torque_allocation_matrix_inv_pub_; //for spinal
-    double torque_allocation_matrix_inv_pub_stamp_;
+protected:
+  ros::Publisher flight_cmd_pub_;                    // for spinal
+  ros::Publisher rpy_gain_pub_;                      // for spinal
+  ros::Publisher torque_allocation_matrix_inv_pub_;  // for spinal
+  double torque_allocation_matrix_inv_pub_stamp_;
 
-    Eigen::MatrixXd q_mat_;
-    Eigen::MatrixXd q_mat_inv_;
+  Eigen::MatrixXd q_mat_;
+  Eigen::MatrixXd q_mat_inv_;
 
-    double target_roll_, target_pitch_; // under-actuated
-    double candidate_yaw_term_;
-    std::vector<float> target_base_thrust_;
+  double target_roll_, target_pitch_;  // under-actuated
+  double candidate_yaw_term_;
+  std::vector<float> target_base_thrust_;
 
-    double torque_allocation_matrix_inv_pub_interval_;
+  double torque_allocation_matrix_inv_pub_interval_;
 
-    double z_limit_;
+  double z_limit_;
 
-    bool hovering_approximate_;
+  bool hovering_approximate_;
 
-    void setAttitudeGains();
-    virtual void rosParamInit();
-    virtual void controlCore() override;
-    virtual void sendCmd() override;
-    virtual void sendFourAxisCommand();
-    virtual void sendTorqueAllocationMatrixInv();
-
-
-  };
-} //namespace aerial_robot_control
+  void setAttitudeGains();
+  virtual void rosParamInit();
+  virtual void controlCore() override;
+  virtual void sendCmd() override;
+  virtual void sendFourAxisCommand();
+  virtual void sendTorqueAllocationMatrixInv();
+};
+}  // namespace aerial_robot_control

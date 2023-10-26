@@ -47,52 +47,55 @@ using PidControlDynamicConfig = dynamic_reconfigure::Server<aerial_robot_control
 
 namespace aerial_robot_control
 {
-  enum
-    {
-      X, Y, Z, ROLL, PITCH, YAW,
-    };
-
-  class PoseLinearController: public ControlBase
-  {
-  public:
-    PoseLinearController();
-    virtual ~PoseLinearController() = default;
-    void virtual initialize(ros::NodeHandle nh,
-                            ros::NodeHandle nhp,
-                            boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
-                            boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
-                            boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator,
-                            double ctrl_loop_du) override;
-
-    virtual bool update() override;
-    virtual void reset() override;
-
-  protected:
-    ros::Publisher pid_pub_;
-
-    std::vector<PID> pid_controllers_;
-    std::vector<boost::shared_ptr<PidControlDynamicConfig> > pid_reconf_servers_;
-    aerial_robot_msgs::PoseControlPid pid_msg_;
-
-    bool need_yaw_d_control_;
-    bool start_rp_integration_;
-    double start_rp_integration_height_;
-
-    double landing_err_z_;
-    double safe_landing_height_;
-    double force_landing_descending_rate_;
-
-    tf::Vector3 pos_, target_pos_;
-    tf::Vector3 vel_, target_vel_;
-    tf::Vector3 target_acc_;
-    tf::Vector3 rpy_, target_rpy_;
-    tf::Vector3 omega_, target_omega_;
-
-    virtual void controlCore();
-    virtual void sendCmd();
-
-
-    void cfgPidCallback(aerial_robot_control::PIDConfig &config, uint32_t level, std::vector<int> controller_indices);
-  };
-
+enum
+{
+  X,
+  Y,
+  Z,
+  ROLL,
+  PITCH,
+  YAW,
 };
+
+class PoseLinearController : public ControlBase
+{
+public:
+  PoseLinearController();
+  virtual ~PoseLinearController() = default;
+  void virtual initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
+                          boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
+                          boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
+                          boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator,
+                          double ctrl_loop_du) override;
+
+  virtual bool update() override;
+  virtual void reset() override;
+
+protected:
+  ros::Publisher pid_pub_;
+
+  std::vector<PID> pid_controllers_;
+  std::vector<boost::shared_ptr<PidControlDynamicConfig> > pid_reconf_servers_;
+  aerial_robot_msgs::PoseControlPid pid_msg_;
+
+  bool need_yaw_d_control_;
+  bool start_rp_integration_;
+  double start_rp_integration_height_;
+
+  double landing_err_z_;
+  double safe_landing_height_;
+  double force_landing_descending_rate_;
+
+  tf::Vector3 pos_, target_pos_;
+  tf::Vector3 vel_, target_vel_;
+  tf::Vector3 target_acc_;
+  tf::Vector3 rpy_, target_rpy_;
+  tf::Vector3 omega_, target_omega_;
+
+  virtual void controlCore();
+  virtual void sendCmd();
+
+  void cfgPidCallback(aerial_robot_control::PIDConfig& config, uint32_t level, std::vector<int> controller_indices);
+};
+
+};  // namespace aerial_robot_control
