@@ -6,7 +6,7 @@ controller:
     gravity: 9.798  #9.80665 # m/s^2   Tokyo 9.798; in sim: 9.80665
     inertia_diag: [0.0466672, 0.0469172, 0.0679214] # SYSID: [ 0.04170, 0.03945, 0.07068 ] KDL: [0.0466672, 0.0469172, 0.0679214] # kg m^2
     dr1: -1  # direction of motor 1
-    p1: [ 0.13642, 0.137619, 0.0817307 ] # position of motor 1
+    p1: [ 0.136419, 0.137619, 0.0817307 ] # position of motor 1
     dr2: 1  # direction of motor 2
     p2: [ -0.138796, 0.137619, 0.0817307 ] # position of motor 2
     dr3: -1  # direction of motor 3
