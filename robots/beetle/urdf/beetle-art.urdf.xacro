@@ -31,7 +31,7 @@
             ixy="0.0" ixz="0.0" iyz="0.0"/>
       </inertial>   
       <visual>
-        <origin xyz="0 0 0" rpy="1.570796 0 3.141592"/>
+        <origin xyz="0 0 0.063" rpy="1.570796 0 3.141592"/>
         <geometry>
           <mesh filename="package://beetle/urdf/mesh/base_link_beetle_art.dae"/>
         </geometry>
