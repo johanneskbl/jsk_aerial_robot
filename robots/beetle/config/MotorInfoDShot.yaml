@@ -8,31 +8,31 @@ motor_info:
         vel_ref_num: 4
         ref1:
                 voltage: 24.44 # [V]
-                max_thrust: 26.5655 # [N]
-                polynominal2: 0.11510 # x10
-                polynominal1: -9.10540  # x10
-                polynominal0: 16.16289 # x1
+                max_thrust: 20.7543  # 26.5655 / 1.28 # [N]
+                polynominal2: 0.0899  # 0.11510 / 1.28 # x10
+                polynominal1: −7.1136  # -9.10540 / 1.28  # x10
+                polynominal0: 12.6273  # 16.16289 / 1.28 # x1
         ref2:
                 voltage: 23.50 # [V]
-                max_thrust: 25.5383 # [N]
-                polynominal2: 0.11478 # x10
-                polynominal1: -9.46185  # x10
-                polynominal0: 18.12311 # x1
+                max_thrust: 19.9518 # 25.5383 / 1.28 # [N]
+                polynominal2: 0.0897 # 0.11478 / 1.28 # x10
+                polynominal1: −7.3921 # -9.46185 / 1.28  # x10
+                polynominal0: 14.1587 # 18.12311 / 1.28 # x1
         ref3:
                 voltage: 22.55 # [V]
-                max_thrust: 23.6997 # [N]
-                polynominal2: 0.10892 # x10
-                polynominal1: -9.06330  # x10
-                polynominal0: 17.64881 # x1
+                max_thrust: 18.5154 # 23.6997 / 1.28 # [N]
+                polynominal2: 0.0851 # 0.10892 / 1.28 # x10
+                polynominal1: −7.0807 # -9.06330 / 1.28  # x10
+                polynominal0: 13.7881 # 17.64881 / 1.28 # x1
         ref4:
                 voltage: 21.60 # [V]
-                max_thrust: 22.3797 # [N]
-                polynominal2: 0.10787 # x10
-                polynominal1: -9.33003  # x10
-                polynominal0: 19.36165 # x1
+                max_thrust: 17.4841 # 22.3797 / 1.28 # [N]
+                polynominal2: 0.0843 # 0.10787 / 1.28 # x10
+                polynominal1: −7.2891 # -9.33003 / 1.28  # x10
+                polynominal0: 15.1263 # 19.36165 / 1.28 # x1
         ref5:
                 voltage: 20.66 # [V]
-                max_thrust: 20.3576 # [N]
-                polynominal2: 0.09667 # x10
-                polynominal1: -8.21176  # x10
-                polynominal0: 16.50950 # x1
+                max_thrust: 15.9043 # 20.3576 / 1.28 # [N]
+                polynominal2: 0.0755 # 0.09667 / 1.28 # x10
+                polynominal1: −6.4154 # -8.21176 / 1.28  # x10
+                polynominal0: 12.8980 # 16.50950 / 1.28 # x1
