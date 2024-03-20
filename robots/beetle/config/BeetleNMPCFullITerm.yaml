@@ -34,8 +34,8 @@ controller:
     thrust_max: 30 # N
     thrust_min: 0 # N
 
-    a_max: 1.5708  # 30 degree ~ 0.5    1.5708 rad ~ 90 deg
-    a_min: -1.5708
+    a_max: 2.36  # 30 degree ~ 0.5    1.5708 rad ~ 90 deg
+    a_min: -2.36
 
     # params for the cost function
     Qp_xy: 300
@@ -67,6 +67,6 @@ controller:
     i_gain_x: 3
     i_gain_y: 3
     i_gain_z: 5
-    i_gain_roll: 0.5
-    i_gain_pitch: 0.5
-    i_gain_yaw: 0.5
+    i_gain_roll: 0.2
+    i_gain_pitch: 0.2
+    i_gain_yaw: 0.2

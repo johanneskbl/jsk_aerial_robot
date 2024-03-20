@@ -314,19 +314,19 @@ void AttitudeController::update(void)
     ang_vel = estimator_->getAttEstimator()->getAngular(Frame::VIRTUAL);
 #endif
 
-    /* failsafe 3: too large tile angle */
-    if (!force_landing_flag_ && (fabs(angles[X]) > MAX_TILT_ANGLE || fabs(angles[Y]) > MAX_TILT_ANGLE))
-    {
-#ifdef SIMULATION
-      ROS_ERROR("failsafe: the roll pitch angles are too large, roll: %f (%f), pitch: %f (%f)", angles[X],
-                MAX_TILT_ANGLE, angles[Y], MAX_TILT_ANGLE);
-#else
-      nh_->logerror("failsafe: the roll pitch angles are too large");
-#endif
-      setForceLandingFlag(true);
-      error_angle_i_[X] = 0;
-      error_angle_i_[Y] = 0;
-    }
+//    /* failsafe 3: too large tile angle */
+//    if (!force_landing_flag_ && (fabs(angles[X]) > MAX_TILT_ANGLE || fabs(angles[Y]) > MAX_TILT_ANGLE))
+//    {
+//#ifdef SIMULATION
+//      ROS_ERROR("failsafe: the roll pitch angles are too large, roll: %f (%f), pitch: %f (%f)", angles[X],
+//                MAX_TILT_ANGLE, angles[Y], MAX_TILT_ANGLE);
+//#else
+//      nh_->logerror("failsafe: the roll pitch angles are too large");
+//#endif
+//      setForceLandingFlag(true);
+//      error_angle_i_[X] = 0;
+//      error_angle_i_[Y] = 0;
+//    }
 
     /* Force Landing Flag */
     if (force_landing_flag_)
