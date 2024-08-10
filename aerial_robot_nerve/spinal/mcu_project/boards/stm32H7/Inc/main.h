@@ -84,6 +84,8 @@ void Error_Handler(void);
 #define RMII_TXD0_GPIO_Port GPIOB
 #define RMII_TXD1_Pin GPIO_PIN_13
 #define RMII_TXD1_GPIO_Port GPIOB
+#define IMU_Data_TX_Pin GPIO_PIN_6
+#define IMU_Data_TX_GPIO_Port GPIOC
 #define IMUCS_Pin GPIO_PIN_6
 #define IMUCS_GPIO_Port GPIOB
 #define SPI1_CS_Pin GPIO_PIN_7
