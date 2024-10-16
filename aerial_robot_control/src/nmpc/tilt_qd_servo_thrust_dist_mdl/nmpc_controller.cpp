@@ -22,7 +22,7 @@ void nmpc::TiltQdServoThrustDistNMPC::initParams()
   TiltQdServoDistNMPC::initParams();
 
   ros::NodeHandle motor_nh(nh_, "motor_info");
-  getParam<double>(motor_nh, "krpm_rate", krpm2_d_thrust_, 0.0);
+  getParam<double>(motor_nh, "krpm2_d_thrust", krpm2_d_thrust_, 0.0);
 }
 
 void nmpc::TiltQdServoThrustDistNMPC::initCostW()

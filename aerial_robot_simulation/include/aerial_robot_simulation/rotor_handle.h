@@ -78,7 +78,7 @@ namespace hardware_interface
       motor_nh.param("rotor_force_noise", rotor_force_noise_, 0.0); // N
       motor_nh.param("dual_rotor_moment_noise", dual_rotor_moment_noise_, 0.0);
       motor_nh.param("speed_rate", speed_rate_, 1.0); // rad/s/N , this is a virtual linear rate of speed-f
-      motor_nh.param("krpm_rate", krpm_rate_, 0.1); // (kRPM)^2/N , this is a virtual linear rate of speed-f
+      motor_nh.param("krpm2_d_thrust", krpm2_d_thrust_, 0.1); // (kRPM)^2/N , this is a virtual linear rate of speed-f
     }
 
     inline std::string getName() const {return name_;}
@@ -106,7 +106,7 @@ namespace hardware_interface
 
     inline int getRPM() const
     {
-      return (int)(sqrt(*force_ * krpm_rate_) * 1000);
+      return (int)(sqrt(*force_ * krpm2_d_thrust_) * 1000);
     }
 
     inline double getSpeed() const
@@ -122,7 +122,7 @@ namespace hardware_interface
     double f_pwm_offset_;
     double m_f_rate_;
     double speed_rate_;
-    double krpm_rate_;
+    double krpm2_d_thrust_;
     double pwm_rate_;
     double max_pwm_;
 
