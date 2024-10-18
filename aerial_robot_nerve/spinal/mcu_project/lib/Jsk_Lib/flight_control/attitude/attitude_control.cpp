@@ -65,7 +65,8 @@ AttitudeController::AttitudeController()
 }
 
 void AttitudeController::init(TIM_HandleTypeDef* htim1, TIM_HandleTypeDef* htim2, StateEstimate* estimator,
-                              DirectServo* servo, DShot* dshot, BatteryStatus* bat, ros::NodeHandle* nh, osMutexId* mutex)
+                              DirectServo* servo, DShot* dshot, BatteryStatus* bat, ros::NodeHandle* nh,
+                              osMutexId* mutex)
 {
   pwm_htim1_ = htim1;
   pwm_htim2_ = htim2;
@@ -219,10 +220,41 @@ void AttitudeController::pwmsControl(void)
       motor_v = DSHOT_MAX_THROTTLE;
     else if (motor_v < DSHOT_MIN_THROTTLE)
       motor_v = DSHOT_MIN_THROTTLE;
-    
+
     motor_value[i] = motor_v;
   }
 
+  if (ESC_FBK_FLAG && dshot_->is_telemetry_)
+  {
+    int kp = 10;  // TODO: should be set from onboard PC
+
+    for (int i = 0; i < 4; i++)
+    {
+      int rpm;
+      switch (i)
+      {
+        case 0:
+          rpm = dshot_->esc_reader_.esc_msg_1_.rpm;
+          break;
+        case 1:
+          rpm = dshot_->esc_reader_.esc_msg_2_.rpm;
+          break;
+        case 2:
+          rpm = dshot_->esc_reader_.esc_msg_3_.rpm;
+          break;
+        case 3:
+          rpm = dshot_->esc_reader_.esc_msg_4_.rpm;
+          break;
+      }
+
+      double thrust_real, thrust_target;
+      thrust_real = pow(rpm * 0.001, 2) / krpm2_d_thrust_;
+      thrust_target = target_thrust_[i];
+
+      // u = ff + kp * e
+      motor_value[i] = motor_value[i] + (thrust_target - thrust_real) * kp;
+    }
+  }
   dshot_->write(motor_value, dshot_->is_telemetry_);
 
   if (dshot_->is_telemetry_)
@@ -626,7 +658,7 @@ void AttitudeController::rpyGainCallback(const spinal::RollPitchYawTerms& gain_m
   if (motor_number_ == 0)
     return;  // not be activated
 
-    /* check the number of motor which should be equal to the ros thrust */
+  /* check the number of motor which should be equal to the ros thrust */
 #ifdef SIMULATION
   if (gain_msg.motors.size() != motor_number_ && gain_msg.motors.size() != 1)
   {

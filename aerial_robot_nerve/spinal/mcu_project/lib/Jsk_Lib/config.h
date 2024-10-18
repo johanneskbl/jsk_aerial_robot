@@ -42,6 +42,8 @@
 #define GPS_FLAG 0
 //2.1.4 Servo
 #define SERVO_FLAG 1
+//2.1.5 ESC Feedback Control
+#define ESC_FBK_FLAG 1
 
 //2.2 State Estimate
 //2.2.1 Attitude Estimate
