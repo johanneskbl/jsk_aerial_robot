@@ -276,6 +276,7 @@ private:
   float max_duty_;
   float min_thrust_;  // max thrust is variant according to the voltage
   float force_landing_thrust_;
+  float krpm2_d_thrust_;
   int8_t rotor_devider_;
   int8_t pwm_conversion_mode_;
   std::vector<spinal::MotorInfo> motor_info_;

@@ -596,7 +596,8 @@ void AttitudeController::pwmInfoCallback(const spinal::PwmInfo& info_msg)
   max_duty_ = info_msg.max_pwm;
   pwm_conversion_mode_ = info_msg.pwm_conversion_mode;
 
-  min_thrust_ = info_msg.min_thrust;  // make a variant min_duty_
+  min_thrust_ = info_msg.min_thrust;          // make a variant min_duty_
+  krpm2_d_thrust_ = info_msg.krpm2_d_thrust;  // used to convert the thrust to krpm^2
 
   motor_info_.resize(0);
 

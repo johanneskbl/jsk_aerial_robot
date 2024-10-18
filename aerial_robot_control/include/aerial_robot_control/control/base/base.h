@@ -85,6 +85,7 @@ namespace aerial_robot_control
       getParam<double>(motor_nh, "min_thrust", min_thrust_, 0.0);
       getParam<double>(motor_nh, "force_landing_thrust", force_landing_thrust_, 0.0);
       getParam<double>(motor_nh, "m_f_rate", m_f_rate_, 0.0);
+      getParam<double>(motor_nh, "krpm2_d_thrust", krpm2_d_thrust_, 0.0);
       getParam<int>(motor_nh, "pwm_conversion_mode", pwm_conversion_mode_, -1);
 
       int vel_ref_num;
@@ -147,6 +148,7 @@ namespace aerial_robot_control
           motor_info_msg.min_thrust = min_thrust_;
           motor_info_msg.force_landing_thrust = force_landing_thrust_;
           motor_info_msg.pwm_conversion_mode = pwm_conversion_mode_;
+          motor_info_msg.krpm2_d_thrust = krpm2_d_thrust_;
           motor_info_msg.motor_info.resize(0);
           for(int i = 0; i < motor_info_.size(); i++)
             motor_info_msg.motor_info.push_back(motor_info_[i]);
@@ -188,6 +190,7 @@ namespace aerial_robot_control
     double m_f_rate_;
     double max_pwm_, min_pwm_;
     double min_thrust_;
+    double krpm2_d_thrust_;
     std::vector<spinal::MotorInfo> motor_info_;
 
     double force_landing_thrust_; //pwm
