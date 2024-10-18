@@ -224,7 +224,7 @@ void AttitudeController::pwmsControl(void)
     motor_value[i] = motor_v;
   }
 
-  if (ESC_FBK_FLAG && dshot_->is_telemetry_)
+  if (ESC_FBK_FLAG && dshot_->is_telemetry_ && krpm2_d_thrust_ != 0)
   {
     int kp = 10;  // TODO: should be set from onboard PC
 
