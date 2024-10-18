@@ -5,4 +5,5 @@ uint16 voltage  # 1000 = 10.00V
 uint16 current  # 1000 = 10.00A
 uint16 consumption  # 1mAh
 uint32 rpm  # 1 rpm
+float32 thrust # N
 uint8 crc_error  # calculated crc - received crc

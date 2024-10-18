@@ -230,29 +230,37 @@ void AttitudeController::pwmsControl(void)
 
     for (int i = 0; i < 4; i++)
     {
-      int rpm;
+      spinal::ESCTelemetry* esc_msg_ptr = nullptr;
       switch (i)
       {
-        case 0:
-          rpm = dshot_->esc_reader_.esc_msg_1_.rpm;
+        case 0: {
+          esc_msg_ptr = &dshot_->esc_reader_.esc_msg_1_;
           break;
-        case 1:
-          rpm = dshot_->esc_reader_.esc_msg_2_.rpm;
+        }
+        case 1: {
+          esc_msg_ptr = &dshot_->esc_reader_.esc_msg_2_;
           break;
-        case 2:
-          rpm = dshot_->esc_reader_.esc_msg_3_.rpm;
+        }
+        case 2: {
+          esc_msg_ptr = &dshot_->esc_reader_.esc_msg_3_;
           break;
-        case 3:
-          rpm = dshot_->esc_reader_.esc_msg_4_.rpm;
+        }
+        case 3: {
+          esc_msg_ptr = &dshot_->esc_reader_.esc_msg_4_;
           break;
+        }
       }
 
-      double thrust_real, thrust_target;
-      thrust_real = pow(rpm * 0.001, 2) / krpm2_d_thrust_;
-      thrust_target = target_thrust_[i];
+      if (esc_msg_ptr != nullptr)
+      {
+        double thrust_real = pow(esc_msg_ptr->rpm * 0.001, 2) / krpm2_d_thrust_;
+        esc_msg_ptr->thrust = thrust_real;  // for msg output
 
-      // u = ff + kp * e
-      motor_value[i] = motor_value[i] + (thrust_target - thrust_real) * kp;
+        double thrust_target = target_thrust_[i];
+
+        // u = ff + kp * e
+        motor_value[i] = motor_value[i] + (thrust_target - thrust_real) * kp;
+      }
     }
   }
   dshot_->write(motor_value, dshot_->is_telemetry_);
