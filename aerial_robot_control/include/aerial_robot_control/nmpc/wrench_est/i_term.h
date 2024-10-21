@@ -2,8 +2,8 @@
 // Created by li-jinjie on 24-3-1.
 //
 
-#ifndef AERIAL_ROBOT_CONTROL_I_TERM_H
-#define AERIAL_ROBOT_CONTROL_I_TERM_H
+#ifndef I_TERM_H
+#define I_TERM_H
 
 #include <algorithm>
 
@@ -62,4 +62,4 @@ private:
 };
 }  // namespace aerial_robot_control
 
-#endif  // AERIAL_ROBOT_CONTROL_I_TERM_H
+#endif  // I_TERM_H

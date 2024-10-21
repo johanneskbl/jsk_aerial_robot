@@ -25,6 +25,7 @@ generate_dynamic_reconfigure_options(
   cfg/PID.cfg
   cfg/LQI.cfg
   cfg/NMPC.cfg
+  cfg/ITerm.cfg
   )
 
 ### Temporary soulition because of https://github.com/ros/ros_comm/issues/1404

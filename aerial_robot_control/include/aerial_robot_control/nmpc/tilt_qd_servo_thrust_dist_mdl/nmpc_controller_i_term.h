@@ -6,7 +6,7 @@
 #define TILT_QD_SERVO_THRUST_NMPC_W_ITERM_CONTROLLER_H
 
 #include "nmpc_controller.h"
-#include "aerial_robot_control/nmpc/wrench_est/i_term.h"
+#include "aerial_robot_control/nmpc/wrench_est/wrench_est_i_term.h"
 
 #include "geometry_msgs/WrenchStamped.h"
 
@@ -21,13 +21,11 @@ namespace nmpc
 class TiltQdServoThrustNMPCwITerm : public TiltQdServoThrustDistNMPC
 {
 protected:
-  ITerm pos_i_term_[6];  // for x, y, z, roll, pitch, yaw
+  WrenchEstITerm wrench_est_i_term_;
 
   void initParams() override;
 
   void calcDisturbWrench() override;
-
-  void cfgNMPCCallback(NMPCConfig& config, uint32_t level) override;
 };
 
 }  // namespace nmpc
