@@ -7,7 +7,6 @@
 
 #include "aerial_robot_control/nmpc/tilt_qd_servo_mdl/nmpc_controller.h"
 #include "nmpc_solver.h"
-#include "aerial_robot_control/nmpc/i_term.h"
 
 #include "geometry_msgs/WrenchStamped.h"
 
