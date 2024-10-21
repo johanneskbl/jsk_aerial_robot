@@ -5,15 +5,12 @@
 #ifndef WRENCH_EST_I_TERM_H
 #define WRENCH_EST_I_TERM_H
 
-/* dynamic reconfigure */  // TODO: move to base
-#include "aerial_robot_msgs/DynamicReconfigureLevels.h"
-#include "aerial_robot_control/ITermConfig.h"
-
-#include <ros/ros.h>
-#include <tf/tf.h>
-#include <geometry_msgs/Vector3.h>
-
+#include "wrench_est_base.h"
 #include "i_term.h"
+
+/* dynamic reconfigure */
+#include "aerial_robot_control/ITermConfig.h"
+#include "aerial_robot_msgs/DynamicReconfigureLevels.h"
 
 using ITermDynamicConfig = dynamic_reconfigure::Server<aerial_robot_control::ITermConfig>;
 
@@ -23,53 +20,21 @@ namespace aerial_robot_control
 namespace nmpc
 {
 
-class WrenchEstITerm
+class WrenchEstITerm : public WrenchEstBase
 {
 public:
-  WrenchEstITerm() = default;
-  ~WrenchEstITerm() = default;
+  inline void initParams(ros::NodeHandle& nh_ctrl, double ctrl_loop_du) override;
 
-  inline void initParams(ros::NodeHandle& nh_ctrl, double ctrl_loop_du);
-
-  inline void update(const tf::Vector3& pos, const tf::Vector3& pos_ref, const tf::Quaternion& q, const tf::Quaternion& q_ref);
-
-  /* getter */
-  inline geometry_msgs::Vector3 getDistForceW() const
-  {
-    return dist_force_w_;
-  }
-  inline geometry_msgs::Vector3 getDistTorqueCOG() const
-  {
-    return dist_torque_cog_;
-  }
-
-  /* setter */
-  inline void setParamVerbose(bool param_verbose)
-  {
-    param_verbose_ = param_verbose;
-  }
+  inline void update(const tf::Vector3& pos, const tf::Vector3& pos_ref, const tf::Quaternion& q,
+                     const tf::Quaternion& q_ref) override;
 
 protected:
   inline void cfgCallback(ITermConfig& config, uint32_t level);
 
 private:
-  double ctrl_loop_du_;
-  std::array<ITerm, 6> pos_i_term_;         // for x, y, z, roll, pitch, yaw
-  geometry_msgs::Vector3 dist_force_w_;     // disturbance force in world frame
-  geometry_msgs::Vector3 dist_torque_cog_;  // disturbance torque in cog frame
+  std::array<ITerm, 6> pos_i_term_;  // for x, y, z, roll, pitch, yaw
 
   std::vector<boost::shared_ptr<ITermDynamicConfig>> reconf_servers_;
-
-  // TODO: move to base class
-  bool param_verbose_ = false;
-  template <class T>
-  void getParam(ros::NodeHandle nh, std::string param_name, T& param, T default_value)
-  {
-    nh.param<T>(param_name, param, default_value);
-
-    if (param_verbose_)
-      ROS_INFO_STREAM("[" << nh.getNamespace() << "] " << param_name << ": " << param);
-  }
 };
 
 void WrenchEstITerm::initParams(ros::NodeHandle& nh_ctrl, double ctrl_loop_du)
