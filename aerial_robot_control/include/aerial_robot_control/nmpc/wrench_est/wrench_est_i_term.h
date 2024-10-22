@@ -39,7 +39,7 @@ private:
 
 void WrenchEstITerm::initParams(ros::NodeHandle& nh_ctrl, double ctrl_loop_du)
 {
-  ctrl_loop_du_ = ctrl_loop_du;
+  setCtrlLoopDu(ctrl_loop_du);
 
   ros::NodeHandle i_term_nh(nh_ctrl, "i_term");
 
@@ -59,7 +59,7 @@ void WrenchEstITerm::initParams(ros::NodeHandle& nh_ctrl, double ctrl_loop_du)
   getParam<double>(i_term_nh, "i_gain_pitch", i_gain_pitch, 0.5);
   getParam<double>(i_term_nh, "i_gain_yaw", i_gain_yaw, 0.5);
 
-  double freq = 1.0 / ctrl_loop_du_;
+  double freq = 1.0 / getCtrlLoopDu();
   pos_i_term_[0].initialize(i_gain_x, fx_limit, freq);  // x
   pos_i_term_[1].initialize(i_gain_y, fy_limit, freq);  // y
   pos_i_term_[2].initialize(i_gain_z, fz_limit, freq);  // z
@@ -100,12 +100,8 @@ void WrenchEstITerm::update(const tf::Vector3& pos, const tf::Vector3& pos_ref, 
   double my_cog_i_term = pos_i_term_[4].update(sign_qe_w * qe_y);
   double mz_cog_i_term = pos_i_term_[5].update(sign_qe_w * qe_z);
 
-  dist_force_w_.x = fx_w_i_term;
-  dist_force_w_.y = fy_w_i_term;
-  dist_force_w_.z = fz_w_i_term;
-  dist_torque_cog_.x = mx_cog_i_term;
-  dist_torque_cog_.y = my_cog_i_term;
-  dist_torque_cog_.z = mz_cog_i_term;
+  setDistForceW(fx_w_i_term, fy_w_i_term, fz_w_i_term);
+  setDistTorqueCOG(mx_cog_i_term, my_cog_i_term, mz_cog_i_term);
 }
 
 void WrenchEstITerm::cfgCallback(ITermConfig& config, uint32_t level)
