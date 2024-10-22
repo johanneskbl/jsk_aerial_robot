@@ -159,4 +159,5 @@ void WrenchEstITerm::cfgCallback(ITermConfig& config, uint32_t level)
 
 }  // namespace aerial_robot_control
 
+PLUGINLIB_EXPORT_CLASS(aerial_robot_control::nmpc::WrenchEstITerm, aerial_robot_control::nmpc::WrenchEstBase);
 #endif  // WRENCH_EST_I_TERM_H

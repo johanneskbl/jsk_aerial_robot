@@ -129,6 +129,12 @@ target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils
         )
 add_dependencies(flight_control_pluginlib  ${PROJECT_NAME}_gencfg  ${ACADOS_PYTHON_TARGETS})
 
+### wrench estimator
+add_library(wrench_est_plugins INTERFACE)  # INTERFACE means header only
+target_link_libraries(wrench_est_plugins INTERFACE
+        ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/wrench_est/wrench_est_base.h
+        ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/wrench_est/wrench_est_i_term.h)
+
 ### flight navigation
 add_library (flight_navigation src/flight_navigation.cpp)
 target_link_libraries (flight_navigation ${catkin_LIBRARIES})

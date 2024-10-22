@@ -12,6 +12,8 @@
 #include <dynamic_reconfigure/ConfigDescription.h>
 #include <dynamic_reconfigure/ParamDescription.h>
 
+#include <pluginlib/class_list_macros.h>
+
 namespace aerial_robot_control
 {
 namespace nmpc
@@ -86,5 +88,7 @@ private:
 
 }  // namespace nmpc
 }  // namespace aerial_robot_control
+
+PLUGINLIB_EXPORT_CLASS(aerial_robot_control::nmpc::WrenchEstBase, aerial_robot_control::nmpc::WrenchEstBase);
 
 #endif  // WRENCH_EST_BASE_H
