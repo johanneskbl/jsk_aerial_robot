@@ -18,7 +18,7 @@ find_package(Eigen3 REQUIRED)
 
 
 #list(APPEND CMAKE_PREFIX_PATH "~/acados/install/cmake")
-find_package(acados) # if we use REQUIED, then will cause OpenBLAS and FortranLib Find_Package error
+find_package(acados) # if we use REQUIRED, then will cause OpenBLAS and FortranLib Find_Package error
 
 
 generate_dynamic_reconfigure_options(
@@ -28,7 +28,7 @@ generate_dynamic_reconfigure_options(
   cfg/ITerm.cfg
   )
 
-### Temporary soulition because of https://github.com/ros/ros_comm/issues/1404
+### Temporary solution because of https://github.com/ros/ros_comm/issues/1404
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(armhf)" AND $ENV{ROS_DISTRO} MATCHES "melodic")
   message(WARNING "please check https://github.com/ros/ros_comm/issues/1404")
   add_definitions (-DARM_MELODIC)
@@ -91,6 +91,14 @@ foreach(script ${ACADOS_PYTHON_SCRIPTS})
   list(APPEND ACADOS_PYTHON_TARGETS ${script_name})
 endforeach()
 
+### wrench estimator plugins
+add_library(wrench_est_pluginlib
+        src/nmpc/wrench_est/wrench_est_base.cpp
+        src/nmpc/wrench_est/wrench_est_i_term.cpp
+)
+target_link_libraries(wrench_est_pluginlib ${catkin_LIBRARIES})
+add_dependencies(wrench_est_pluginlib ${PROJECT_NAME}_gencfg)
+
 ### flight control plugin
 add_library(flight_control_pluginlib
   src/control/base/pose_linear_controller.cpp
@@ -105,12 +113,12 @@ add_library(flight_control_pluginlib
   src/nmpc/tilt_qd_no_servo_mdl/nmpc_controller.cpp
         src/nmpc/tilt_qd_servo_mdl/nmpc_controller.cpp
         src/nmpc/tilt_qd_servo_dist_mdl/nmpc_controller.cpp
-        src/nmpc/tilt_qd_servo_dist_mdl/nmpc_controller_i_term.cpp
-        src/nmpc/tilt_qd_servo_dist_mdl/nmpc_controller_ekf.cpp
-        src/nmpc/tilt_qd_servo_dist_mdl/nmpc_controller_indi.cpp
+#        src/nmpc/tilt_qd_servo_dist_mdl/nmpc_controller_i_term.cpp
+#        src/nmpc/tilt_qd_servo_dist_mdl/nmpc_controller_ekf.cpp
+#        src/nmpc/tilt_qd_servo_dist_mdl/nmpc_controller_indi.cpp
         src/nmpc/tilt_qd_servo_thrust_dist_mdl/nmpc_controller.cpp
-        src/nmpc/tilt_qd_servo_thrust_dist_mdl/nmpc_controller_i_term.cpp
-        src/nmpc/tilt_qd_servo_thrust_dist_mdl/nmpc_controller_indi.cpp
+#        src/nmpc/tilt_qd_servo_thrust_dist_mdl/nmpc_controller_i_term.cpp
+#        src/nmpc/tilt_qd_servo_thrust_dist_mdl/nmpc_controller_indi.cpp
         src/nmpc/tilt_tri_servo_mdl/nmpc_controller.cpp
         src/nmpc/tilt_bi_servo_mdl/nmpc_controller.cpp
         src/nmpc/tilt_bi_2_ord_servo_mdl/nmpc_controller.cpp
@@ -127,13 +135,7 @@ target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/tilt_bi_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_bi_servo_mdl.so
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/tilt_bi_2_ord_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_bi_2_ord_servo_mdl.so
         )
-add_dependencies(flight_control_pluginlib  ${PROJECT_NAME}_gencfg  ${ACADOS_PYTHON_TARGETS})
-
-### wrench estimator
-add_library(wrench_est_plugins INTERFACE)  # INTERFACE means header only
-target_link_libraries(wrench_est_plugins INTERFACE
-        ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/wrench_est/wrench_est_base.h
-        ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/wrench_est/wrench_est_i_term.h)
+add_dependencies(flight_control_pluginlib ${PROJECT_NAME}_gencfg ${ACADOS_PYTHON_TARGETS} wrench_est_pluginlib)
 
 ### flight navigation
 add_library (flight_navigation src/flight_navigation.cpp)
@@ -142,7 +144,7 @@ target_link_libraries (flight_navigation ${catkin_LIBRARIES})
 install(DIRECTORY include/${PROJECT_NAME}/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
 
-install(TARGETS control_utils flight_control_pluginlib flight_navigation
+install(TARGETS control_utils flight_control_pluginlib wrench_est_pluginlib flight_navigation
   DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
 
