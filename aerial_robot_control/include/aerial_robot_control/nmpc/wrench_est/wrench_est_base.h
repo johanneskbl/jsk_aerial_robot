@@ -17,6 +17,7 @@ namespace nmpc
 class WrenchEstBase
 {
 public:
+  WrenchEstBase() = default;
   virtual ~WrenchEstBase() = default;
 
   virtual void initParams(ros::NodeHandle& nh_ctrl, double ctrl_loop_du);

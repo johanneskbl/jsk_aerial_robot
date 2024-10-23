@@ -24,6 +24,7 @@ namespace nmpc
 class WrenchEstITerm : public WrenchEstBase
 {
 public:
+  WrenchEstITerm() = default;
   void initParams(ros::NodeHandle& nh_ctrl, double ctrl_loop_du) override;
 
   void update(const tf::Vector3& pos, const tf::Vector3& pos_ref, const tf::Quaternion& q,

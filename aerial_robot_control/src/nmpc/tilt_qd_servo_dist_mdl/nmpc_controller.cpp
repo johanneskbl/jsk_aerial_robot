@@ -15,6 +15,44 @@ void nmpc::TiltQdServoDistNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle n
   TiltQdServoNMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
   pub_disturb_wrench_ = nh_.advertise<geometry_msgs::WrenchStamped>("disturbance_wrench", 1);
+
+  wrench_est_loader_ptr_ = boost::shared_ptr< pluginlib::ClassLoader<aerial_robot_control::nmpc::WrenchEstBase> >(new pluginlib::ClassLoader<aerial_robot_control::nmpc::WrenchEstBase>("aerial_robot_control", "aerial_robot_control::nmpc::WrenchEstBase"));
+
+  WrenchEstBase tmp = WrenchEstBase();  // test if the WrenchEstBase is a virtual class
+
+  ROS_INFO("AAAAAAA");
+
+  ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
+
+  // print all declared classes
+  std::vector<std::string> classes = wrench_est_loader_ptr_->getDeclaredClasses();
+  for (auto c : classes)
+    ROS_INFO("class: %s", c.c_str());
+
+  try
+  {
+    // print wrench_est_loader_ptr_->getBaseClassType();
+    string base_class_type = wrench_est_loader_ptr_->getBaseClassType();
+    ROS_INFO("base class type: %s", base_class_type.c_str());
+
+    // print     wrench_est_loader_ptr_->getRegisteredLibraries();
+    std::vector<std::string> libraries = wrench_est_loader_ptr_->getRegisteredLibraries();
+    for (auto l : libraries)
+      ROS_INFO("library: %s", l.c_str());
+
+    // print
+
+    wrench_est_ptr_ = wrench_est_loader_ptr_->createInstance("wrench_est/i_term");
+  }
+  catch(pluginlib::PluginlibException& ex)
+  {
+    ROS_ERROR("The wrench_est plugin failed to load for some reason. Error: %s", ex.what());
+  }
+
+  ROS_INFO("BBBBBBB");
+
+  ros::NodeHandle control_nh(nh_, "controller");
+//  wrench_est_ptr_->initParams(control_nh, ctrl_loop_du);
 }
 
 std::vector<double> nmpc::TiltQdServoDistNMPC::meas2VecX()

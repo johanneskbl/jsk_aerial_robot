@@ -1,7 +1,4 @@
 <library path="lib/libwrench_est_pluginlib">
-    <class name="wrench_est/base" type="aerial_robot_control::nmpc::WrenchEstBase" base_class_type="aerial_robot_control::nmpc::WrenchEstBase">
-        <description>The naive function for wrench est: the estimation is always zero.</description>
-    </class>
     <class name="wrench_est/i_term" type="aerial_robot_control::nmpc::WrenchEstITerm" base_class_type="aerial_robot_control::nmpc::WrenchEstBase">
         <description>The wrench estimation based on I term.</description>
     </class>

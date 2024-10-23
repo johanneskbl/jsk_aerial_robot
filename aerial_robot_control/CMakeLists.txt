@@ -123,7 +123,7 @@ add_library(flight_control_pluginlib
         src/nmpc/tilt_bi_servo_mdl/nmpc_controller.cpp
         src/nmpc/tilt_bi_2_ord_servo_mdl/nmpc_controller.cpp
   )
-target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils acados
+target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils acados wrench_est_pluginlib
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/fix_qd_angvel_out_mdl/c_generated_code/libacados_ocp_solver_fix_qd_angvel_out_mdl.so
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/fix_qd_thrust_out_mdl/c_generated_code/libacados_ocp_solver_fix_qd_thrust_out_mdl.so
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/tilt_qd_no_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_no_servo_mdl.so
