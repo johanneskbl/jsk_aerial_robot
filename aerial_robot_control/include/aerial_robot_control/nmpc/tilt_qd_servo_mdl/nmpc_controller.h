@@ -8,6 +8,8 @@
 #include "aerial_robot_control/nmpc/base_mpc_controller.h"
 #include "aerial_robot_control/nmpc/tilt_qd_servo_mdl/nmpc_solver.h"
 
+#include "aerial_robot_control/nmpc_manager.h"
+
 #include <angles/angles.h>
 #include <tf_conversions/tf_eigen.h>
 
@@ -17,22 +19,11 @@
 #include <dynamic_reconfigure/server.h>
 
 /* protocol */
-#include "trajectory_msgs/MultiDOFJointTrajectory.h"
-#include "trajectory_msgs/MultiDOFJointTrajectoryPoint.h"
 #include "geometry_msgs/PoseArray.h"
 #include "aerial_robot_msgs/PredXU.h"
 #include "spinal/FourAxisCommand.h"
 #include "spinal/SetControlMode.h"
 #include "spinal/FlightConfigCmd.h"
-#include "spinal/DesireCoord.h"
-
-/* action */
-#include "actionlib/server/simple_action_server.h"
-#include "aerial_robot_msgs/PredXU.h"
-#include "aerial_robot_msgs/TrackTrajAction.h"
-#include "aerial_robot_msgs/TrackTrajFeedback.h"
-#include "aerial_robot_msgs/TrackTrajGoal.h"
-#include "aerial_robot_msgs/TrackTrajResult.h"
 
 using NMPCControlDynamicConfig = dynamic_reconfigure::Server<aerial_robot_control::NMPCConfig>;
 
@@ -67,9 +58,6 @@ protected:
   std::vector<boost::shared_ptr<NMPCControlDynamicConfig>> nmpc_reconf_servers_;
 
   ros::Subscriber sub_joint_states_;
-  ros::Subscriber sub_set_rpy_;
-  ros::Subscriber sub_set_ref_x_u_;
-  ros::Subscriber sub_set_traj_;
 
   bool is_attitude_ctrl_;
   bool is_body_rate_ctrl_;
@@ -87,10 +75,7 @@ protected:
   std::vector<double> joint_angles_;
 
   Eigen::MatrixXd alloc_mat_;
-  Eigen::MatrixXd alloc_mat_pinv_;
-
-  bool is_traj_tracking_ = false;  // TODO: tmp value. should be combined with inner traj. tracking in the future
-  ros::Time receive_time_;         // tmp value. should be combined with inner traj. tracking in the future
+  Eigen::MatrixXd alloc_mat_pinv_;  // TODO: should be removed
 
   aerial_robot_msgs::PredXU x_u_ref_;
   spinal::FourAxisCommand flight_cmd_;
@@ -111,21 +96,11 @@ protected:
   void sendCmd() override;
 
   // controlCore()
-  void prepareNMPCRef();
   virtual void prepareNMPCParams();
-  void setXrUrRef(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i, const tf::Vector3& ref_acc_i,
-                  const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b, const tf::Vector3& ref_ang_acc_b,
-                  const int& horizon_idx);
-  virtual void allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
-                            const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b,
-                            const VectorXd& ref_wrench_b, vector<double>& x, vector<double>& u) const;
 
   /* callback functions */
   void callbackViz(const ros::TimerEvent& event) override;
   virtual void callbackJointStates(const sensor_msgs::JointStateConstPtr& msg);
-  void callbackSetRPY(const spinal::DesireCoordConstPtr& msg);
-  void callbackSetRefXU(const aerial_robot_msgs::PredXUConstPtr& msg) override;
-  void callbackSetRefTraj(const trajectory_msgs::MultiDOFJointTrajectoryConstPtr& msg);
   virtual void cfgNMPCCallback(NMPCConfig& config, uint32_t level);
 
   /* utils */

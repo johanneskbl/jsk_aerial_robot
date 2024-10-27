@@ -63,7 +63,15 @@ void nmpc::TiltQdServoDistNMPC::calcDisturbWrench()
   /* get the target state */
   tf::Vector3 target_pos;
   tf::Quaternion target_q;
-  if (is_traj_tracking_)
+
+  auto manager = boost::dynamic_pointer_cast<aerial_robot_navigation::NMPCManager>(navigator_);
+  if (manager == nullptr)
+  {  // TODO: add the support for the base navigator
+    ROS_ERROR("navigator_ is not NMPCManager. Currently, the trajectory tracking mode is only supported for NMPC.");
+    return;
+  }
+
+  if (manager -> getTrajectoryMode())
   {
     target_pos.setX(x_u_ref_.x.data.at(0));
     target_pos.setY(x_u_ref_.x.data.at(1));
