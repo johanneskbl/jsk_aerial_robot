@@ -96,6 +96,7 @@ protected:
   tf::Vector3 filtered_omega_cog_in_cog_;      // cog point, cog frame
   tf::Vector3 filtered_acc_cog_in_cog_;        // cog point, cog frame, align with Imu Raw data
   IirFilter lpf_omega_;                        // for gyro
+  IirFilter lpf_acc_;                          // for acc
 
   ros::Publisher omega_filter_pub_;  // debug
 };

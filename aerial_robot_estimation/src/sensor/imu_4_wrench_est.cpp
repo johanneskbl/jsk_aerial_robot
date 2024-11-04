@@ -24,6 +24,8 @@ void Imu4WrenchEst::initialize(ros::NodeHandle nh,
   getParam<double>("sample_freq", sample_freq, 200.0);
   lpf_omega_ = IirFilter(sample_freq, cutoff_freq, 3);
 
+  lpf_acc_ = IirFilter(sample_freq, cutoff_freq, 3);
+
   // debug
   omega_filter_pub_ = indexed_nhp_.advertise<geometry_msgs::Vector3Stamped>(string("filter_angular_velocity"), 1);
 
@@ -55,6 +57,7 @@ void Imu4WrenchEst::ImuCallback(const spinal::ImuConstPtr& imu_msg)
   if(first_flag)
   {
     lpf_omega_.setInitValues(omega_);
+    lpf_acc_.setInitValues(acc_b_);
     first_flag = false;
   }
   filtered_omega = lpf_omega_.filterFunction(omega_);
@@ -72,7 +75,7 @@ void Imu4WrenchEst::ImuCallback(const spinal::ImuConstPtr& imu_msg)
                        estimator_->getOrientation(Frame::BASELINK, estimate_mode) *
                            (filtered_omega.cross(cog2baselink_tf.inverse().getOrigin())));
 
-  setFilteredAccCogInCog(cog2baselink_tf.getBasis() * acc_b_);
+  setFilteredAccCogInCog(cog2baselink_tf.getBasis() * lpf_acc_.filterFunction(acc_b_));
 
   estimateProcess();
   updateHealthStamp();
