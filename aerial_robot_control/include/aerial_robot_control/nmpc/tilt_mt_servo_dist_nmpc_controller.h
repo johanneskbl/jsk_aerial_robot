@@ -36,6 +36,8 @@ protected:
   geometry_msgs::Vector3 dist_force_w_ = geometry_msgs::Vector3();
   geometry_msgs::Vector3 dist_torque_cog_ = geometry_msgs::Vector3();
 
+  bool if_use_indi_;
+
   void initPlugins() override;
 
   std::vector<double> meas2VecX() override;

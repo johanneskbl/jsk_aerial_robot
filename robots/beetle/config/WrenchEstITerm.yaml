@@ -2,6 +2,7 @@ wrench_estimator_name: aerial_robot_control::WrenchEstITerm
 
 controller:
   if_use_est_wrench_4_control: true
+  if_use_indi: false
 
   i_term:
     # disturb_rej
