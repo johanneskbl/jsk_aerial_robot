@@ -6,6 +6,7 @@
 #define AERIAL_ROBOT_CONTROL_WRENCH_EST_ACCELERATION_H
 
 #include "aerial_robot_control/wrench_est/wrench_est_actuator_meas_base.h"
+#include "aerial_robot_estimation/sensor/imu_4_wrench_est.h"
 
 namespace aerial_robot_control
 {
@@ -33,6 +34,8 @@ public:
 
     est_external_force_ = Eigen::VectorXd::Zero(3);
     est_external_torque_ = Eigen::VectorXd::Zero(3);
+
+    est_wrench_cog_unfiltered_ = Eigen::VectorXd::Zero(6);
   }
 
   void update(const tf::Vector3& pos_ref, const tf::Quaternion& q_ref, const tf::Vector3& pos,
@@ -86,6 +89,15 @@ public:
                            torque_acc_alpha_matrix_ * external_torque_now;
 
     setDistTorqueCOG(est_external_torque_(0), est_external_torque_(1), est_external_torque_(2));
+
+    // for INDI
+    est_wrench_cog_unfiltered_.head(3) = mass * specific_force_cog - target_force_cog;
+    est_wrench_cog_unfiltered_.tail(3) = torque_imu_cog_ - target_torque_cog;
+  }
+
+  Eigen::VectorXd getEstWrenchCogUnfiltered() const
+  {
+    return est_wrench_cog_unfiltered_;
   }
 
 private:
@@ -95,6 +107,9 @@ private:
 
   Eigen::MatrixXd torque_acc_alpha_matrix_;
   Eigen::VectorXd est_external_torque_;
+
+  // for INDI
+  Eigen::VectorXd est_wrench_cog_unfiltered_;
 };
 
 };  // namespace aerial_robot_control

@@ -1,2 +1,2 @@
 controller:
-  if_use_indi: false
+  if_use_indi: true

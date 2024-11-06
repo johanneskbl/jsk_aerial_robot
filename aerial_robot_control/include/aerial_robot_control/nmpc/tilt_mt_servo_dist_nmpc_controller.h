@@ -8,6 +8,7 @@
 #include "aerial_robot_control/nmpc/tilt_mt_servo_nmpc_controller.h"
 #include "aerial_robot_control/nmpc/tilt_qd_servo_dist_mdl/nmpc_solver.h"
 #include "aerial_robot_control/wrench_est/wrench_est_base.h"
+#include "aerial_robot_control/wrench_est/wrench_est_acceleration.h"
 
 #include "geometry_msgs/WrenchStamped.h"
 
@@ -43,6 +44,8 @@ protected:
   std::vector<double> meas2VecX() override;
 
   virtual void calcDisturbWrench();
+
+  void sendCmd() override;
 
   void callbackViz(const ros::TimerEvent& event) override;
 

@@ -107,6 +107,67 @@ void nmpc::TiltMtServoDistNMPC::calcDisturbWrench()
   dist_torque_cog_ = wrench_est_ptr_->getDistTorqueCOG();
 }
 
+void nmpc::TiltMtServoDistNMPC::sendCmd()
+{
+  /* get result */
+  // - thrust
+  for (int i = 0; i < motor_num_; i++)
+  {
+    flight_cmd_.base_thrust[i] = (float)getCommand(i);
+  }
+
+  // - servo angle
+  gimbal_ctrl_cmd_.header.stamp = ros::Time::now();
+  gimbal_ctrl_cmd_.name.clear();
+  gimbal_ctrl_cmd_.position.clear();
+  for (int i = 0; i < joint_num_; i++)
+  {
+    gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
+    gimbal_ctrl_cmd_.position.push_back(getCommand(motor_num_ + i));
+  }
+
+  // INDI
+  if (if_use_indi_)
+  {
+    auto wrench_est_acc = boost::dynamic_pointer_cast<aerial_robot_control::WrenchEstAcceleration>(wrench_est_ptr_);
+    if (wrench_est_acc)
+    {
+      Eigen::VectorXd est_wrench_cog = wrench_est_acc->getEstWrenchCogUnfiltered();
+
+      Eigen::VectorXd d_z = alloc_mat_pinv_ * (-est_wrench_cog);
+
+      ROS_INFO("d_z: %f, %f, %f, %f, %f, %f, %f, %f", d_z(0), d_z(1), d_z(2), d_z(3), d_z(4), d_z(5), d_z(6), d_z(7));
+
+      Eigen::VectorXd z_mpc = Eigen::VectorXd::Zero(2 * robot_model_->getRotorNum());
+      for (int i = 0; i < robot_model_->getRotorNum(); i++)
+      {
+        z_mpc(2 * i) = flight_cmd_.base_thrust[i] * sin(gimbal_ctrl_cmd_.position[i]);
+        z_mpc(2 * i + 1) = flight_cmd_.base_thrust[i] * cos(gimbal_ctrl_cmd_.position[i]);
+      }
+
+      Eigen::VectorXd z = z_mpc + d_z;
+
+      flight_cmd_.base_thrust[0] = (float)sqrt(z(0) * z(0) + z(1) * z(1));
+      gimbal_ctrl_cmd_.position[0] = atan2(z(0), z(1));
+
+      flight_cmd_.base_thrust[1] = (float)sqrt(z(2) * z(2) + z(3) * z(3));
+      gimbal_ctrl_cmd_.position[1] = atan2(z(2), z(3));
+
+      flight_cmd_.base_thrust[2] = (float)sqrt(z(4) * z(4) + z(5) * z(5));
+      gimbal_ctrl_cmd_.position[2] = atan2(z(4), z(5));
+
+      flight_cmd_.base_thrust[3] = (float)sqrt(z(6) * z(6) + z(7) * z(7));
+      gimbal_ctrl_cmd_.position[3] = atan2(z(6), z(7));
+    }
+  }
+
+  /* publish */
+  if (motor_num_ > 0)
+    pub_flight_cmd_.publish(flight_cmd_);
+  if (joint_num_ > 0)
+    pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
+}
+
 /**
  * @brief callbackViz: publish the predicted trajectory and reference trajectory
  * @param [ros::TimerEvent&] event
