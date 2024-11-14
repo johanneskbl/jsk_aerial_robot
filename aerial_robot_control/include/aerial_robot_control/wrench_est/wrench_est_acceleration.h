@@ -6,6 +6,7 @@
 #define AERIAL_ROBOT_CONTROL_WRENCH_EST_ACCELERATION_H
 
 #include "aerial_robot_control/wrench_est/wrench_est_actuator_meas_base.h"
+#include "spinal/FourAxisCommand.h"
 
 namespace aerial_robot_control
 {
@@ -99,6 +100,32 @@ public:
         torque_acc_alpha_matrix_ * external_torque_cog;
 
     setDistTorqueCOG(est_ext_torque_cog_filtered_(0), est_ext_torque_cog_filtered_(1), est_ext_torque_cog_filtered_(2));
+  }
+
+  void updateINDI(spinal::FourAxisCommand& flight_cmd, sensor_msgs::JointState& gimbal_ctrl_cmd)  // TODO： separate it
+  {
+    Eigen::VectorXd external_wrench_cog = calDistWrench();
+
+    Eigen::VectorXd dist_wrench_res_cog = Eigen::VectorXd::Zero(6);
+    dist_wrench_res_cog.head(3) = external_wrench_cog.head(3) - est_ext_force_cog_filtered_;
+    dist_wrench_res_cog.tail(3) = external_wrench_cog.tail(3) - est_ext_torque_cog_filtered_;
+
+    Eigen::VectorXd d_z = alloc_mat_pinv_ * (-dist_wrench_res_cog);
+
+    Eigen::VectorXd z_mpc = Eigen::VectorXd::Zero(2 * robot_model_->getRotorNum());
+    for (int i = 0; i < robot_model_->getRotorNum(); i++)
+    {
+      z_mpc(2 * i) = flight_cmd.base_thrust[i] * sin(gimbal_ctrl_cmd.position[i]);
+      z_mpc(2 * i + 1) = flight_cmd.base_thrust[i] * cos(gimbal_ctrl_cmd.position[i]);
+    }
+
+    Eigen::VectorXd z = z_mpc + d_z;
+
+    for (int i = 0; i < robot_model_->getRotorNum(); i++)
+    {
+      flight_cmd.base_thrust[i] = (float)sqrt(z(2 * i) * z(2 * i) + z(2 * i + 1) * z(2 * i + 1));
+      gimbal_ctrl_cmd.position[i] = atan2(z(2 * i), z(2 * i + 1));
+    }
   }
 
 private:
