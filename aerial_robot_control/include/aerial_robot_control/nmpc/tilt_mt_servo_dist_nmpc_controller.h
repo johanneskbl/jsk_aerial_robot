@@ -9,6 +9,7 @@
 #include "aerial_robot_control/nmpc/tilt_qd_servo_dist_mdl/nmpc_solver.h"
 #include "aerial_robot_control/wrench_est/wrench_est_actuator_meas_base.h"
 #include "aerial_robot_control/wrench_est/wrench_est_i_term.h"
+#include "aerial_robot_control/wrench_est/wrench_est_acceleration.h"
 
 #include "geometry_msgs/WrenchStamped.h"
 
@@ -30,6 +31,8 @@ public:
 
   void reset() override;
 
+  void controlCore() override;
+
   aerial_robot_control::WrenchEstITerm wrench_est_i_term_;  // I term is indispensable to eliminate steady error.
 
   boost::shared_ptr<pluginlib::ClassLoader<aerial_robot_control::WrenchEstActuatorMeasBase>> wrench_est_loader_ptr_;
@@ -37,6 +40,7 @@ public:
 
 protected:
   bool if_use_est_wrench_4_control_;
+  bool if_use_indi_;
   ros::Publisher pub_disturb_wrench_;  // for disturbance wrench
   geometry_msgs::Vector3 dist_force_w_;
   geometry_msgs::Vector3 dist_torque_cog_;

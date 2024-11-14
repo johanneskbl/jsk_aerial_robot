@@ -16,6 +16,7 @@ void nmpc::TiltMtServoDistNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle n
 
   ros::NodeHandle control_nh(nh_, "controller");
   getParam<bool>(control_nh, "if_use_est_wrench_4_control", if_use_est_wrench_4_control_, false);
+  getParam<bool>(control_nh, "if_use_indi", if_use_indi_, false);
 
   pub_disturb_wrench_ = nh_.advertise<geometry_msgs::WrenchStamped>("disturbance_wrench", 1);
 }
@@ -31,6 +32,22 @@ void nmpc::TiltMtServoDistNMPC::reset()
 
   dist_force_w_ = geometry_msgs::Vector3();
   dist_torque_cog_ = geometry_msgs::Vector3();
+}
+
+void nmpc::TiltMtServoDistNMPC::controlCore()
+{
+  TiltMtServoNMPC::controlCore();
+
+  if (!if_use_indi_)
+    return;
+
+  if (navigator_->getNaviState() != aerial_robot_navigation::HOVER_STATE)
+    return;
+
+  // TODO: extend to other wrench est methods
+  auto wrench_est_acc_ptr = boost::dynamic_pointer_cast<aerial_robot_control::WrenchEstAcceleration>(wrench_est_ptr_);
+  if (wrench_est_acc_ptr)
+    wrench_est_acc_ptr->updateINDI(flight_cmd_, gimbal_ctrl_cmd_);
 }
 
 void nmpc::TiltMtServoDistNMPC::initPlugins()
