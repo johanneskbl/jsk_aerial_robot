@@ -18,6 +18,9 @@ void nmpc::TiltMtServoDistNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle n
   getParam<bool>(control_nh, "if_use_est_wrench_4_control", if_use_est_wrench_4_control_, false);
   getParam<bool>(control_nh, "if_use_indi", if_use_indi_, false);
 
+  if (if_use_indi_)
+    tmr_indi_ = nh_.createTimer(ros::Duration(0.005), &TiltMtServoDistNMPC::callbackINDI, this);
+
   pub_disturb_wrench_ = nh_.advertise<geometry_msgs::WrenchStamped>("disturbance_wrench", 1);
 }
 
@@ -34,20 +37,31 @@ void nmpc::TiltMtServoDistNMPC::reset()
   dist_torque_cog_ = geometry_msgs::Vector3();
 }
 
-void nmpc::TiltMtServoDistNMPC::controlCore()
+void nmpc::TiltMtServoDistNMPC::sendCmd()
 {
-  TiltMtServoNMPC::controlCore();
+  if (if_use_indi_ && navigator_->getNaviState() == aerial_robot_navigation::HOVER_STATE)
+    return;  // use INDI as the lower layer to send command
 
-  if (!if_use_indi_)
-    return;
+  TiltMtServoNMPC::sendCmd();
+}
 
+void nmpc::TiltMtServoDistNMPC::callbackINDI(const ros::TimerEvent& event)
+{
   if (navigator_->getNaviState() != aerial_robot_navigation::HOVER_STATE)
     return;
 
+  spinal::FourAxisCommand flight_cmd_new;
+  sensor_msgs::JointState gimbal_ctrl_cmd_new;
   // TODO: extend to other wrench est methods
   auto wrench_est_acc_ptr = boost::dynamic_pointer_cast<aerial_robot_control::WrenchEstAcceleration>(wrench_est_ptr_);
   if (wrench_est_acc_ptr)
-    wrench_est_acc_ptr->updateINDI(flight_cmd_, gimbal_ctrl_cmd_);
+    wrench_est_acc_ptr->updateINDI(flight_cmd_, gimbal_ctrl_cmd_, flight_cmd_new, gimbal_ctrl_cmd_new);
+
+  /* publish */
+  if (motor_num_ > 0)
+    pub_flight_cmd_.publish(flight_cmd_new);
+  if (joint_num_ > 0)
+    pub_gimbal_control_.publish(gimbal_ctrl_cmd_new);
 }
 
 void nmpc::TiltMtServoDistNMPC::initPlugins()

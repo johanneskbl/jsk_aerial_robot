@@ -31,7 +31,7 @@ public:
 
   void reset() override;
 
-  void controlCore() override;
+  void sendCmd() override;
 
   aerial_robot_control::WrenchEstITerm wrench_est_i_term_;  // I term is indispensable to eliminate steady error.
 
@@ -40,10 +40,13 @@ public:
 
 protected:
   bool if_use_est_wrench_4_control_;
-  bool if_use_indi_;
   ros::Publisher pub_disturb_wrench_;  // for disturbance wrench
   geometry_msgs::Vector3 dist_force_w_;
   geometry_msgs::Vector3 dist_torque_cog_;
+
+  /* INDI */
+  bool if_use_indi_;
+  ros::Timer tmr_indi_;
 
   void initPlugins() override;
 
@@ -52,6 +55,8 @@ protected:
   virtual void calcDisturbWrench();
 
   void initAllocMat() override;
+
+  void callbackINDI(const ros::TimerEvent& event);
 };
 
 }  // namespace nmpc

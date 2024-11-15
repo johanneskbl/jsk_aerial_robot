@@ -102,7 +102,8 @@ public:
     setDistTorqueCOG(est_ext_torque_cog_filtered_(0), est_ext_torque_cog_filtered_(1), est_ext_torque_cog_filtered_(2));
   }
 
-  void updateINDI(spinal::FourAxisCommand& flight_cmd, sensor_msgs::JointState& gimbal_ctrl_cmd)  // TODO： separate it
+  void updateINDI(spinal::FourAxisCommand& flight_cmd_old, sensor_msgs::JointState& gimbal_ctrl_cmd_old,
+                  spinal::FourAxisCommand& flight_cmd_new, sensor_msgs::JointState& gimbal_ctrl_cmd_new)  // TODO： separate it
   {
     Eigen::VectorXd external_wrench_cog = calDistWrench();
 
@@ -115,16 +116,19 @@ public:
     Eigen::VectorXd z_mpc = Eigen::VectorXd::Zero(2 * robot_model_->getRotorNum());
     for (int i = 0; i < robot_model_->getRotorNum(); i++)
     {
-      z_mpc(2 * i) = flight_cmd.base_thrust[i] * sin(gimbal_ctrl_cmd.position[i]);
-      z_mpc(2 * i + 1) = flight_cmd.base_thrust[i] * cos(gimbal_ctrl_cmd.position[i]);
+      z_mpc(2 * i) = flight_cmd_old.base_thrust[i] * sin(gimbal_ctrl_cmd_old.position[i]);
+      z_mpc(2 * i + 1) = flight_cmd_old.base_thrust[i] * cos(gimbal_ctrl_cmd_old.position[i]);
     }
 
     Eigen::VectorXd z = z_mpc + d_z;
 
+    flight_cmd_new = flight_cmd_old;
+    gimbal_ctrl_cmd_new = gimbal_ctrl_cmd_old;
+
     for (int i = 0; i < robot_model_->getRotorNum(); i++)
     {
-      flight_cmd.base_thrust[i] = (float)sqrt(z(2 * i) * z(2 * i) + z(2 * i + 1) * z(2 * i + 1));
-      gimbal_ctrl_cmd.position[i] = atan2(z(2 * i), z(2 * i + 1));
+      flight_cmd_new.base_thrust[i] = (float)sqrt(z(2 * i) * z(2 * i) + z(2 * i + 1) * z(2 * i + 1));
+      gimbal_ctrl_cmd_new.position[i] = atan2(z(2 * i), z(2 * i + 1));
     }
   }
 
