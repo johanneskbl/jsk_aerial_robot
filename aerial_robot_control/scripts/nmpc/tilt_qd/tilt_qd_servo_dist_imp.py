@@ -223,8 +223,16 @@ class NMPCTiltQdServoImpedance(NMPCBase):
         o_mtx_imp_inv[1, 1] = 1 / mqy
         o_mtx_imp_inv[2, 2] = 1 / mqz
 
+        f_d_i_norm = ca.norm_2(f_d_i)
+        tau_d_b_norm = ca.norm_2(tau_d_b)
+
+        f_sigmoid_factor = 1 / (1 + np.exp(-nmpc_params["sigmoid_k_f"] * (f_d_i_norm - nmpc_params["sigmoid_x0_f"])))
+        tau_sigmoid_factor = 1 / (
+                1 + np.exp(-nmpc_params["sigmoid_k_tau"] * (tau_d_b_norm - nmpc_params["sigmoid_x0_tau"])))
+
         state_y = ca.vertcat(p, v, qwr, qe_x + qxr, qe_y + qyr, qe_z + qzr, w, a,
-                             lin_a_i - ca.mtimes(p_mtx_imp_inv, f_d_i), ang_a_b - ca.mtimes(o_mtx_imp_inv, tau_d_b))
+                             lin_a_i * f_sigmoid_factor - ca.mtimes(p_mtx_imp_inv, f_d_i),
+                             ang_a_b * tau_sigmoid_factor - ca.mtimes(o_mtx_imp_inv, tau_d_b))
         state_y_e = ca.vertcat(p, v, qwr, qe_x + qxr, qe_y + qyr, qe_z + qzr, w, a,
                                ca.vertcat(0, 0, 0), ca.vertcat(0, 0, 0))  # acc = 0 for infinite horizon
         control_y = ca.vertcat(ft, (ac - a))  # ac_ref must be zero!

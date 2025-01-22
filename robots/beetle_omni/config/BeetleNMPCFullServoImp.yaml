@@ -39,6 +39,12 @@ controller:
     Qq_xy: 6  # oKxy
     Qq_z: 6  # oKz
 
+    # threshold function
+    sigmoid_k_f: 20
+    sigmoid_x0_f: 0.5  # N
+    sigmoid_k_tau: 20
+    sigmoid_x0_tau: 0.5  # N m
+
     # actuators
     Qa: 2
     Rt: 2
