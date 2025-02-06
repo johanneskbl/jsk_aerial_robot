@@ -15,17 +15,24 @@ Then, follow the instructions below:
 - Install Python interface: Please follow the instructions on the acados website https://docs.acados.org/python_interface/index.html, but don't create virtual env in step 2. The virtual env has compatibility problem with ROS env.
 - **Pay attention** that you must execute the step 5 in https://docs.acados.org/python_interface/index.html to test the installation. This step should automatically install t_renderer. If something wrong, please follow step 6 to manually install t_renderer.
 
-### 2. Install the ros related packages ...
+### 2. Install the code base and the necessary ROS related packages ...
 
-### 2.1 ... for Ubuntu 20.04 and ROS Noetic
+Setup the folder architecture and clone the repo **with the specific branch**:
 
 ```bash
-source /opt/ros/noetic/setup.bash
 mkdir -p ~/path_to_ws/src
 cd ~/path_to_ws/src
+git clone https://github.com/johanneskbl/jsk_aerial_robot.git -b develop/MPC_tilt_mt    # pay attention for the branch flag
 ```
-We use rosdep to manage the dependencies. So, 
-if you have never done this in your computer before, do the following:
+
+### 2.1 ... for Ubuntu 20.04 and ROS Noetic
+Install ROS Noetic for Ubuntu 20.04 and source the workspace:
+
+```bash
+source /opt/ros/one/setup.bash
+```
+
+We use rosdep to manage the dependencies. So, if you have never done this in your computer before, do the following:
 
 ```bash
 sudo rosdep init
@@ -33,29 +40,20 @@ rosdep update
 ```
 
 Then, do the following:
-
 ```bash
+cd ~/path_to_ws
 wstool init src
-git clone https://github.com/johanneskbl/jsk_aerial_robot.git -b develop/MPC_tilt_mt  # -b means the branch
-wstool merge -t src src/jsk_aerial_robot_dev/aerial_robot_noetic.rosinstall
-wstool update -t src  # install those unofficial packages
-rosdep install -y -r --from-paths src --ignore-src --rosdistro noetic # install the dependencies, aka the packages in the package.xml
+wstool merge -t src src/jsk_aerial_robot/aerial_robot_noetic.rosinstall
+wstool update -t src    # install unofficial packages
+rosdep install -y -r --from-paths src --ignore-src --rosdistro noetic   # install the dependencies/packages stated in package.xml
 ```
 
 ### 2.2 ... for Ubuntu 22.04 and ROS-O
+Install ROS-O for ubuntu 22.04:
 
 ```bash
-mkdir -p ~/path_to_ws/src
-cd ~/path_to_ws/src
-git clone https://github.com/johanneskbl/jsk_aerial_robot.git -b develop/MPC_tilt_mt  # -b means the branch
-```
-
-Please install ROS-O for ubuntu 22.04:
-
-```bash
-./jsk_aerial_robot_dev/configure.sh # for configuration especially for ros-o in jammy
+./jsk_aerial_robot/configure.sh   # for configuration especially for ROS-O in jammy
 source /opt/ros/one/setup.bash
-cd ..
 ```
 
 We use rosdep to manage the dependencies. So, if you have never done this in your computer before, do the following:
@@ -68,10 +66,11 @@ rosdep update
 Then, do the following:
 
 ```bash
+cd ~/path_to_ws
 wstool init src
-wstool merge -t src src/jsk_aerial_robot_dev/aerial_robot_${ROS_DISTRO}.rosinstall
-wstool update -t src
-rosdep install -y -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO
+wstool merge -t src src/jsk_aerial_robot/aerial_robot_${ROS_DISTRO}.rosinstall
+wstool update -t src    # install unofficial packages
+rosdep install -y -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO      # install the dependencies/packages stated in package.xml
 ```
 
 ### 3. For the first run, uncomment these code in `aerial_robot_control/CMakeLists.txt`
