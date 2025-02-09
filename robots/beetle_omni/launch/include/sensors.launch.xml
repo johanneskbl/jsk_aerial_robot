@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="real_machine" default="false" />
-  <arg name="simulation" default="false" />
+  <arg name="real_machine" default="False" />
+  <arg name="simulation" default="False" />
   <arg name="robot_ns" default="gimbalrotor" />
   <arg name="robot_id" default="1" />
   <group ns="$(arg robot_ns)">

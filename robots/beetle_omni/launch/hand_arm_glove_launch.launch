@@ -1,7 +1,7 @@
 <launch>
   <!-- Define arguments -->
-  <arg name="enable_arm" default="false"/>
-  <arg name="enable_glove" default="false"/>
+  <arg name="enable_arm" default="False"/>
+  <arg name="enable_glove" default="False"/>
   <arg name="robot_id_hand" default="5"/>
   <arg name="robot_id_arm" default="6"/>
   <arg name="port" default="9400"/>
