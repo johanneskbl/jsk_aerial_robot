@@ -482,9 +482,9 @@ namespace sensor_plugin
 
   time_t Gps::mkgmtime(struct tm * const tmp)
   {
-    register int            dir;
-    register int            bits;
-    register int            saved_seconds;
+    int                 dir;                // Removed "register" keyword to avoid warnings while building since it is deprecated
+    int                 bits;               // Removed "register" keyword to avoid warnings while building since it is deprecated
+    int                 saved_seconds;      // Removed "register" keyword to avoid warnings while building since it is deprecated
     time_t              t;
     struct tm           yourtm, *mytm;
 
@@ -531,9 +531,9 @@ namespace sensor_plugin
     return t;
   }
 
-  int Gps::tmcomp(register const struct tm * const  atmp, register const struct tm * const btmp)
+  int Gps::tmcomp(const struct tm * const  atmp, const struct tm * const btmp)  // Removed "register" keyword to avoid warnings while building since it is deprecated
   {
-    register int    result;
+    int    result;  // Removed "register" keyword to avoid warnings while building since it is deprecated
 
     if ((result = (atmp->tm_year - btmp->tm_year)) == 0 &&
         (result = (atmp->tm_mon - btmp->tm_mon)) == 0 &&
