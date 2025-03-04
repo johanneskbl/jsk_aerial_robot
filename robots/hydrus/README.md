@@ -39,15 +39,15 @@ $ roslaunch hydrus bringup.launch control_mode:=0 estimate_mode:=1 type:=${model
 ### simulation
 -  flight control in gazebo:
 ```
-$ roslaunch hydrus bringup.launch real_machine:=false simulation:=true headless:=false control_mode:=0 type:=${model}
+$ roslaunch hydrus bringup.launch real_machine:=false simulation:=true gui:=true control_mode:=0 type:=${model}
 ```
 - only check kinematics
 ```
-$ roslaunch hydrus bringup.launch real_machine:=false simulation:=false headless:=false type:=${model}
+$ roslaunch hydrus bringup.launch real_machine:=false simulation:=false gui:=true type:=${model}
 ```
 - egomotion estimation debug
 ```
-$ roslaunch hydrus bringup.launch real_machine:=true simulation:=true headless:=false type:=${model}
+$ roslaunch hydrus bringup.launch real_machine:=true simulation:=true gui:=true type:=${model}
 ```
 
 ## 2. tele-operation

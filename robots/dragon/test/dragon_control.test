@@ -1,5 +1,5 @@
 <launch>
-  <arg name="headless" default="False"/>
+  <arg name="gui" default="true"/>
   <arg name="robot_id" default=""/>
   <arg name="robot_ns" value="dragon$(arg robot_id)"/>
   <arg name="full_vectoring_mode"  default= "false" />
@@ -9,7 +9,7 @@
     <arg name="simulation" value="True" />
     <arg name="robot_id" value="$(arg robot_id)"/>
     <arg name="full_vectoring_mode"  value= "$(arg full_vectoring_mode)" />
-    <arg name="headless" value="$(arg headless)" />
+    <arg name="gui" value="$(arg gui)" />
   </include>
 
   <!-- test codes -->

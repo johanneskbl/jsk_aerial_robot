@@ -16,7 +16,7 @@
          
      **note**: please check the servo angles before takeoff. use  `$ rostopic echo -c /servo/states` to check whether any angle exceeds the normal value (e.g. 5 -> 4095).
 
-   - **simulation**: ``` $ roslaunch dragon bringup.launch real_machine:=false simulation:=true headless:=false ```
+   - **simulation**: ``` $ roslaunch dragon bringup.launch real_machine:=false simulation:=true gui:=true ```
 
 ## 2. tele-operation
    **note**: after the robot completely transforms to normal form

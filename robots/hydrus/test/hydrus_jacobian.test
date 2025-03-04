@@ -1,16 +1,13 @@
 <launch>
-  <arg name="headless" default="False"/>
+  <arg name="gui" default="True"/>
   <arg name="rostest" default="True"/>
   <arg name="robot_ns" default="hydrus"/>
   <arg name="onboards_model" default="old_model_tx2_zed_201810" />
 
   <include file="$(find aerial_robot_model)/launch/aerial_robot_model.launch" >
     <arg name="robot_ns" value="$(arg robot_ns)" />
-    <arg name="headless" value="$(arg headless)" />
-    <arg name="need_joint_state" value="$(eval not rostest)"/>
     <arg name="robot_model" value="$(find hydrus)/robots/quad/$(arg onboards_model)/robot.urdf.xacro" />
-    <arg name="rviz_config" value="$(find hydrus)/config/rviz_config" />
-    <arg name="rviz_init_pose" value="$(find hydrus)/config/quad/RvizInit.yaml" />
+    <arg name="need_joint_state" value="$(eval not rostest)"/>
   </include >
 
 

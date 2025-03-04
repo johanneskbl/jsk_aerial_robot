@@ -4,7 +4,7 @@
 
 In one terminal, run
 
-`roslaunch mini_quadrotor bringup.launch real_machine:=false simulation:=True headless:=False`
+`roslaunch mini_quadrotor bringup.launch real_machine:=false simulation:=True gui:=True`
 
 In another terminal, run
 
@@ -20,7 +20,7 @@ First, please follow the instruction in [here](https://docs.acados.org/installat
 
 Then, in one terminal, run
 
-`roslaunch mini_quadrotor bringup_nmpc.launch real_machine:=false simulation:=True headless:=False`
+`roslaunch mini_quadrotor bringup_nmpc.launch real_machine:=false simulation:=True gui:=True`
 
 In another terminal, run
 

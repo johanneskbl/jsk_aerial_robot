@@ -1,32 +1,27 @@
+<?xml version="1.0"?>
+<!-- Local launch file to start up robot model -->
 <launch>
-  <arg name="headless" default="false" />
-  <arg name="need_joint_state" default="true"/>
-  <arg name="model_options" default=""/>
-  <arg name="robot_model" />
-  <arg name="robot_ns" />
-  <arg name="rviz_init_pose" />
-  <arg name="rviz_config" />
-
+  <arg name="robot_ns"/>                          <!-- Namespace for the robot -->
+  <arg name="robot_model"/>                       <!-- URDF/Gazebo file of the separate definition of the robot parts -->
+  <arg name="model_options" default=""/>          <!-- Options for model as command arg flags -->
+  <arg name="need_joint_state" default="true"/>   <!-- Flag to enable joint state publishing (if true) OR separate state and transfer function publishing (if false) -->
+  
   <group ns="$(arg robot_ns)">
-    <!-- set robot_description to rosparameter server -->
-    <param name="robot_description" command="$(find xacro)/xacro '$(arg robot_model)' robot_name:=$(arg robot_ns)  $(arg model_options)" />
+    <!-- Set 'robot_description' to rosparameter server -->
+    <param name="robot_description" command="$(find xacro)/xacro '$(arg robot_model)' robot_name:=$(arg robot_ns)  $(arg model_options)"/>
 
-    <!-- joint state publisher if necessary -->
-    <rosparam file ="$(arg rviz_init_pose)" command="load"/>
+    <!-- Joint state publisher (without dedicated transfer function) -->       <!-- TODO what is this doing? Not really used! -->
     <node name="$(anon joint_state_publisher_gui)" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui" if="$(arg need_joint_state)">
-      <param name="robot_description" command="$(find xacro)/xacro '$(arg robot_model)' $(arg model_options)" />
-    </node >
+      <param name="robot_description" command="$(find xacro)/xacro '$(arg robot_model)' $(arg model_options)"/>
+    </node>
 
-    <!-- tf publisher from joint_state -->
+    <!-- State and TF publisher -->
+    <!-- Broadcast static transfer function between root and CoG; refering: https://github.com/ros/robot_state_publisher/blob/rolling/src/robot_state_publisher.cpp#L130 -->
     <node name="$(anon robot_state_publisher)" pkg="robot_state_publisher" type="robot_state_publisher">
-      <param name="tf_prefix" value="$(arg robot_ns)" />
+      <param name="tf_prefix" value="$(arg robot_ns)"/>
     </node>
     <node name="$(anon rotor_tf_publisher)" pkg="aerial_robot_model" type="rotor_tf_publisher" unless="$(arg need_joint_state)">
-      <param name="tf_prefix" value="$(arg robot_ns)" />
+      <param name="tf_prefix" value="$(arg robot_ns)"/>
     </node>
-
-    <!-- rviz -->
-    <node name="$(anon rviz)" pkg="rviz" type="rviz" args="-d $(arg rviz_config)" respawn="true" unless="$(arg headless)"/>
   </group>
-
 </launch>

@@ -18,7 +18,7 @@
 
       <!-- mocap -->
       <include file="$(find aerial_robot_base)/launch/external_module/mocap.launch">
-	<arg name="robot_id" value="$(arg robot_id)"/>
+        <arg name="robot_id" value="$(arg robot_id)"/>
       </include>
     </group>
 

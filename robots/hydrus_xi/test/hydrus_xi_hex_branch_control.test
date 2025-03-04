@@ -1,5 +1,5 @@
 <launch>
-  <arg name="headless" default="False"/>
+  <arg name="gui" default="True"/>
   <arg name="robot_id" default=""/>
   <arg name="robot_ns" value="hydrus_xi$(arg robot_id)"/>
 
@@ -8,7 +8,7 @@
     <arg name="simulation" value="True" />
     <arg name="robot_id" value="$(arg robot_id)"/>
     <arg name="type" value="hex_branch" />
-    <arg name="headless" value="$(arg headless)" />
+    <arg name="gui" value="$(arg gui)" />
   </include>
 
   <!-- test codes -->

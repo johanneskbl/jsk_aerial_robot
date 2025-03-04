@@ -1,5 +1,5 @@
 <launch>
-  <arg name="headless" default="False"/>
+  <arg name="gui" default="True"/>
   <arg name="onboards_model" default="old_model_tx2_zed_201810" />
   <arg name="robot_id" default=""/>
   <arg name="robot_ns" value="hydrus$(arg robot_id)"/>
@@ -9,7 +9,7 @@
     <arg name="simulation" value="True" />
     <arg name="robot_id" value="$(arg robot_id)"/>
     <arg name="onboards_model" value="$(arg onboards_model)" />
-    <arg name="headless" value="$(arg headless)" />
+    <arg name="gui" value="$(arg gui)" />
   </include>
 
   <!-- test codes -->
