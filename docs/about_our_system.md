@@ -63,7 +63,7 @@ tf info. It contains:
 - include: header files for the robot model.
 - launch: launch files for setting robot_description to rosparameter server, publishing joint state and tf info, and
   visualizing the robot in rviz.
-- nodes: don't know yet. Maybe lisp file?
+- nodes: TODO don't know yet. Maybe lisp file?
 - plugins: include multirotor_robot_model and underactuated_tilted_robot_model.
 - script: a python file that converts cog and intertia parameters from 3D models.
 - src: source files for computing kinematics automatically, communicating with servos, and publishing tf info.

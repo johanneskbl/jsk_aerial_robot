@@ -2,10 +2,10 @@
 
 ## Contribute Process
 
-1. fork the original repository from https://github.com/jsk-ros-pkg/jsk_aerial_robot
-2. develop your own feature in your forked repository
-3. once you finish your development, make a pull request to the original repository
-4. the original repository maintainer will review your pull request and merge it if it is OK
+1. Fork the original repository from https://github.com/jsk-ros-pkg/jsk_aerial_robot.
+2. Develop your own feature in your forked repository.
+3. Once you finish your development, make a pull request to the original repository.
+4. The original repository maintainer will review and merge your pull request.
 
 ## Code Style
 

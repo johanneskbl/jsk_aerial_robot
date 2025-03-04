@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import rospy
-import rospkg
+from rostopic import ROSTopicIOException
 from std_srvs.srv import SetBool, SetBoolRequest
 from spinal.srv import SetBoardConfig, SetBoardConfigRequest, GetBoardInfo
 from sensor_msgs.msg import JointState

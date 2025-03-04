@@ -1,4 +1,4 @@
-### What is this
+### What it is
 
 Please briefly explain the purpose and the result of this PR.
 
@@ -21,4 +21,4 @@ If there is still some work to do. Plase list up as follows:
 
 ### Video
 
-Please attach video for better understanding if possible
+Please attach a video for better understanding if possible.
