@@ -540,10 +540,11 @@ namespace sensor_plugin
                       height_offset_ = (kf->getEstimateState())(0) - raw_range_sensor_value_;
                       /* also update the landing height */
                       estimator_->setLandingHeight(height_offset_ - range_sensor_offset_);
-                      ROS_WARN("We we find the new terrain, the new height_offset is %f", height_offset_);
+                      ROS_WARN("We find the new terrain, the new height_offset is %f", height_offset_);
                     }
                 }
-              break;
+              //break;
+              return false;
             case MAX_EXCEED:
               /* the sensor value is below the max value ath the MAX_EXCEED state */
               /*we first turn back to ABNORMAL mode to verify the validity of the value */
