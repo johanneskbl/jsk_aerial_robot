@@ -72,7 +72,7 @@ bool SimulationAttitudeController::init(hardware_interface::SpinalInterface *rob
     }
   else
     {
-      ROS_WARN_STREAM_NAMED("simulation_attitude_controller", "[!!!] Cannot find rosparam 'estimation/mode' in namespace 'ns'" << n.getNamespace()  << ", set ground truth mode");C
+      ROS_WARN_STREAM_NAMED("simulation_attitude_controller", "[!!!] Cannot find rosparam 'estimation/mode' in namespace 'ns'" << n.getNamespace()  << ", set ground truth mode");
       controller_core_->useGroundTruth(true);
     }
 
