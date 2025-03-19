@@ -20,9 +20,9 @@ Then, follow the instructions below:
 Setup the folder architecture and clone the repo **with the specific branch**:
 
 ```bash
-mkdir -p ~/path_to_ws/src
-cd ~/path_to_ws/src
-git clone https://github.com/johanneskbl/jsk_aerial_robot.git -b develop/MPC_tilt_mt    # pay attention for the branch flag
+mkdir -p ~/[path_to_ws]/src
+cd ~/[path_to_ws]/src
+git clone https://github.com/johanneskbl/jsk_aerial_robot.git -b develop/MPC_tilt_mt    # pay attention to the branch flag
 ```
 
 ### 2.1 ... for Ubuntu 20.04 and ROS Noetic
@@ -41,7 +41,7 @@ rosdep update
 
 Then, do the following:
 ```bash
-cd ~/path_to_ws
+cd ~/[path_to_ws]
 wstool init src
 wstool merge -t src src/jsk_aerial_robot/aerial_robot_noetic.rosinstall
 wstool update -t src    # install unofficial packages
@@ -66,14 +66,28 @@ rosdep update
 Then, do the following:
 
 ```bash
-cd ~/path_to_ws
+cd ~/[path_to_ws]
 wstool init src
 wstool merge -t src src/jsk_aerial_robot/aerial_robot_${ROS_DISTRO}.rosinstall
 wstool update -t src    # install unofficial packages
 rosdep install -y -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO      # install the dependencies/packages stated in package.xml
 ```
 
-### 3. For the first run, uncomment these code in `aerial_robot_control/CMakeLists.txt`
+For convenience, open `~/.bashrc` and add sourcing of the workspace to the end of the file:
+
+```bash
+In ~/.bashrc:
+
+source ~/[path_to_ws]/devel/setup.bash
+```
+
+### 3. Install python packages and link them to acados
+Install required packages:
+```bash
+pip install -r src/jsk_aerial_robot/aerial_robot_control/scripts/requirements.txt
+```
+
+For the first run, **uncomment** these code in `aerial_robot_control/CMakeLists.txt`
 ```bash
 set(ACADOS_PYTHON_SCRIPTS
         ${PROJECT_SOURCE_DIR}/scripts/nmpc/fix_qd/fix_qd_angvel_out.py
@@ -87,6 +101,7 @@ set(ACADOS_PYTHON_SCRIPTS
         ${PROJECT_SOURCE_DIR}/scripts/nmpc/tilt_bi/tilt_bi_2ord_servo.py
 )
 ```
+then **comment** back.
 
 ### 4. Build the workspace with `catkin`
 
@@ -94,6 +109,8 @@ set(ACADOS_PYTHON_SCRIPTS
 cd ~/path_to_ws
 catkin build
 ```
+
+A frequent problem is the handling of the jobservers in the build process. When occuring during the build process - especially in the aerial_robot_control package - please try simply running the build command again.
 
 ### 5. If the build is successful, comment the code in step 3 back.
 
