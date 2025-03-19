@@ -142,7 +142,7 @@ void nmpc::TiltMtServoNMPC::initParams()
   getParam<int>(physical_nh, "num_servos", joint_num_, 0);
   getParam<int>(physical_nh, "num_rotors", motor_num_, 0);
   getParam<double>(nmpc_nh, "T_samp", t_nmpc_samp_, 0.025);
-  getParam<double>(nmpc_nh, "T_integ", t_nmpc_integ_, 0.1);
+  getParam<double>(nmpc_nh, "T_step", t_nmpc_integ_, 0.1);
   getParam<bool>(nmpc_nh, "is_attitude_ctrl", is_attitude_ctrl_, true);
   getParam<bool>(nmpc_nh, "is_body_rate_ctrl", is_body_rate_ctrl_, false);
   getParam<bool>(nmpc_nh, "is_print_phys_params", is_print_phys_params_, false);
@@ -513,13 +513,13 @@ void nmpc::TiltMtServoNMPC::cfgNMPCCallback(NMPCConfig& config, uint32_t level)
   }
 }
 
-double nmpc::TiltMtServoNMPC::getCommand(int idx_u, double t_pred)
+double nmpc::TiltMtServoNMPC::getCommand(int idx_u, double T_horizon)
 {
-  if (t_pred == 0)
+  if (T_horizon == 0)
     return mpc_solver_ptr_->uo_.at(0).at(idx_u);
 
   return mpc_solver_ptr_->uo_.at(0).at(idx_u) +
-         t_pred / t_nmpc_integ_ * (mpc_solver_ptr_->uo_.at(1).at(idx_u) - mpc_solver_ptr_->uo_.at(0).at(idx_u));
+         T_horizon / t_nmpc_integ_ * (mpc_solver_ptr_->uo_.at(1).at(idx_u) - mpc_solver_ptr_->uo_.at(0).at(idx_u));
 }
 
 std::vector<double> nmpc::TiltMtServoNMPC::meas2VecX()
