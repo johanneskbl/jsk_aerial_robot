@@ -265,8 +265,8 @@ class OneToOnePubJointTraj(MPCPubJointTraj):
             traj_pt.velocities.append(self.vel_twist)
             traj_pt.accelerations.append(self.acc_twist)
 
-            t_pred = i * 0.1
-            t_cal = t_pred + t_has_started
+            T_horizon = i * 0.1
+            t_cal = T_horizon + t_has_started
             traj_pt.time_from_start = rospy.Duration.from_sec(t_cal)
 
             multi_dof_joint_traj.points.append(traj_pt)

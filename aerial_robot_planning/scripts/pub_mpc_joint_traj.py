@@ -29,7 +29,7 @@ class MPCPubBase(ABC):
     """
     A base class that handles:
       - Robot name / node namespace
-      - Parameter loading (T_pred, T_integ, T_samp)
+      - Parameter loading (T_horizon, T_step, T_samp)
       - Odom subscription & storing latest state
       - set_ref_traj publisher
       - Timer callback scaffolding (frequency check, set 'finished' flag)
@@ -45,8 +45,8 @@ class MPCPubBase(ABC):
 
         # Load NMPC parameters
         try:
-            self.T_pred = rospy.get_param(f"{robot_name}/controller/nmpc/T_pred")
-            self.T_integ = rospy.get_param(f"{robot_name}/controller/nmpc/T_integ")
+            self.T_horizon = rospy.get_param(f"{robot_name}/controller/nmpc/T_horizon")
+            self.T_step = rospy.get_param(f"{robot_name}/controller/nmpc/T_step")
             self.T_samp = rospy.get_param(f"{robot_name}/controller/nmpc/T_samp")
             self.N_nmpc = rospy.get_param(f"{robot_name}/controller/nmpc/NN")
             self.nx = rospy.get_param(f"{robot_name}/controller/nmpc/NX")
@@ -157,7 +157,7 @@ class MPCTrajPtPub(MPCPubJointTraj):
     def fill_trajectory_points(self, t_elapsed: float) -> MultiDOFJointTrajectory:
         """
         Build a MultiDOFJointTrajectory of length N_nmpc+1 from the 'traj' object,
-        evaluating at times t_elapsed + (0..N)*T_integ (if it's time-varying)
+        evaluating at times t_elapsed + (0..N)*T_step (if it's time-varying)
         or always t_elapsed if the reference is the same across the horizon.
         """
         multi_dof_joint_traj = MultiDOFJointTrajectory()
@@ -175,11 +175,11 @@ class MPCTrajPtPub(MPCPubJointTraj):
 
             # Time used for trajectory generation
             if is_ref_different:
-                t_pred = i * self.T_integ
+                T_horizon = i * self.T_step
             else:
-                t_pred = 0.0
+                T_horizon = 0.0
 
-            t_cal = t_elapsed + t_pred
+            t_cal = t_elapsed + T_horizon
 
             # position
             x, y, z, vx, vy, vz, ax, ay, az = self.traj.get_3d_pt(t_cal)
@@ -255,8 +255,8 @@ class MPCSinglePtPub(MPCPubJointTraj):
             traj_pt.velocities.append(Twist())
             traj_pt.accelerations.append(Twist())
 
-            t_pred = i * self.T_integ
-            traj_pt.time_from_start = rospy.Duration.from_sec(t_elapsed + t_pred)
+            T_horizon = i * self.T_step
+            traj_pt.time_from_start = rospy.Duration.from_sec(t_elapsed + T_horizon)
 
             traj_msg.points.append(traj_pt)
 
