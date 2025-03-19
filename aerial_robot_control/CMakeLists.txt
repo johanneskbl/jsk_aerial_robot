@@ -28,9 +28,9 @@ generate_dynamic_reconfigure_options(
   cfg/ITerm.cfg
   )
 
-### Temporary soulition because of https://github.com/ros/ros_comm/issues/1404
+### Temporary solution because of https://github.com/ros/ros_comm/issues/1404
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(armhf)" AND $ENV{ROS_DISTRO} MATCHES "melodic")
-  message(WARNING "please check https://github.com/ros/ros_comm/issues/1404")
+  message(WARNING "Please check https://github.com/ros/ros_comm/issues/1404")
   add_definitions (-DARM_MELODIC)
 endif()
 

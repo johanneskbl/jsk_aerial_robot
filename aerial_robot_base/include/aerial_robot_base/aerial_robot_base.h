@@ -8,8 +8,6 @@
 #include "aerial_robot_control/flight_navigation.h"
 #include "aerial_robot_control/control/base/base.h"
 
-using namespace std;
-
 class AerialRobotBase
 {
     public:

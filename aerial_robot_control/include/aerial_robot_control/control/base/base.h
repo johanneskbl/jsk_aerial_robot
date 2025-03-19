@@ -47,10 +47,9 @@ namespace aerial_robot_control
     class ControlBase
     {
     public:
-        ControlBase(): control_timestamp_(-1), activate_timestamp_(0)
-        {}
-
-        virtual ~ControlBase(){}
+        ControlBase(): control_timestamp_(-1), activate_timestamp_(0){}
+        virtual ~ControlBase() = default;
+        
         virtual void initialize(ros::NodeHandle nh,
                                 ros::NodeHandle nhp,
                                 boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
