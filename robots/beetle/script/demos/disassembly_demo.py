@@ -51,6 +51,6 @@ class DisassemblyDemo():
 if __name__ == '__main__':
     try:
         logging.getLogger('rosout').addFilter(Filter())
-        demo = DisassemblyDemo();
+        demo = DisassemblyDemo()
         demo.main()
     except rospy.ROSInterruptException: pass
