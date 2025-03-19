@@ -129,7 +129,7 @@ protected:
 
   /* utils */
   // get functions
-  double getCommand(int idx_u, double t_pred = 0.0);
+  double getCommand(int idx_u, double T_horizon = 0.0);
 
   // conversion functions
   std::vector<double> meas2VecX() override;
