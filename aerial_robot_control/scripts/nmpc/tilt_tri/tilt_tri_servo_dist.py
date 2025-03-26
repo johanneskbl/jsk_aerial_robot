@@ -17,7 +17,17 @@ class NMPCTiltTriServoDist(RecedingHorizonBase):
         # Model name
         self.model_name = "tilt_tri_servo_dist_mdl"
 
-        # Set controller flags
+        # ====== Define controller setup through flags ======
+        #
+        # - tilt: Flag to include tiltable rotors and their effect on the rotation matrix.
+        # - include_servo_model: Flag to include the servo model based on the angle alpha (a) between frame E (end of arm) and R (rotor). If not included, angle control is assumed to be equal to angle state.
+        # - include_servo_derivative: Flag to include the continuous time-derivative of the servo angle as control input(!) instead of numeric differentation.
+        # - include_thrust_model: Flag to include dynamics from rotor and use thrust as state. If not included, thrust control is assumed to be equal to thrust state.
+        # - include_cog_dist_model: Flag to include disturbance on the CoG into the acados model states. Disturbance on each rotor individually was investigated into but didn't properly work, therefore only disturbance on CoG implemented.
+        # - include_cog_dist_parameter: Flag to include disturbance on the CoG into the acados model parameters. Disturbance on each rotor individually was investigated into but didn't properly work, therefore only disturbance on CoG implemented.
+        # - include_impedance: Flag to include virtual mass and inertia to calculate impedance cost. Doesn't add any functionality for the model.
+        # - include_a_prev: Flag to include reference value for the servo angle command in NMPCReferenceGenerator() based on command from previous timestep.
+        
         self.tilt = True
         self.include_servo_model = True
         self.include_servo_derivative = False
@@ -158,7 +168,7 @@ class NMPCTiltTriServoDist(RecedingHorizonBase):
         )
 
         # Assemble acados function
-        f = ca.Function("f", [states, controls], [ds], ["state", "control_input"], ["ds"])
+        f = ca.Function("f", [states, controls], [ds], ["state", "control_input"], ["ds"], {"allow_free": True})
 
         # Implicit dynamics
         x_dot = ca.SX.sym("x_dot", states.size())
@@ -184,7 +194,7 @@ class NMPCTiltTriServoDist(RecedingHorizonBase):
         model.x = states
         model.xdot = x_dot
         model.u = controls
-        model.p = quaternion
+        model.p = parameters
         model.cost_y_expr = ca.vertcat(state_y, control_y)  # NONLINEAR_LS
         model.cost_y_expr_e = state_y_e
 

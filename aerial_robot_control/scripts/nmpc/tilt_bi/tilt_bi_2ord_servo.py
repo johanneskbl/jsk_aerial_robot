@@ -5,6 +5,7 @@ import numpy as np
 from acados_template import AcadosModel, AcadosOcpSolver, AcadosSim, AcadosSimSolver
 import casadi as ca
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))    # Add parent directory to path to allow relative imports
 from bi_reference_generator import BINMPCReferenceGenerator
 from rh_base import RecedingHorizonBase
 
@@ -16,10 +17,19 @@ class NMPCTiltBi2OrdServo(RecedingHorizonBase):
         # Model name
         self.model_name = "tilt_bi_2_ord_servo_mdl"
 
-        # Set controller flags
+        # ====== Define controller setup through flags ======
+        #
+        # - tilt: Flag to include tiltable rotors and their effect on the rotation matrix.
+        # - include_servo_model: Flag to include the servo model based on the angle alpha (a) between frame E (end of arm) and R (rotor). If not included, angle control is assumed to be equal to angle state.
+        # - include_servo_derivative: Flag to include the continuous time-derivative of the servo angle as control input(!) instead of numeric differentation.
+        # - include_thrust_model: Flag to include dynamics from rotor and use thrust as state. If not included, thrust control is assumed to be equal to thrust state.
+        # - include_cog_dist_model: Flag to include disturbance on the CoG into the acados model states. Disturbance on each rotor individually was investigated into but didn't properly work, therefore only disturbance on CoG implemented.
+        # - include_cog_dist_parameter: Flag to include disturbance on the CoG into the acados model parameters. Disturbance on each rotor individually was investigated into but didn't properly work, therefore only disturbance on CoG implemented.
+        # - include_impedance: Flag to include virtual mass and inertia to calculate impedance cost. Doesn't add any functionality for the model.
+        # - include_a_prev: Flag to include reference value for the servo angle command in NMPCReferenceGenerator() based on command from previous timestep.
+        
         self.tilt = True
         self.include_servo_model = True
-        self.include_servo_second_order = True
         self.include_servo_derivative = False
         self.include_thrust_model = False
         self.include_cog_dist_model = False
@@ -65,7 +75,7 @@ class NMPCTiltBi2OrdServo(RecedingHorizonBase):
         states = ca.vertcat(p, v, q, w, a, b)
 
         # Model parameters
-        qwr = ca.SX.sym("qwr")  # reference for quaternions
+        qwr = ca.SX.sym("qwr")  # Reference for quaternions
         qxr = ca.SX.sym("qxr")
         qyr = ca.SX.sym("qyr")
         qzr = ca.SX.sym("qzr")
@@ -310,7 +320,7 @@ class NMPCTiltBi2OrdServo(RecedingHorizonBase):
         print("lbu: ", ocp.constraints.lbu)
         print("ubu: ", ocp.constraints.ubu)
 
-        # Initial state
+        # Initial state and reference
         x_ref = np.zeros(nx)
         x_ref[6] = 1.0  # qw
         u_ref = np.zeros(nu)
@@ -336,7 +346,7 @@ class NMPCTiltBi2OrdServo(RecedingHorizonBase):
         ocp.solver_options.qp_solver_cond_N = self.params["N_steps"]
         ocp.solver_options.tf = self.params["T_horizon"]
 
-        # Compile acados ocp
+        # Compile acados OCP
         json_file_path = os.path.join("./" + ocp.model.name + "_acados_ocp.json")
         solver = AcadosOcpSolver(ocp, json_file=json_file_path, build=True)
         print("Generated C code for acados solver successfully to " + os.getcwd())
@@ -382,10 +392,10 @@ class NMPCTiltBi2OrdServo(RecedingHorizonBase):
         ur[:, 1] = ft_ref[1]
 
         return xr, ur
-        
+
     def get_reference_generator(self) -> BINMPCReferenceGenerator:
         return self._reference_generator
-    
+
     def _create_reference_generator(self) -> BINMPCReferenceGenerator:
         # Pass the model's and robot's properties to the reference generator
         return BINMPCReferenceGenerator(self,
@@ -406,6 +416,26 @@ class NMPCTiltBi2OrdServo(RecedingHorizonBase):
         acados_sim.solver_options.T = ts_sim
         return AcadosSimSolver(acados_sim, json_file=ocp_model.name + "_acados_sim.json", build=is_build)
 
+    
+    def create_acados_sim_solver(self, ts_sim: float, is_build: bool = True) -> AcadosSimSolver:
+        ocp_model = super().get_acados_model()
+
+        acados_sim = AcadosSim()
+        acados_sim.model = ocp_model
+
+        n_params = ocp_model.p.size()[0]
+        acados_sim.dims.np = n_params  # TODO: seems that the np doesn't need to be set manually in the latest version of acados
+        acados_sim.parameter_values = np.zeros(n_params)
+
+        acados_sim.solver_options.T = ts_sim
+        # Important to sim 2-ord servo model
+        acados_sim.solver_options.integrator_type = 'IRK'
+        acados_sim.solver_options.num_stages = 3
+        acados_sim.solver_options.num_steps = 3
+        acados_sim.solver_options.newton_iter = 3  # for implicit integrator
+        acados_sim.solver_options.collocation_type = "GAUSS_RADAU_IIA"
+
+        return AcadosSimSolver(acados_sim, json_file=ocp_model.name + "_acados_sim.json", build=is_build)
 
 if __name__ == "__main__":
     overwrite = True

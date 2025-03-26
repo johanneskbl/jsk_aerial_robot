@@ -17,10 +17,19 @@ class NMPCTiltBiServo(RecedingHorizonBase):
         # Model name
         self.model_name = "tilt_bi_servo_mdl"
 
-        # Set controller flags
+        # ====== Define controller setup through flags ======
+        #
+        # - tilt: Flag to include tiltable rotors and their effect on the rotation matrix.
+        # - include_servo_model: Flag to include the servo model based on the angle alpha (a) between frame E (end of arm) and R (rotor). If not included, angle control is assumed to be equal to angle state.
+        # - include_servo_derivative: Flag to include the continuous time-derivative of the servo angle as control input(!) instead of numeric differentation.
+        # - include_thrust_model: Flag to include dynamics from rotor and use thrust as state. If not included, thrust control is assumed to be equal to thrust state.
+        # - include_cog_dist_model: Flag to include disturbance on the CoG into the acados model states. Disturbance on each rotor individually was investigated into but didn't properly work, therefore only disturbance on CoG implemented.
+        # - include_cog_dist_parameter: Flag to include disturbance on the CoG into the acados model parameters. Disturbance on each rotor individually was investigated into but didn't properly work, therefore only disturbance on CoG implemented.
+        # - include_impedance: Flag to include virtual mass and inertia to calculate impedance cost. Doesn't add any functionality for the model.
+        # - include_a_prev: Flag to include reference value for the servo angle command in NMPCReferenceGenerator() based on command from previous timestep.
+        
         self.tilt = True
         self.include_servo_model = True
-        self.include_servo_second_order = False
         self.include_servo_derivative = False
         self.include_thrust_model = False
         self.include_cog_dist_model = False
@@ -55,7 +64,7 @@ class NMPCTiltBiServo(RecedingHorizonBase):
         wz = ca.SX.sym("wz")
         w = ca.vertcat(wx, wy, wz)
 
-        a1 = ca.SX.sym("a1")
+        a1 = ca.SX.sym("a1")    # Servo angle alpha between E frame and R frame
         a2 = ca.SX.sym("a2")
         a = ca.vertcat(a1, a2)
 
@@ -111,7 +120,7 @@ class NMPCTiltBiServo(RecedingHorizonBase):
 
         # Wrench in Body frame
         f_u_b = (
-              ca.mtimes(rot_be1, ca.mtimes(rot_e1r1, ft_r1)) 
+              ca.mtimes(rot_be1, ca.mtimes(rot_e1r1, ft_r1))
             + ca.mtimes(rot_be2, ca.mtimes(rot_e2r2, ft_r2))
         )
         tau_u_b = (
@@ -218,7 +227,7 @@ class NMPCTiltBiServo(RecedingHorizonBase):
 
         # Set constraints
         # - State box constraints bx
-        # vx, vy, vz, wx, wy, wz, a1, a2, a3
+        # vx, vy, vz, wx, wy, wz, a1, a2
         ocp.constraints.idxbx = np.array([3, 4, 5, 10, 11, 12, 13, 14])
         ocp.constraints.lbx = np.array(
             [
@@ -248,7 +257,7 @@ class NMPCTiltBiServo(RecedingHorizonBase):
         print("ubx: ", ocp.constraints.ubx)
 
         # - Terminal state box constraints bx_e
-        # vx, vy, vz, wx, wy, wz, a1, a2, a3
+        # vx, vy, vz, wx, wy, wz, a1, a2
         ocp.constraints.idxbx_e = np.array([3, 4, 5, 10, 11, 12, 13, 14])
         ocp.constraints.lbx_e = np.array(
             [
@@ -367,10 +376,10 @@ class NMPCTiltBiServo(RecedingHorizonBase):
         ur[:, 1] = ft_ref[1]
 
         return xr, ur
-            
+
     def get_reference_generator(self) -> BINMPCReferenceGenerator:
         return self._reference_generator
-    
+
     def _create_reference_generator(self) -> BINMPCReferenceGenerator:
         # Pass the model's and robot's properties to the reference generator
         return BINMPCReferenceGenerator(self,

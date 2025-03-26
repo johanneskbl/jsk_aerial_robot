@@ -7,7 +7,7 @@ import sim_nmpc as new_ws
 
 
 if __name__ == "__main__":
-    if 1:
+    if 0:
         parser = argparse.ArgumentParser(description="Run the simulation of different NMPC models.")
         parser.add_argument(
             "model",
@@ -29,20 +29,50 @@ if __name__ == "__main__":
 
         class Temp():
             def __init__(self):
-                self.model = 0 # 0-91, 1-1, 2-2, 3-3: good but when thrust model slight deviance
-                # TODO investigate thrust model for small deviations
-                # 21-21 & 22-22 strong deviations!
-                # 92-92 NOT SOLVING FOR OLD VERSION!
+                self.model = 23
+                # quad
+                # 0-91 (with and without sim_nmpc = nmpc) -> 0 deviations
+                # 1-1 (with and without sim_nmpc = nmpc) -> 0 deviations
+                # 2-2 (without sim_nmpc = nmpc) -> e-7 deviations [with sim_nmpc = nmpc doesnt solve]
+                # 3-3 (with and without sim_nmpc = nmpc) -> e-8 deviations
+                # 21-21 (with and without sim_nmpc = nmpc) -> 0 deviations -> Previously strong deviations! Reason: old version had no constraint in servo angle command and different and different velocity constraint in yaml
+                # 22-22 (with and without sim_nmpc = nmpc) -> e-8 deviations -> Previously strong deviations! Reason: old version had no constraint in servo angle command and different and different velocity constraint in yaml
+                # 23-23
+                # 24-24
+                # 91-0 (without sim_nmpc = nmpc) -> 0 deviations [with sim_nmpc = nmpc doesnt solve]
+                # 92-92 (with and without sim_nmpc = nmpc) -> 0 deviations
+                # 93-93 DOESNT SOLVE FOR EITHER VERSION
+                # 94-94 (with and without sim_nmpc = nmpc) -> 0 deviations
+                # 95-95
+                # 96-96
+
+                # bi
+                # 0-0 (with sim_nmpc = nmpc) -> e-2 deviations
+                # 0-0 (with sim_nmpc != nmpc) -> 0 deviations
+                # 1-1 (sim_nmpc = nmpc) -> 0 deviations
+
+                # tri
+                # 0-0 (with and without sim_nmpc = nmpc) -> 0 deviations
+                # 1-1 (sim_nmpc = nmpc) -> 0 deviations
+
                 self.sim_model = 0
-                self.plot_type = 0
-                self.arch = 'bi'
+                self.plot_type = -1
+                self.arch = 'qd'
+                self.nmpc_type = 1#  type=int, help="The type of NMPC. 0 means disturbance , 1 means impedance.")
+                self.est_dist_type = 1
+                self.if_use_ang_acc = 0
         args = Temp()
 
-        x_now, x_now_sim, u_cmd, xr, ur = new_ws.main(args)
-        os.chdir("/home/johannes/ros/jsk_aerial_robot_ws/src/jsk_aerial_robot/aerial_robot_control/scripts/nmpc")
-        os.remove("mat.npz")
-        np.savez('mat.npz', x_now=x_now, x_now_sim=x_now_sim, u_cmd=u_cmd, xr=xr, ur=ur)
-        print("Data saved! :)")
+        import tilt_qd.sim_nmpc_impedance as new_ws
+
+        if args.plot_type == -1:
+            x_now, x_now_sim, u_cmd, xr, ur = new_ws.main(args)
+            os.chdir("/home/johannes/ros/jsk_aerial_robot_ws/src/jsk_aerial_robot/aerial_robot_control/scripts/nmpc")
+            if os.path.exists('mat.npz'): os.remove("mat.npz")
+            np.savez('mat.npz', x_now=x_now, x_now_sim=x_now_sim, u_cmd=u_cmd, xr=xr, ur=ur)
+            print("Data saved! :)")
+        else:
+            new_ws.main(args)
     else:
         os.chdir("/home/johannes/ros/jsk_aerial_robot_ws/src/jsk_aerial_robot/aerial_robot_control/scripts/nmpc")
         new_data = np.load('mat.npz')
@@ -54,5 +84,7 @@ if __name__ == "__main__":
             print(np.max(np.abs(new_data[key] - old_data[key]), axis=0))
             print("Abs max: ", np.max(np.max(np.abs(new_data[key] - old_data[key])), axis=0))
     
+        # for 
+
         print("Check finished successfully! :)")
 

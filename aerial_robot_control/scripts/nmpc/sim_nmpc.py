@@ -19,7 +19,9 @@ from tilt_qd.tilt_qd_no_servo import NMPCTiltQdNoServo
 # - Consider the servo delay with its model
 from tilt_qd.tilt_qd_servo import NMPCTiltQdServo
 from tilt_qd.tilt_qd_servo_dist import NMPCTiltQdServoDist
+from tilt_qd.tilt_qd_servo_dist_imp import NMPCTiltQdServoImpedance
 from archive.tilt_qd_servo_drag_w_dist import NMPCTiltQdServoDragDist
+from archive.tilt_qd_servo_w_cog_end_dist import NMPCTiltQdServoWCogEndDist
 
 from archive.tilt_qd_servo_old_cost import NMPCTiltQdServoOldCost
 from tilt_qd.tilt_qd_servo_diff import NMPCTiltQdServoDiff
@@ -30,6 +32,7 @@ from tilt_qd.tilt_qd_thrust import NMPCTiltQdThrust
 # - Consider the servo & thrust delay with its models
 from tilt_qd.tilt_qd_servo_thrust import NMPCTiltQdServoThrust
 from tilt_qd.tilt_qd_servo_thrust_dist import NMPCTiltQdServoThrustDist
+from tilt_qd.tilt_qd_servo_thrust_dist_imp import NMPCTiltQdServoThrustImpedance
 from archive.tilt_qd_servo_thrust_drag import NMPCTiltQdServoThrustDrag
 
 # Birotor
@@ -70,6 +73,10 @@ def main(args):
             alpha_integ = np.zeros(4)
         elif args.model == 94:
             nmpc = NMPCTiltQdServoDragDist()
+        elif args.model == 95:
+            nmpc = NMPCTiltQdServoThrustDrag()
+        elif args.model == 96:
+            nmpc = NMPCTiltQdServoWCogEndDist()
         else:
             raise ValueError(f"Invalid control model {args.model}.")
     
@@ -128,18 +135,23 @@ def main(args):
         
     elif args.arch == 'bi':
         
-        sim_nmpc = NMPCTiltBi2OrdServo()
+        if args.sim_model == 0:
+            sim_nmpc = NMPCTiltBi2OrdServo()
+        elif args.sim_model == 1:
+            sim_nmpc = NMPCTiltBiServo()
+        else:
+            raise ValueError(f"Invalid sim model {args.sim_model}.")
 
     elif args.arch == 'tri':
 
-        sim_nmpc = NMPCTiltTriServo()
+        sim_nmpc = NMPCTiltTriServoDist()
 
     else:
         raise ValueError(f"Invalid robot architecture {args.arch}.")
 
     # ============================
     # To be deleted
-    # sim_nmpc = nmpc
+    sim_nmpc = nmpc
 
     x_now_store = np.zeros((nx,1)).T
     nx_sim = sim_nmpc.get_ocp_solver().acados_ocp.dims.nx
@@ -174,6 +186,7 @@ def main(args):
     sim_solver = sim_nmpc.create_acados_sim_solver(ts_sim, is_build=True)
     nx_sim = sim_solver.acados_sim.dims.nx
 
+    # State Initialization
     x_init_sim = np.zeros(nx_sim)
     x_init_sim[6] = 1.0  # qw
 
@@ -192,7 +205,7 @@ def main(args):
         include_thrust_model = sim_nmpc.include_thrust_model,
         include_cog_dist_model = sim_nmpc.include_cog_dist_model
     )
-    
+
     is_sqp_change = False
     t_sqp_start = 2.5
     t_sqp_end = 3.0
@@ -207,16 +220,21 @@ def main(args):
         t_ctl += ts_sim
 
         # --------- Update state estimation ---------
+        # Assemble state from simulation and disturbance estimation 
         if nmpc.include_cog_dist_model:
-            # Remove the last 6 elements, which are states for the disturbance 
             x_now = np.zeros(nx)
             x_now[: nx - 6] = deepcopy(x_now_sim[: nx - 6])
         else:
             x_now = deepcopy(x_now_sim[:nx])  # The dimension of x_now may be smaller than x_now_sim
 
-        if args.arch == 'qd' and nmpc.include_thrust_model and not nmpc.include_servo_model:
-            # Access from less indices
-            x_now[13:17] = deepcopy(x_now_sim[17:21])
+        # Access from less indices
+        if (nmpc.include_thrust_model and not nmpc.include_servo_model) and (sim_nmpc.include_servo_model and sim_nmpc.include_thrust_model):
+            if args.arch == 'bi':
+                x_now[13:15] = deepcopy(x_now_sim[15:17])
+            elif args.arch == 'tri':
+                x_now[13:16] = deepcopy(x_now_sim[16:19])
+            elif args.arch == 'qd':
+                x_now[13:17] = deepcopy(x_now_sim[17:21])
 
         # -------- Update control target --------
         target_xyz = np.array([[0.3, 0.6, 1.0]]).T
@@ -261,7 +279,7 @@ def main(args):
             if args.arch == 'bi':
                 ur[:, 2:] = 0.0
             elif args.arch == 'tri':
-                ur[:, 3:]
+                ur[:, 3:] = 0.0
             elif args.arch == 'qd':
                 ur[:, 4:] = 0.0
 
@@ -345,12 +363,12 @@ def main(args):
             ts_sim,
             t_total_sim,
             t_servo_ctrl=t_servo_ctrl,
-            t_servo_sim=t_servo_sim,
+            t_servo_sim=t_servo_sim
         )
     elif args.plot_type == 1:
         viz.visualize_less(
             ts_sim,
-            t_total_sim,
+            t_total_sim
         )
     elif args.plot_type == 2:
         viz.visualize_rpy(
@@ -362,19 +380,28 @@ def main(args):
         return x_now_store, x_now_sim_store, u_cmd_store, xr_store, ur_store
 
 if __name__ == "__main__":
+    # Read command line arguments
     parser = argparse.ArgumentParser(description="Run the simulation of different NMPC models.")
     parser.add_argument(
         "model",
         type=int,
-        help="The NMPC model to be simulated. Options: 0 (no_servo_delay), 1 (servo), 2 (thrust), 3(servo+thrust), 21 (servo+dist), \
-            22(servo+thrust+dist), 91(no_servo_new_cost), 92(servo_old_cost), 93(servo_vel_input), 94(servo_drag_dist).",
+        help="The NMPC model to be simulated. "
+             "Options: 0 (basic model), 1 (servo), "
+             "2 (thrust), 3(servo+thrust), "
+             "21 (servo+dist), 22 (servo+thrust+dist), "
+             "91(no_servo_new_cost), 92(servo_old_cost), "
+             "93(servo_diff), 94(servo+drag+dist), "
+             "95 (servo+thrust+drag), 96 (servo+drag_param+dist).",
     )
+
     parser.add_argument(
         "-sim",
         "--sim_model",
         type=int,
         default=0,
-        help="The simulation model. " "Options: 0 (default: NMPCTiltQdServoThrust), 1 (NMPCTiltQdServoThrustDrag).",
+        help="The simulation model. "
+             "Options: 0 (default: servo+thrust), "
+             "1 (servo+thrust+drag).",
     )
 
     parser.add_argument(
@@ -382,7 +409,8 @@ if __name__ == "__main__":
         "--plot_type",
         type=int,
         default=0,
-        help="The type of plot. Options: 0 (full), 1, 2."
+        help="The type of plot. "
+        "Options: 0 (default: full), 1 (less), 2 (only rpy)."
     )
 
     parser.add_argument(
