@@ -20,7 +20,7 @@ class MHEWrenchEstIMUAct(QDMHEBase):
         model_name = "mhe_wrench_est_imu_act_mdl"
 
         # Model states
-        wx = ca.SX.sym("wx")    # Angular velocity
+        wx = ca.SX.sym("wx")      # Angular velocity
         wy = ca.SX.sym("wy")
         wz = ca.SX.sym("wz")
         w = ca.vertcat(wx, wy, wz)
@@ -37,10 +37,10 @@ class MHEWrenchEstIMUAct(QDMHEBase):
         ft4s = ca.SX.sym("ft4s")
         ft_s = ca.vertcat(ft1s, ft2s, ft3s, ft4s)
 
-        fd_w = ca.SX.sym("fd_w", 3)         # Disturbance on force in World frame
-        tau_d_b = ca.SX.sym("tau_d_w", 3)   # Disturbance on torque in Body frame
+        fds_w = ca.SX.sym("fds_w", 3)         # Disturbance on force in World frame
+        tau_ds_b = ca.SX.sym("tau_ds_b", 3)   # Disturbance on torque in Body frame
 
-        states = ca.vertcat(w, a_s, ft_s, fd_w, tau_d_b)
+        states = ca.vertcat(w, fds_w, tau_ds_b, a_s, ft_s)
 
         # Process noise on force and torque
         w_f = ca.SX.sym("w_f", 3)
@@ -67,7 +67,7 @@ class MHEWrenchEstIMUAct(QDMHEBase):
         a4c = ca.SX.sym("a4c")
         a_c = ca.vertcat(a1c, a2c, a3c, a4c)
 
-        parameters = ca.vertcat(q, ft_c, a_c)
+        controls = ca.vertcat(q, ft_c, a_c)   # Input u as parameters
 
         # Transformation matrix
         row_1 = ca.horzcat(
@@ -138,7 +138,11 @@ class MHEWrenchEstIMUAct(QDMHEBase):
 
         # Sensor function
         measurements = ca.vertcat(
-            (f_u_b + ca.mtimes(rot_bw, fd_w)) / mass, w, a_s, ft_s)
+            (f_u_b + ca.mtimes(rot_bw, fds_w)) / mass,
+            w,
+            a_s,
+            ft_s
+        )
 
         # Inertia
         I = ca.diag([Ixx, Iyy, Izz])
@@ -146,11 +150,11 @@ class MHEWrenchEstIMUAct(QDMHEBase):
 
         # Explicit dynamics
         ds = ca.vertcat(
-            ca.mtimes(I_inv, (-ca.cross(w, ca.mtimes(I, w)) + tau_u_b + tau_d_b)),
-            (a_c - a_s) / t_servo,
-            (ft_c - ft_s) / t_rotor,
+            ca.mtimes(I_inv, (-ca.cross(w, ca.mtimes(I, w)) + tau_u_b + tau_ds_b)),
             w_f,
-            w_tau
+            w_tau,
+            (a_c - a_s) / t_servo,
+            (ft_c - ft_s) / t_rotor
         )
         f = ca.Function("f", [states, noise], [ds], ["state", "noise"], ["ds"], {"allow_free": True})
 
@@ -166,7 +170,7 @@ class MHEWrenchEstIMUAct(QDMHEBase):
         model.x = states
         model.xdot = x_dot
         model.u = noise
-        model.p = parameters
+        model.p = controls
         
         # Cost function
         # error = y - y_ref
@@ -177,7 +181,7 @@ class MHEWrenchEstIMUAct(QDMHEBase):
 
         return model
 
-    def get_weights(self, verbose=False):
+    def get_weights(self):
         # Weights
         Q_R = np.diag(
             [
@@ -197,7 +201,7 @@ class MHEWrenchEstIMUAct(QDMHEBase):
                 1 / (self.params["R_ft"] ** 2),
             ]
         )
-        if verbose: print("Q_R: \n", Q_R)
+        print("Q_R: \n", Q_R)
 
         R_Q = np.diag(
             [
@@ -209,7 +213,7 @@ class MHEWrenchEstIMUAct(QDMHEBase):
                 self.params["Q_w_tau"],
             ]
         )
-        if verbose: print("R_Q: \n", R_Q)
+        print("R_Q: \n", R_Q)
 
         Q_P = np.diag(
             [
@@ -232,7 +236,7 @@ class MHEWrenchEstIMUAct(QDMHEBase):
                 self.params["P_ft"],
             ]
         )
-        if verbose: print("Q_P: \n", Q_P)
+        print("Q_P: \n", Q_P)
 
         return Q_R, R_Q, Q_P
 

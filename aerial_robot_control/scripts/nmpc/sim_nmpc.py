@@ -149,19 +149,6 @@ def main(args):
     else:
         raise ValueError(f"Invalid robot architecture {args.arch}.")
 
-    # ============================
-    # To be deleted
-    sim_nmpc = nmpc
-
-    x_now_store = np.zeros((nx,1)).T
-    nx_sim = sim_nmpc.get_ocp_solver().acados_ocp.dims.nx
-    x_now_sim_store =  np.zeros((nx_sim,1)).T
-    u_cmd_store = np.zeros((nu,1)).T
-    xr_store = np.zeros((nx,1)).T
-    ur_store = np.zeros((nu,1)).T
-
-    # ============================
-
     # Get time constants
     if sim_nmpc.include_servo_model:
         t_servo_sim = sim_nmpc.phys.t_servo
@@ -347,13 +334,6 @@ def main(args):
         # --------- Update visualizer ----------
         viz.update(i, x_now_sim, u_cmd)  # Note: The recording frequency of u_cmd is the same as ts_sim
 
-        # To be deleted:
-        x_now_store = np.append(x_now_store, np.expand_dims(x_now,1).T, axis = 0)
-        x_now_sim_store = np.append(x_now_sim_store, np.expand_dims(x_now_sim,1).T, axis =0)
-        u_cmd_store = np.append(u_cmd_store, np.expand_dims(u_cmd,1).T)
-        xr_store = np.append(xr_store, np.expand_dims(xr,1).T)
-        ur_store = np.append(ur_store, np.expand_dims(ur,1).T)
-
     # ========== Visualize ==========
     if args.plot_type == 0:
         viz.visualize(
@@ -376,8 +356,7 @@ def main(args):
             ts_sim,
             t_total_sim
         )
-    else:
-        return x_now_store, x_now_sim_store, u_cmd_store, xr_store, ur_store
+
 
 if __name__ == "__main__":
     # Read command line arguments

@@ -22,10 +22,10 @@ class MHEWrenchEstMomentum(QDMHEBase):
         # Model states
         v_w = ca.SX.sym("v_w", 3)               # Linear Velocity in World frame
         omega_b = ca.SX.sym("omega_b", 3)       # Angular Velocity in Body frame
-        fd_w = ca.SX.sym("fd_w", 3)             # Disturbance on force in World frame
-        tau_d_b = ca.SX.sym("tau_d_b", 3)       # Disturbance on torque in Body frame
+        fds_w = ca.SX.sym("fds_w", 3)             # Disturbance on force in World frame
+        tau_ds_b = ca.SX.sym("tau_ds_b", 3)       # Disturbance on torque in Body frame
 
-        states = ca.vertcat(v_w, omega_b, fd_w, tau_d_b)
+        states = ca.vertcat(v_w, omega_b, fds_w, tau_ds_b)
 
         # Sensor function
         measurements = ca.vertcat(v_w, omega_b)
@@ -49,8 +49,8 @@ class MHEWrenchEstMomentum(QDMHEBase):
 
         # Explicit dynamics
         ds = ca.vertcat(
-            (f_u_w + fd_w) / mass + g_w,
-            ca.mtimes(I_inv, (-ca.cross(omega_b, ca.mtimes(I, omega_b)) + tau_u_b + tau_d_b)),
+            (f_u_w + fds_w) / mass + g_w,
+            ca.mtimes(I_inv, (-ca.cross(omega_b, ca.mtimes(I, omega_b)) + tau_u_b + tau_ds_b)),
             w_f,
             w_tau,
         )
@@ -79,7 +79,7 @@ class MHEWrenchEstMomentum(QDMHEBase):
 
         return model
 
-    def get_weights(self, verbose=False):
+    def get_weights(self):
         # Weights
         Q_R = np.diag(
             [
@@ -91,7 +91,7 @@ class MHEWrenchEstMomentum(QDMHEBase):
                 self.params["R_omega"],
             ]
         )
-        if verbose: print("Q_R: \n", Q_R)
+        print("Q_R: \n", Q_R)
 
         R_Q = np.diag(
             [
@@ -103,7 +103,7 @@ class MHEWrenchEstMomentum(QDMHEBase):
                 self.params["Q_w_tau"],
             ]
         )
-        if verbose: print("R_Q: \n", R_Q)
+        print("R_Q: \n", R_Q)
         
         Q_P = np.diag(
             [
@@ -121,7 +121,7 @@ class MHEWrenchEstMomentum(QDMHEBase):
                 self.params["P_tau_d"],
             ]
         )
-        if verbose: print("Q_P: \n", Q_P)
+        print("Q_P: \n", Q_P)
         
         return Q_R, R_Q, Q_P
 
