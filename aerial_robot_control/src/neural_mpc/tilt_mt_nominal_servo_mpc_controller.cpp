@@ -252,7 +252,7 @@ void nmpc::TiltMtNominalServoMPC::initMPCConstraints()
   getParam<double>(mpc_nh, "a_min", servo_angle_min_, -3.1416);
 
   //  TODO: this should be set in flight_navigation; don't know why set 0.2 results solver failure
-  getParam<double>(control_nh, "vel_limit_takeoff", vel_limit_takeoff_, 1.0);  // m/s
+  getParam<double>(mpc_nh, "vel_limit_takeoff", vel_limit_takeoff_, 1.0);  // m/s
 
   // lbx and ubx
   std::vector<int> idxbx = mpc_solver_ptr_->getConstraintsIdxbx();
