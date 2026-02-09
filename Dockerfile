@@ -112,5 +112,10 @@ RUN echo '' >> /root/.bashrc
 RUN echo '# Workspace' >> /root/.bashrc
 RUN echo "alias jsk_aerial_robot='cd /root/ros/jojo_ws/src/jsk_aerial_robot'" >> /root/.bashrc
 
+RUN echo '' >> /root/.bashrc
+RUN echo '# Enable ROS communication with other machines' >> /root/.bashrc
+RUN echo "export ROS_IP=$(hostname -I | awk '{print $1}')" >> /root/.bashrc
+RUN echo "export ROS_HOSTNAME=$(hostname -I | awk '{print $1}')" >> /root/.bashrc
+
 WORKDIR /root/ros/jojo_ws
 CMD ["bash"]
