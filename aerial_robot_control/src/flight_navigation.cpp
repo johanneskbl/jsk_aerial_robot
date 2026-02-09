@@ -433,7 +433,10 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
   {
     if (getNaviState() == HOVER_STATE)
     {
-      z_control_flag_ = true;
+      if (!z_control_flag_) {
+        z_control_flag_ = true;
+        ROS_INFO("Joy Control: starting z control from target pos z: %f", target_pos_.z());
+      }
       if (joy_cmd.axes[PS3_AXIS_STICK_RIGHT_UPWARDS] >= 0)
         addTargetPosZ(joy_target_z_interval_);
       else
@@ -445,8 +448,8 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
     if (z_control_flag_)
     {
       z_control_flag_ = false;
-      setTargetZFromCurrentState();
-      ROS_INFO("Joy Control: fixed z state, target pos z is %f", target_pos_.z());
+      // Don't reset to current state - let controller converge to last commanded target
+      ROS_INFO("Joy Control: fixed z state at target pos z: %f", target_pos_.z());
     }
   }
 
@@ -454,21 +457,25 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
   /* this is the yaw_angle control */
   if (fabs(joy_cmd.axes[PS3_AXIS_STICK_RIGHT_LEFTWARDS]) > joy_yaw_deadzone_)
   {
-    double target_yaw = estimator_->getEuler(Frame::COG, estimate_mode_).z() +
-                        joy_cmd.axes[PS3_AXIS_STICK_RIGHT_LEFTWARDS] * max_target_yaw_rate_;
+    if (!yaw_control_flag_) {
+      yaw_control_flag_ = true;
+      ROS_INFO("Joy Control: starting yaw control from target yaw: %f", getTargetRPY().z());
+    }
+    
+    // Incrementally adjust yaw target based on current target (not current state)
+    double target_yaw = getTargetRPY().z() +
+                        joy_cmd.axes[PS3_AXIS_STICK_RIGHT_LEFTWARDS] * max_target_yaw_rate_ * 0.2; // scaled increment
     setTargetYaw(angles::normalize_angle(target_yaw));
     setTargetOmegaZ(joy_cmd.axes[PS3_AXIS_STICK_RIGHT_LEFTWARDS] * max_target_yaw_rate_);
-
-    yaw_control_flag_ = true;
   }
   else
   {
     if (yaw_control_flag_)
     {
       yaw_control_flag_ = false;
-      setTargetYawFromCurrentState();
+      // Don't reset to current state - let controller converge to last commanded target
       setTargetOmegaZ(0);
-      ROS_INFO("Joy Control: fixed yaw state, target yaw angle is %f", getTargetRPY().z());
+      ROS_INFO("Joy Control: fixed yaw state at target yaw angle: %f", getTargetRPY().z());
     }
   }
 
@@ -510,20 +517,65 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
   /* mode oriented state */
   switch (xy_control_mode_)
   {
-      // TODO: the teleop control for POS_CONTROL_MODE might drift in the real world, so comment it out temporarily
-      //    case POS_CONTROL_MODE:
-      //    {
-      //      if (teleop_flag_)
-      //      {
-      //        control_frame_ = WORLD_FRAME;
-      //
-      //        tf::Vector3 pos_cog = estimator_->getPos(Frame::COG, estimate_mode_);
-      //        double vec = 0.1;
-      //        setTargetPosX(pos_cog.x() - joy_cmd.axes[PS3_AXIS_STICK_LEFT_LEFTWARDS] * vec);
-      //        setTargetPosY(pos_cog.y() + joy_cmd.axes[PS3_AXIS_STICK_LEFT_UPWARDS] * vec);
-      //      }
-      //      break;
-      //    }
+    // TODO: the teleop control for POS_CONTROL_MODE might drift in the real world!
+    case POS_CONTROL_MODE: {
+      if (teleop_flag_ && getNaviState() == HOVER_STATE)
+      {
+        control_frame_ = WORLD_FRAME;
+        if (joy_cmd.buttons[PS3_BUTTON_REAR_LEFT_2])
+          control_frame_ = LOCAL_FRAME;
+
+        bool xy_stick_active = false;
+        
+        // X control (forward/backward with up/down on left stick)
+        if (fabs(joy_cmd.axes[PS3_AXIS_STICK_LEFT_UPWARDS]) > joy_xy_deadzone_)
+        {
+          xy_stick_active = true;
+          double x_increment = joy_cmd.axes[PS3_AXIS_STICK_LEFT_UPWARDS] * joy_target_xy_interval_;
+          
+          if (control_frame_ == LOCAL_FRAME) {
+            // Convert to world frame
+            double yaw = estimator_->getEuler(Frame::COG, estimate_mode_).z();
+            double x_world = x_increment * cos(yaw);
+            double y_world = x_increment * sin(yaw);
+            addTargetPosX(x_world);
+            addTargetPosY(y_world);
+          } else {
+            addTargetPosX(x_increment);
+          }
+        }
+        
+        // Y control (left/right with left/right on left stick)
+        if (fabs(joy_cmd.axes[PS3_AXIS_STICK_LEFT_LEFTWARDS]) > joy_xy_deadzone_)
+        {
+          xy_stick_active = true;
+          double y_increment = joy_cmd.axes[PS3_AXIS_STICK_LEFT_LEFTWARDS] * joy_target_xy_interval_;
+          
+          if (control_frame_ == LOCAL_FRAME) {
+            // Convert to world frame
+            double yaw = estimator_->getEuler(Frame::COG, estimate_mode_).z();
+            double x_world = -y_increment * sin(yaw);
+            double y_world = y_increment * cos(yaw);
+            addTargetPosX(x_world);
+            addTargetPosY(y_world);
+          } else {
+            addTargetPosY(y_increment);
+          }
+        }
+
+        // Update control flag for logging
+        if (xy_stick_active && !xy_control_flag_) {
+          xy_control_flag_ = true;
+          ROS_INFO("Joy Control: starting xy position control from target pos: (%f, %f)",
+                   target_pos_.x(), target_pos_.y());
+        } else if (!xy_stick_active && xy_control_flag_) {
+          xy_control_flag_ = false;
+          ROS_INFO("Joy Control: fixed xy state at target pos: (%f, %f)",
+                   target_pos_.x(), target_pos_.y());
+        }
+      }
+      break;
+    }
 
     case ACC_CONTROL_MODE: {
       if (teleop_flag_)
@@ -895,8 +947,10 @@ void BaseNavigator::rosParamInit()
   getParam<double>(nh, "gps_waypoint_check_du", gps_waypoint_check_du_, 1.0);
 
   //*** teleop navigation
-  getParam<double>(nh, "joy_target_vel_interval", joy_target_vel_interval_, 0.0);
+  getParam<double>(nh, "joy_target_xy_interval", joy_target_xy_interval_, 0.0);
   getParam<double>(nh, "joy_target_z_interval", joy_target_z_interval_, 0.0);
+  getParam<double>(nh, "joy_target_vel_interval", joy_target_vel_interval_, 0.0);
+  getParam<double>(nh, "joy_xy_deadzone", joy_xy_deadzone_, 0.2);
   getParam<double>(nh, "joy_z_deadzone", joy_z_deadzone_, 0.2);
   getParam<double>(nh, "joy_yaw_deadzone", joy_yaw_deadzone_, 0.2);
   getParam<double>(nh, "joy_stick_heart_beat_du", joy_stick_heart_beat_du_, 2.0);

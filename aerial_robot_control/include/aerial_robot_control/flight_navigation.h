@@ -122,6 +122,8 @@ public:
     inline void setTargetPosZ( float value){  target_pos_.setZ(value);}
     inline void setTargetVelZ( float value){  target_vel_.setZ(value);}
     inline void setTargetAccZ( float value){  target_acc_.setZ(value);}
+    inline void addTargetPosX( float value){  target_pos_ += tf::Vector3(value, 0, 0);}
+    inline void addTargetPosY( float value){  target_pos_ += tf::Vector3(0, value, 0);}
     inline void addTargetPosZ( float value){  target_pos_ += tf::Vector3(0, 0, value);}
 
   inline void setTeleopFlag(bool teleop_flag)
@@ -315,12 +317,14 @@ protected:
 
   double joy_target_vel_interval_;
   double joy_target_z_interval_;
+  double joy_target_xy_interval_;
   double max_target_vel_;
   double max_target_tilt_angle_;
   double max_target_yaw_rate_;
 
   double joy_z_deadzone_;
   double joy_yaw_deadzone_;
+  double joy_xy_deadzone_;
 
   double joy_stick_prev_time_;
   double joy_stick_heart_beat_du_;
