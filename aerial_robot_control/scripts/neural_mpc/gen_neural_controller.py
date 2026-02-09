@@ -11,9 +11,11 @@ controller_list.append("neural_minus")
 if "nominal" in controller_list:
     print("Generating nominal controller...")
     model_options["only_use_nominal"] = True
+    solver_options = EnvConfig.solver_options
+    solver_options["include_delta_u"] = False
     rtnmpc = NeuralMPC(
         model_options=model_options,
-        solver_options=EnvConfig.solver_options,
+        solver_options=solver_options,
         sim_options=EnvConfig.sim_options,
         run_options=EnvConfig.run_options,
     )
