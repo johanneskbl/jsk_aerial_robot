@@ -6,7 +6,7 @@ model_options = EnvConfig.model_options
 controller_list = []
 controller_list.append("nominal")
 controller_list.append("neural_plus")
-controller_list.append("neural_minus")
+# controller_list.append("neural_minus")
 
 if "nominal" in controller_list:
     print("Generating nominal controller...")
