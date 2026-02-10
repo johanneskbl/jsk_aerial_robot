@@ -60,8 +60,8 @@ public:
   void reset() override;
 
 protected:
+  ros::Time stamp;
   ros::Timer tmr_viz_;
-  ros::Timer tmr_record_;
 
   ros::Publisher pub_record_curr_;                // for dataset recording
   ros::Publisher pub_record_ref_;                 // for dataset recording
@@ -156,6 +156,7 @@ protected:
   /* update() */
   void controlCore(bool is_warmup = false) override;
   void sendCmd() override;
+  void publishRecording();
 
   // controlCore()
   void prepareMPCRef();
@@ -171,7 +172,6 @@ protected:
 
   /* callback functions */
   void callbackViz(const ros::TimerEvent& event) override;
-  void callbackRecord(const ros::TimerEvent& event);
   virtual void callbackJointStates(const sensor_msgs::JointStateConstPtr& msg);
   void callbackSetRPY(const spinal::DesireCoordConstPtr& msg);
   void callbackSetRefXU(const aerial_robot_msgs::PredXUConstPtr& msg) override;

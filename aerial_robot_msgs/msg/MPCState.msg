@@ -1,6 +1,9 @@
 # MPC State message for recording a single state at one time point
 # Similar structure to geometry_msgs/Pose but with additional fields for MPC states
 
+# Header with timestamp and frame information
+std_msgs/Header header
+
 # Position in 3D space
 geometry_msgs/Point position
 

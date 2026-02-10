@@ -39,7 +39,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
 
   /* timers */
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoPlusMPC::callbackViz, this);
-  tmr_record_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoPlusMPC::callbackRecord, this);
 
   /* publishers */
   pub_record_curr_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_curr", 1);
@@ -109,6 +108,7 @@ bool nmpc::TiltMtNeuralServoPlusMPC::update()
   {
     controlCore();
     sendCmd();
+    publishRecording();
   }
 
   return true;
@@ -882,47 +882,36 @@ void nmpc::TiltMtNeuralServoPlusMPC::allocateToXUwOneFixedRotor(int fix_rotor_id
 void nmpc::TiltMtNeuralServoPlusMPC::callbackRecord(const ros::TimerEvent& event)
 {
   int& NN = mpc_solver_ptr_->NN_;
-  int& NX = mpc_solver_ptr_->NX_;
+  stamp = ros::Time::now();
 
-  // Publish current state (input to MPC at this timestep)
+  // Current state (input to MPC at this timestep)
   aerial_robot_msgs::MPCState curr_mpc_state;
+  curr_mpc_state.header.frame_id = "world";
+  curr_mpc_state.header.stamp = stamp;
   
   std::vector<double> curr_state = meas2VecX();
-  // Fill position
+  // Position
   curr_mpc_state.position.x = curr_state[0];
   curr_mpc_state.position.y = curr_state[1];
   curr_mpc_state.position.z = curr_state[2];
   
-  // Fill linear velocity
+  // Linear velocity
   curr_mpc_state.linear_velocity.x = curr_state[3];
   curr_mpc_state.linear_velocity.y = curr_state[4];
   curr_mpc_state.linear_velocity.z = curr_state[5];
   
-  // Fill linear acceleration (from IMU sensor in body frame)
-  if (!estimator_->getImuHandlers().empty())
-  {
-    auto imu_handler = boost::dynamic_pointer_cast<sensor_plugin::Imu>(estimator_->getImuHandler(0));
-    if (imu_handler)
-    {
-      tf::Vector3 acc_b = imu_handler->acc_b_;
-      curr_mpc_state.linear_acceleration.x = acc_b.x();
-      curr_mpc_state.linear_acceleration.y = acc_b.y();
-      curr_mpc_state.linear_acceleration.z = acc_b.z();
-    }
-  }
-  
-  // Fill orientation (quaternion)
+  // Quaternion
   curr_mpc_state.orientation.w = curr_state[6];
   curr_mpc_state.orientation.x = curr_state[7];
   curr_mpc_state.orientation.y = curr_state[8];
   curr_mpc_state.orientation.z = curr_state[9];
   
-  // Fill angular velocity
+  // Angular velocity
   curr_mpc_state.angular_velocity.x = curr_state[10];
   curr_mpc_state.angular_velocity.y = curr_state[11];
   curr_mpc_state.angular_velocity.z = curr_state[12];
   
-  // Fill servo angles
+  // Servo angle state
   curr_mpc_state.servo_angles.resize(joint_num_);
   for (int i = 0; i < joint_num_; ++i)
   {
@@ -934,9 +923,8 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackRecord(const ros::TimerEvent& event
   // Publish reference states
   aerial_robot_msgs::MPCTrajectory ref_msg;
   ref_msg.header.frame_id = "world";
-  ref_msg.header.stamp = ros::Time::now();
+  ref_msg.header.stamp = stamp;
   ref_msg.states.resize(NN + 1);
-  ref_msg.header.stamp = curr_mpc_state.header.stamp;
 
   for (int i = 0; i <= NN; ++i)
   {
@@ -950,7 +938,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackRecord(const ros::TimerEvent& event
     ref_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xr_[i][4];
     ref_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xr_[i][5];
     
-    // Orientation
+    // Quaternion
     ref_msg.states[i].orientation.w = mpc_solver_ptr_->xr_[i][6];
     ref_msg.states[i].orientation.x = mpc_solver_ptr_->xr_[i][7];
     ref_msg.states[i].orientation.y = mpc_solver_ptr_->xr_[i][8];
@@ -961,7 +949,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackRecord(const ros::TimerEvent& event
     ref_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xr_[i][11];
     ref_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xr_[i][12];
     
-    // Servo angles state
+    // Servo angle state
     ref_msg.states[i].servo_angles.resize(joint_num_);
     for (int j = 0; j < joint_num_; ++j)
     {
@@ -978,46 +966,45 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackRecord(const ros::TimerEvent& event
       ref_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->ur_[i][j];
     }
 
-    // Servo angles commands
-    ref_msg.controls[i].servo_angle_commands.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
+    // Servo angle commands
+    ref_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
     {
       ref_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
     }
   }
   pub_record_ref_.publish(ref_msg);
 
-  // Publish predicted states (full state vector: pos, vel, quat, omega, servo angles)
+  // Predicted states
   aerial_robot_msgs::MPCTrajectory pred_msg;
   pred_msg.header.frame_id = "world";
-  pred_msg.header.stamp = ros::Time::now();
+  pred_msg.header.stamp = stamp;
   pred_msg.states.resize(NN + 1);
-  pred_msg.header.stamp = ref_msg.header.stamp;
 
   for (int i = 0; i <= NN; ++i)
   {
-    // Fill position
+    // Position
     pred_msg.states[i].position.x = mpc_solver_ptr_->xo_[i][0];
     pred_msg.states[i].position.y = mpc_solver_ptr_->xo_[i][1];
     pred_msg.states[i].position.z = mpc_solver_ptr_->xo_[i][2];
     
-    // Fill linear velocity
+    // Linear velocity
     pred_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xo_[i][3];
     pred_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xo_[i][4];
     pred_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xo_[i][5];
     
-    // Fill orientation
+    // Quaternion
     pred_msg.states[i].orientation.w = mpc_solver_ptr_->xo_[i][6];
     pred_msg.states[i].orientation.x = mpc_solver_ptr_->xo_[i][7];
     pred_msg.states[i].orientation.y = mpc_solver_ptr_->xo_[i][8];
     pred_msg.states[i].orientation.z = mpc_solver_ptr_->xo_[i][9];
     
-    // Fill angular velocity
+    // Angular velocity
     pred_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xo_[i][10];
     pred_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xo_[i][11];
     pred_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xo_[i][12];
     
-    // Fill servo angles
+    // Servo angle state
     pred_msg.states[i].servo_angles.resize(joint_num_);
     for (int j = 0; j < joint_num_; ++j)
     {
@@ -1034,9 +1021,9 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackRecord(const ros::TimerEvent& event
       pred_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->uo_[i][j];
     }
 
-    // Servo angles commands
-    pred_msg.controls[i].servo_angle_commands.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
+    // Servo angle commands
+    pred_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
     {
       pred_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
     }
