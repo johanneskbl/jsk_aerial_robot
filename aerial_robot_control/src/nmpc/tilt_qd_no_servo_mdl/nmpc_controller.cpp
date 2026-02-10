@@ -167,7 +167,7 @@ nav_msgs::Odometry nmpc_over_act_no_servo_delay::NMPCController::getOdom()
   return odom;
 }
 
-void nmpc_over_act_no_servo_delay::NMPCController::controlCore()
+void nmpc_over_act_no_servo_delay::NMPCController::controlCore(bool is_warmup)
 {
   /* get odom information */
   nav_msgs::Odometry odom_now = getOdom();

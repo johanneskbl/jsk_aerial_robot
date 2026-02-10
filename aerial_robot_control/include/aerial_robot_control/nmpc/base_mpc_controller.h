@@ -121,7 +121,7 @@ protected:
   // 2. get the current state from the measurement
   virtual std::vector<double> meas2VecX() = 0;
   // 3. solve NMPC
-  virtual void controlCore() = 0;
+  virtual void controlCore(bool is_warmup = false) = 0;
   // 4. send the command to the robot
   virtual void sendCmd() = 0;
   // 5. viz the result in RVIZ

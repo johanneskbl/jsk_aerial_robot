@@ -21,6 +21,9 @@
 #include "trajectory_msgs/MultiDOFJointTrajectoryPoint.h"
 #include "geometry_msgs/PoseArray.h"
 #include "aerial_robot_msgs/PredXU.h"
+#include "aerial_robot_msgs/MPCState.h"
+#include "aerial_robot_msgs/MPCControl.h"
+#include "aerial_robot_msgs/MPCTrajectory.h"
 #include "aerial_robot_msgs/FixRotor.h"
 #include "spinal/FourAxisCommand.h"
 #include "spinal/SetControlMode.h"
@@ -58,12 +61,16 @@ public:
 
 protected:
   ros::Timer tmr_viz_;
+  ros::Timer tmr_record_;
 
-  ros::Publisher pub_viz_pred_;                  // for viz predictions
-  ros::Publisher pub_viz_ref_;                   // for viz reference
-  ros::Publisher pub_flight_cmd_;                // for spinal
-  ros::Publisher pub_gimbal_control_;            // for gimbal control
-  ros::Publisher pub_flight_config_cmd_spinal_;  // for spinal, enable the gyro measurement after the takeoff
+  ros::Publisher pub_record_curr_;                // for dataset recording
+  ros::Publisher pub_record_ref_;                 // for dataset recording
+  ros::Publisher pub_record_pred_;                // for dataset recording
+  ros::Publisher pub_viz_ref_;                    // for viz
+  ros::Publisher pub_viz_pred_;                   // for viz
+  ros::Publisher pub_flight_cmd_;                 // for spinal
+  ros::Publisher pub_gimbal_control_;             // for gimbal control
+  ros::Publisher pub_flight_config_cmd_spinal_;   // for spinal, enable the gyro measurement after the takeoff
 
   ros::ServiceClient srv_set_control_mode_;
   std::vector<boost::shared_ptr<MPCControlDynamicConfig>> mpc_reconf_servers_;
@@ -147,7 +154,7 @@ protected:
   void modifyVelConstraints(double vel_min, double vel_max) const;
 
   /* update() */
-  void controlCore() override;
+  void controlCore(bool is_warmup = false) override;
   void sendCmd() override;
 
   // controlCore()
@@ -164,6 +171,7 @@ protected:
 
   /* callback functions */
   void callbackViz(const ros::TimerEvent& event) override;
+  void callbackRecord(const ros::TimerEvent& event);
   virtual void callbackJointStates(const sensor_msgs::JointStateConstPtr& msg);
   void callbackSetRPY(const spinal::DesireCoordConstPtr& msg);
   void callbackSetRefXU(const aerial_robot_msgs::PredXUConstPtr& msg) override;
@@ -189,10 +197,6 @@ protected:
 
   // debug functions
   void printPhysicalParams();
-
-  // Warm-up
-  bool first_iteration_ = true;
-  double start_time_ = 0.0;
 
   // check functions
   static bool isAlmostEqual(const double a, const double b, const double epsilon = 1e-6)

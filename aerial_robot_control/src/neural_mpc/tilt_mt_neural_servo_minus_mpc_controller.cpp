@@ -39,10 +39,14 @@ void nmpc::TiltMtNeuralServoMinusMPC::initialize(ros::NodeHandle nh, ros::NodeHa
 
   /* timers */
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoMinusMPC::callbackViz, this);
+  tmr_record_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoMinusMPC::callbackRecord, this);
 
   /* publishers */
-  pub_viz_pred_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_pred", 1);
+  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_curr", 1);
+  pub_record_ref_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_ref", 1);
+  pub_record_pred_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_pred", 1);
   pub_viz_ref_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_ref", 1);
+  pub_viz_pred_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_pred", 1);
   pub_flight_cmd_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
   pub_gimbal_control_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl", 1);
   pub_flight_config_cmd_spinal_ = nh_.advertise<spinal::FlightConfigCmd>("flight_config_cmd", 1);
@@ -94,35 +98,18 @@ void nmpc::TiltMtNeuralServoMinusMPC::activate()
 bool nmpc::TiltMtNeuralServoMinusMPC::update()
 {
   if (!ControlBase::update())
-    return false;
-
-  this->controlCore();
-
-  // Wait for neural network to stabilize (heuristically about 1 sec of strong oscillations in the servo angle cmd)
-  if (navigator_->getNaviState() == aerial_robot_navigation::TAKEOFF_STATE)
   {
-    if (first_iteration_)
-    {
-      ROS_WARN_THROTTLE(1, "[CONTROLLER] Waiting for neural network to stabilize during takeoff...");
-      start_time_ = ros::Time::now().toSec();
-      first_iteration_ = false;
-      return false;
-    }
-    else
-    {
-      if (ros::Time::now().toSec() - start_time_ < 5.0)
-      {
-        return false;
-      }
-      else
-      {
-        ROS_WARN_THROTTLE(1, "[CONTROLLER] Neural network stabilized, start NMPC control!");
-      }
-    }
+    // After press activate button, but before takeoff
+    // Warm-up the solver & network (if any) before actual takeoff
+    if (navigator_->getNaviState() == aerial_robot_navigation::ARM_ON_STATE)
+      controlCore(true);
+    return false;
   }
-
-  this->sendCmd();
-
+  else
+  {
+    controlCore();
+    sendCmd();
+  }
   return true;
 }
 
@@ -498,7 +485,8 @@ std::vector<double> nmpc::TiltMtNeuralServoMinusMPC::PhysToMPCParams() const
   return phys_p;
 }
 
-void nmpc::TiltMtNeuralServoMinusMPC::controlCore()
+void nmpc::TiltMtNeuralServoMinusMPC::controlCore(bool is_warmup)
+// When integrating an I-term in the future, we need to skip the I-term update during warm-up
 {
   // restore velocity constraints after hovering
   if (navigator_->getNaviState() == aerial_robot_navigation::HOVER_STATE and has_restored_vel_ == false)
@@ -884,6 +872,175 @@ void nmpc::TiltMtNeuralServoMinusMPC::allocateToXUwOneFixedRotor(int fix_rotor_i
 
   // if the fixed rotor is the same with previous one, no need to recalculate the allocation matrix.
   rotor_idx_prev_ = fix_rotor_idx;
+}
+
+/**
+ * @brief callbackRecord: publish the current, predicted and reference trajectory with full state and controls vectors for dataset recording
+ * @param [ros::TimerEvent&] event
+ */
+void nmpc::TiltMtNeuralServoMinusMPC::callbackRecord(const ros::TimerEvent& event)
+{
+  int& NN = mpc_solver_ptr_->NN_;
+  int& NX = mpc_solver_ptr_->NX_;
+
+  // Publish current state (input to MPC at this timestep)
+  aerial_robot_msgs::MPCState curr_mpc_state;
+  
+  std::vector<double> curr_state = meas2VecX();
+  // Fill position
+  curr_mpc_state.position.x = curr_state[0];
+  curr_mpc_state.position.y = curr_state[1];
+  curr_mpc_state.position.z = curr_state[2];
+  
+  // Fill linear velocity
+  curr_mpc_state.linear_velocity.x = curr_state[3];
+  curr_mpc_state.linear_velocity.y = curr_state[4];
+  curr_mpc_state.linear_velocity.z = curr_state[5];
+  
+  // Fill linear acceleration (from IMU sensor in body frame)
+  if (!estimator_->getImuHandlers().empty())
+  {
+    auto imu_handler = boost::dynamic_pointer_cast<sensor_plugin::Imu>(estimator_->getImuHandler(0));
+    if (imu_handler)
+    {
+      tf::Vector3 acc_b = imu_handler->acc_b_;
+      curr_mpc_state.linear_acceleration.x = acc_b.x();
+      curr_mpc_state.linear_acceleration.y = acc_b.y();
+      curr_mpc_state.linear_acceleration.z = acc_b.z();
+    }
+  }
+  
+  // Fill orientation (quaternion)
+  curr_mpc_state.orientation.w = curr_state[6];
+  curr_mpc_state.orientation.x = curr_state[7];
+  curr_mpc_state.orientation.y = curr_state[8];
+  curr_mpc_state.orientation.z = curr_state[9];
+  
+  // Fill angular velocity
+  curr_mpc_state.angular_velocity.x = curr_state[10];
+  curr_mpc_state.angular_velocity.y = curr_state[11];
+  curr_mpc_state.angular_velocity.z = curr_state[12];
+  
+  // Fill servo angles
+  curr_mpc_state.servo_angles.resize(joint_num_);
+  for (int i = 0; i < joint_num_; ++i)
+  {
+    curr_mpc_state.servo_angles[i] = curr_state[13 + i];
+  }
+  
+  pub_record_curr_.publish(curr_mpc_state);
+
+  // Publish reference states
+  aerial_robot_msgs::MPCTrajectory ref_msg;
+  ref_msg.header.frame_id = "world";
+  ref_msg.header.stamp = ros::Time::now();
+  ref_msg.states.resize(NN + 1);
+  ref_msg.header.stamp = curr_mpc_state.header.stamp;
+
+  for (int i = 0; i <= NN; ++i)
+  {
+    // Position
+    ref_msg.states[i].position.x = mpc_solver_ptr_->xr_[i][0];
+    ref_msg.states[i].position.y = mpc_solver_ptr_->xr_[i][1];
+    ref_msg.states[i].position.z = mpc_solver_ptr_->xr_[i][2];
+    
+    // Linear velocity
+    ref_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xr_[i][3];
+    ref_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xr_[i][4];
+    ref_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xr_[i][5];
+    
+    // Orientation
+    ref_msg.states[i].orientation.w = mpc_solver_ptr_->xr_[i][6];
+    ref_msg.states[i].orientation.x = mpc_solver_ptr_->xr_[i][7];
+    ref_msg.states[i].orientation.y = mpc_solver_ptr_->xr_[i][8];
+    ref_msg.states[i].orientation.z = mpc_solver_ptr_->xr_[i][9];
+    
+    // Angular velocity
+    ref_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xr_[i][10];
+    ref_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xr_[i][11];
+    ref_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xr_[i][12];
+    
+    // Servo angles state
+    ref_msg.states[i].servo_angles.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      ref_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xr_[i][13 + j];
+    }
+  }
+
+  for (int i = 0; i < NN; ++i)
+  {
+    // Thrust commands
+    ref_msg.controls[i].thrust_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      ref_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->ur_[i][j];
+    }
+
+    // Servo angles commands
+    ref_msg.controls[i].servo_angle_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      ref_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
+    }
+  }
+  pub_record_ref_.publish(ref_msg);
+
+  // Publish predicted states (full state vector: pos, vel, quat, omega, servo angles)
+  aerial_robot_msgs::MPCTrajectory pred_msg;
+  pred_msg.header.frame_id = "world";
+  pred_msg.header.stamp = ros::Time::now();
+  pred_msg.states.resize(NN + 1);
+  pred_msg.header.stamp = ref_msg.header.stamp;
+
+  for (int i = 0; i <= NN; ++i)
+  {
+    // Fill position
+    pred_msg.states[i].position.x = mpc_solver_ptr_->xo_[i][0];
+    pred_msg.states[i].position.y = mpc_solver_ptr_->xo_[i][1];
+    pred_msg.states[i].position.z = mpc_solver_ptr_->xo_[i][2];
+    
+    // Fill linear velocity
+    pred_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xo_[i][3];
+    pred_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xo_[i][4];
+    pred_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xo_[i][5];
+    
+    // Fill orientation
+    pred_msg.states[i].orientation.w = mpc_solver_ptr_->xo_[i][6];
+    pred_msg.states[i].orientation.x = mpc_solver_ptr_->xo_[i][7];
+    pred_msg.states[i].orientation.y = mpc_solver_ptr_->xo_[i][8];
+    pred_msg.states[i].orientation.z = mpc_solver_ptr_->xo_[i][9];
+    
+    // Fill angular velocity
+    pred_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xo_[i][10];
+    pred_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xo_[i][11];
+    pred_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xo_[i][12];
+    
+    // Fill servo angles
+    pred_msg.states[i].servo_angles.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      pred_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xo_[i][13 + j];
+    }
+  }
+  
+  for (int i = 0; i < NN; ++i)
+  {
+    // Thrust commands
+    pred_msg.controls[i].thrust_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->uo_[i][j];
+    }
+
+    // Servo angles commands
+    pred_msg.controls[i].servo_angle_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
+    }
+  }
+  pub_record_pred_.publish(pred_msg);
 }
 
 /**

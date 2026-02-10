@@ -25,6 +25,9 @@ add_message_files(FILES
   TrajCoefficients.msg
   PredXU.msg
   FixRotor.msg
+  MPCState.msg
+  MPCControl.msg
+  MPCTrajectory.msg
 )
 
 # Generate actions in the 'action' folder
