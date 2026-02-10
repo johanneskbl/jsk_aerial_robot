@@ -45,10 +45,10 @@ class EnvConfig:
             "only_use_nominal": False,
             "plus_neural": True,
             "minus_neural": False,
-            # "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
-            # "neural_model_instance": "neuralmodel_120",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
-            "neural_model_name": "residual_vae",
-            "neural_model_instance": "neuralmodel_009",
+            "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
+            "neural_model_instance": "neuralmodel_167",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            # "neural_model_name": "residual_vae",
+            # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
             # 62: trained on residual_06 (first on standalone controller) (with 0.1 dist) (vx,vy,vz, no transform) -> good results
             # 63: trained on residual_neural_sim_nominal_control_03 -> WITH standalone SOLVER BUILDING
@@ -129,7 +129,11 @@ class EnvConfig:
             # 161 (decent learning, great closed-loop performance): Same as 159 but with larger num samples for consistency loss (& GELU)
             # 162 (overfitted but early learning looked good): Pure learning without additional losses on long pred labels
             # 163 (decent learning, decent cl results): Same as 162 but with less epochs (early stopping)
-            
+            # 164 (bad training but low gradient loss): Same setup as 120 but on long pred dataset (since it smoothed a lot)
+            # 165 (same): Same as 164 but lower grad loss since bad learning
+            # 166 (bad learning): Same as 165 but lower grad loss and with zero-out loss
+            # 167 [GOOD] (decent learning, good out, good cl, good sim): Same as 166 but with lower extra losses
+            # 168 (good learning, decent out, more noisy cl)
             # ---- VAE ----
             # 1 (bad learning & stepwise output): Use VAE! NOT LEARNING LOGVAR
             # 2 (no learning & very low KL Loss): Learning logvar
@@ -240,7 +244,7 @@ class EnvConfig:
 class NetworkConfig:
     # ============================= MODEL SELECTION =============================
     # Choose between "MLP" or "VAE" for the neural network architecture
-    model_type = "VAE"  # Options: "MLP", "VAE"
+    model_type = "MLP"  # Options: "MLP", "VAE"
     
     # Define characteristics of the MLP model with its name
     if model_type == "MLP":
@@ -256,8 +260,8 @@ class NetworkConfig:
 
     # Number of neurons in each hidden layer
     if model_type == "MLP":
-        hidden_sizes = [32, 32]
-        # hidden_sizes = [64, 64]
+        # hidden_sizes = [32, 32]
+        hidden_sizes = [64, 64]
         # hidden_sizes = [128, 256, 128, 64]
     elif model_type == "VAE":
         encoder_hidden_sizes = [16, 8]
@@ -301,25 +305,25 @@ class NetworkConfig:
     # Optimizer
     optimizer = "AdamW"  # Options: "Adam", "SGD", "RMSprop", "Adagrad", "AdamW"
     # Weight decay (L2 regularization)
-    weight_decay = 0.0  # 1e-1  # Set to 0.0 to disable [1e-2 for AdamW, 1e-4 for Adam]
+    weight_decay = 1e-2  # Set to 0.0 to disable [1e-2 for AdamW, 1e-4 for Adam]
     # Zero-output regularization
-    zero_out_lambda = 0.0 # 1e0  # Set to 0.0 to disable
+    zero_out_lambda = 1e-1  # Set to 0.0 to disable
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Penalize gradients
-    gradient_lambda = 0.0  # 1e3  # Set to 0.0 to disable
+    gradient_lambda = 1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon
-    consistency_lambda = 0.0  #1e-2 # 10.0  #1e4 # 5.0  # Set to 0.0 to disable
-    consistency_epsilon = 0.2  # Relative noise to input; Set to 0.0 to disable
-    consistency_num_samples = 10
+    consistency_lambda = 1e-1  #1e-2 # 10.0  #1e4 # 5.0  # Set to 0.0 to disable
+    consistency_epsilon = 0.3  # Relative noise to input; Set to 0.0 to disable
+    consistency_num_samples = 1
 
     # Learning rate
     learning_rate = 1e-3  # for residual
     # learning_rate = 1e-2  # for residual
     # learning_rate = 1e-5  # for temporal
     # learning_rate = 1e-3  # for LR scheduling
-    lr_milestones = [30, 60] #[100, 150]
-    lr_scheduler = "MultiStepLR"  # "ReduceLROnPlateau", "LambdaLR", "MultiStepLR", "LRScheduler", None
+    # lr_milestones = [30, 60] #[100, 150]
+    lr_scheduler = "LambdaLR"  # "ReduceLROnPlateau", "LambdaLR", "MultiStepLR", "LRScheduler", None
 
     # Number of workers, i.e., number of threads for loading data
     num_workers = 0
