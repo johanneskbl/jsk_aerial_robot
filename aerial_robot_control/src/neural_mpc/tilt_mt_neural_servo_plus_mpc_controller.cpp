@@ -876,10 +876,9 @@ void nmpc::TiltMtNeuralServoPlusMPC::allocateToXUwOneFixedRotor(int fix_rotor_id
 }
 
 /**
- * @brief callbackRecord: publish the current, predicted and reference trajectory with full state and controls vectors for dataset recording
- * @param [ros::TimerEvent&] event
+ * @brief publishRecording: publish the current, predicted and reference trajectory with full state and controls vectors for dataset recording
  */
-void nmpc::TiltMtNeuralServoPlusMPC::callbackRecord(const ros::TimerEvent& event)
+void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
 {
   int& NN = mpc_solver_ptr_->NN_;
   stamp = ros::Time::now();
