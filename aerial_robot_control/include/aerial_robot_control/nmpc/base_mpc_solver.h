@@ -39,6 +39,9 @@ private:
 class BaseMPCSolver
 {
 public:
+  // status
+  int status;
+
   // acados params
   int NN_, NX_, NZ_, NU_, NP_, NBX_, NBX0_, NBU_, NSBX_, NSBU_, NSH_, NSH0_, NSG_, NSPHI_, NSHN_, NSGN_, NSPHIN_,
       NSPHI0_, NSBXN_, NS_, NS0_, NSN_, NG_, NBXN_, NGN_, NY0_, NY_, NYN_, NH_, NH0_, NPHI0_, NPHI_, NHN_, NPHIN_, NR_;
@@ -54,6 +57,7 @@ public:
   // weights
   std::vector<double> W_;
   std::vector<double> WN_;
+
 
   BaseMPCSolver() = default;           // should be overridden by the derived class
   virtual ~BaseMPCSolver() = default;  // if the class has virtual functions, then the destructor should be virtual, but
@@ -140,7 +144,7 @@ public:
       printAcadosStatus(min_time);
     }
 
-    return 0;
+    return status;
   }
 
   /* Setters */
@@ -362,7 +366,7 @@ public:
     acadosPrintStats();
 
     std::cout << "\nSolver info:\n";
-    std::cout << " SQP iterations " << sqp_iter << "\n minimum time for 1 solve " << min_time * 1000 << " [ms]\n KKT "
+    std::cout << " Status " << status << " | SQP iterations " << sqp_iter << "\n minimum time for 1 solve " << min_time * 1000 << " [ms]\n KKT "
               << kkt_norm_inf << std::endl;
   }
 
@@ -504,7 +508,7 @@ protected:
     double min_time = 1e12;
     double elapsed_time;
 
-    int status = acadosSolve();
+    status = acadosSolve();
     if (status != ACADOS_SUCCESS)
       throw AcadosSolveException(status);
 

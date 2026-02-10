@@ -63,6 +63,7 @@ protected:
   ros::Time stamp;
   ros::Timer tmr_viz_;
 
+  ros::Publisher pub_solver_status_;
   ros::Publisher pub_record_curr_;                // for dataset recording
   ros::Publisher pub_record_ref_;                 // for dataset recording
   ros::Publisher pub_record_pred_;                // for dataset recording
@@ -80,6 +81,9 @@ protected:
   ros::Subscriber sub_set_ref_x_u_;
   ros::Subscriber sub_set_traj_;
   ros::Subscriber sub_set_fixed_rotor_;
+
+  int solver_status;
+  std_msgs::UInt8 status_msg;
 
   bool is_attitude_ctrl_;
   bool is_body_rate_ctrl_;

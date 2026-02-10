@@ -11,6 +11,7 @@ scipy==1.15.3
 scikit-build==0.18.1
 scikit-learn==1.6.1
 casadi==3.7.0
+l4casadi==2.0.0
 transformations==2025.1.1
 pyquaternion==0.9.9
 pyyaml==5.4.1

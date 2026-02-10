@@ -41,6 +41,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoPlusMPC::callbackViz, this);
 
   /* publishers */
+  pub_solver_status_ = nh_.advertise<std_msgs::UInt8>("nmpc/solver_status", 1);
   pub_record_curr_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_curr", 1);
   pub_record_ref_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_ref", 1);
   pub_record_pred_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_pred", 1);
@@ -514,6 +515,10 @@ void nmpc::TiltMtNeuralServoPlusMPC::controlCore(bool is_warmup)
   }
   // The result is stored in mpc_solver_ptr_->uo_
 
+  // Status
+  status_msg.data = solver_status;
+  pub_solver_status_.publish(status_msg);
+
   /* get result */
   // - thrust
   for (int i = 0; i < motor_num_; i++)
@@ -924,6 +929,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
   ref_msg.header.frame_id = "world";
   ref_msg.header.stamp = stamp;
   ref_msg.states.resize(NN + 1);
+  ref_msg.controls.resize(NN);
 
   for (int i = 0; i <= NN; ++i)
   {
@@ -979,6 +985,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
   pred_msg.header.frame_id = "world";
   pred_msg.header.stamp = stamp;
   pred_msg.states.resize(NN + 1);
+  pred_msg.controls.resize(NN);
 
   for (int i = 0; i <= NN; ++i)
   {
