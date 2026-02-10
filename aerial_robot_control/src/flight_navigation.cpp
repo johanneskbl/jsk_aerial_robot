@@ -17,6 +17,8 @@ BaseNavigator::BaseNavigator()
   , xy_control_flag_(false)
   , z_control_flag_(false)
   , yaw_control_flag_(false)
+  , roll_control_flag_(false)
+  , pitch_control_flag_(false)
   , vel_based_waypoint_(false)
   , gps_waypoint_(false)
   , gps_waypoint_time_(0)
@@ -479,14 +481,84 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
     }
   }
 
-  /* turn to ACC_CONTROL_MODE */
-  if (joy_cmd.buttons[PS3_BUTTON_CROSS_DOWN] == 1)
+  /* Motion: Roll (using cross left/right) */
+  if (joy_cmd.buttons[PS3_BUTTON_CROSS_LEFT] == 1 || joy_cmd.buttons[PS3_BUTTON_CROSS_RIGHT] == 1)
   {
-    ROS_WARN("Foce change to attitude control");
+    if (getNaviState() == HOVER_STATE)
+    {
+      if (!roll_control_flag_) {
+        roll_control_flag_ = true;
+        ROS_INFO("Joy Control: starting body-frame roll control");
+      }
+      
+      // Set angular velocity around body x-axis (roll rate)
+      double roll_rate = 0;
+      if (joy_cmd.buttons[PS3_BUTTON_CROSS_RIGHT] == 1)
+        roll_rate = max_target_yaw_rate_ * 0.5; // positive roll rate (right)
+      else if (joy_cmd.buttons[PS3_BUTTON_CROSS_LEFT] == 1)
+        roll_rate = -max_target_yaw_rate_ * 0.5; // negative roll rate (left)
+      
+      setTargetOmegaX(roll_rate);
+      
+      // Also incrementally update target roll for position holding
+      double target_roll = getTargetRPY().x() + roll_rate * 0.05;
+      setTargetRoll(target_roll);
+    }
+  }
+  else
+  {
+    if (roll_control_flag_)
+    {
+      roll_control_flag_ = false;
+      setTargetOmegaX(0);
+      ROS_INFO("Joy Control: stopped roll control at angle: %f", getTargetRPY().x());
+    }
+  }
+
+  /* Motion: Pitch/Tilt (using cross up/down) */
+  if (joy_cmd.buttons[PS3_BUTTON_CROSS_UP] == 1 || joy_cmd.buttons[PS3_BUTTON_CROSS_DOWN] == 1)
+  {
+    if (getNaviState() == HOVER_STATE)
+    {
+      if (!pitch_control_flag_) {
+        pitch_control_flag_ = true;
+        ROS_INFO("Joy Control: starting body-frame pitch control");
+      }
+      
+      // Set angular velocity around body y-axis (pitch rate)
+      double pitch_rate = 0;
+      if (joy_cmd.buttons[PS3_BUTTON_CROSS_UP] == 1)
+        pitch_rate = max_target_yaw_rate_ * 0.5; // positive pitch rate (forward)
+      else if (joy_cmd.buttons[PS3_BUTTON_CROSS_DOWN] == 1)
+        pitch_rate = -max_target_yaw_rate_ * 0.5; // negative pitch rate (backward)
+      
+      setTargetOmegaY(pitch_rate);
+      
+      // Also incrementally update target pitch for position holding
+      double target_pitch = getTargetRPY().y() + pitch_rate * 0.05;
+      setTargetPitch(target_pitch);
+    }
+  }
+  else
+  {
+    if (pitch_control_flag_)
+    {
+      pitch_control_flag_ = false;
+      setTargetOmegaY(0);
+      ROS_INFO("Joy Control: stopped pitch control at angle: %f", getTargetRPY().y());
+    }
+  }
+
+  /* turn to ACC_CONTROL_MODE */
+  if (joy_cmd.buttons[PS3_BUTTON_ACTION_SQUARE] == 1 && !force_att_control_flag_)
+  {
+    ROS_WARN("Force change to attitude control");
     force_att_control_flag_ = true;
     estimator_->setForceAttControlFlag(force_att_control_flag_);
     xy_control_mode_ = ACC_CONTROL_MODE;
   }
+  if (joy_cmd.buttons[PS3_BUTTON_ACTION_SQUARE] == 0 && force_att_control_flag_)
+    force_att_control_flag_ = false;
 
   /* change to vel control mode */
   if (joy_cmd.buttons[PS3_BUTTON_ACTION_TRIANGLE] == 1 && !vel_control_flag_)

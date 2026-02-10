@@ -310,6 +310,8 @@ protected:
   bool xy_control_flag_;
   bool z_control_flag_;
   bool yaw_control_flag_;
+  bool roll_control_flag_;
+  bool pitch_control_flag_;
   bool force_landing_flag_;
   bool joy_udp_;
   bool check_joy_stick_heart_beat_;
