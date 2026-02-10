@@ -156,7 +156,7 @@ class EnvConfig:
         "include_floor_bounds": False,
         "include_soft_constraints": False,
         "include_quaternion_constraint": False,
-        "include_delta_u": True,
+        "include_delta_u": False,
     }
 
     dataset_options = {"ds_name_suffix": "dataset_neural_sim_nominal_control"}  # "compare_nominal_neural_sim"}

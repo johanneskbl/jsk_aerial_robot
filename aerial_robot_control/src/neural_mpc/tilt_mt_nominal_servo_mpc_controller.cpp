@@ -109,7 +109,7 @@ bool nmpc::TiltMtNominalServoMPC::update()
   {
     controlCore();
     sendCmd();
-    publishRecording();
+    // publishRecording();
   }
 
   return true;
@@ -516,8 +516,8 @@ void nmpc::TiltMtNominalServoMPC::controlCore(bool is_warmup)
   // The result is stored in mpc_solver_ptr_->uo_
 
   // Status
-  status_msg.data = solver_status;
-  pub_solver_status_.publish(status_msg);
+  // status_msg.data = solver_status;
+  // pub_solver_status_.publish(status_msg);
 
   /* get result */
   // - thrust
