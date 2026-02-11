@@ -51,7 +51,7 @@ class CircleTraj(BaseTraj):
         self.r = 1  # radius in meters
         self.T = 10  # period in seconds
         self.omega = 2 * np.pi / self.T  # angular velocity
-        self.z = 0.1  # height in meters
+        self.z = 0.2  # height in meters
         self.z += 0.27  # height offset in meters; NOTE: ~0.27 is height of legs to offset coordinate system origin
 
     def get_2d_pt(self, t: float) -> Tuple[float, float, float, float, float, float]:
