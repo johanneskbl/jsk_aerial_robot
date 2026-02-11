@@ -41,7 +41,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoPlusMPC::callbackViz, this);
 
   /* publishers */
-  pub_solver_status_ = nh_.advertise<std_msgs::UInt8>("nmpc/solver_status", 1);
   pub_record_curr_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_curr", 1);
   pub_record_ref_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_ref", 1);
   pub_record_pred_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_pred", 1);
@@ -514,10 +513,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::controlCore(bool is_warmup)
     ROS_FATAL("MPC solver failed. Details: %s", e.what());
   }
   // The result is stored in mpc_solver_ptr_->uo_
-
-  // Status
-  status_msg.data = solver_status;
-  pub_solver_status_.publish(status_msg);
 
   /* get result */
   // - thrust

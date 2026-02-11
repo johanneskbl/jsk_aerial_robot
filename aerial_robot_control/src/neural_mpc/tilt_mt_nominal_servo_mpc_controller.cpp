@@ -41,7 +41,6 @@ void nmpc::TiltMtNominalServoMPC::initialize(ros::NodeHandle nh, ros::NodeHandle
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNominalServoMPC::callbackViz, this);
 
   /* publishers */
-  pub_solver_status_ = nh_.advertise<std_msgs::UInt8>("nmpc/solver_status", 1);
   pub_record_curr_ = nh_.advertise<aerial_robot_msgs::MPCState>("nmpc/record_curr", 1);
   pub_record_ref_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_ref", 1);
   pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
@@ -109,7 +108,7 @@ bool nmpc::TiltMtNominalServoMPC::update()
   {
     controlCore();
     sendCmd();
-    // publishRecording();
+    publishRecording();
   }
 
   return true;
@@ -507,17 +506,13 @@ void nmpc::TiltMtNominalServoMPC::controlCore(bool is_warmup)
   /* solve */
   try
   {
-    solver_status = mpc_solver_ptr_->solve(bx0, is_debug_);
+    mpc_solver_ptr_->solve(bx0, is_debug_);
   }
   catch (mpc_solver::AcadosSolveException& e)
   {
     ROS_FATAL("MPC solver failed. Details: %s", e.what());
   }
   // The result is stored in mpc_solver_ptr_->uo_
-
-  // Status
-  // status_msg.data = solver_status;
-  // pub_solver_status_.publish(status_msg);
 
   /* get result */
   // - thrust

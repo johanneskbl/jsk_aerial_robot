@@ -144,7 +144,7 @@ public:
       printAcadosStatus(min_time);
     }
 
-    return status;
+    return 0;
   }
 
   /* Setters */
