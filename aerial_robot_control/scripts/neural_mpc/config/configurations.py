@@ -154,7 +154,7 @@ class EnvConfig:
         "solver_type": "PARTIAL_CONDENSING_HPIPM",  # TODO actually implement this
         "terminal_cost": True,  # TODO actually implement this
         "include_floor_bounds": False,
-        "include_soft_constraints": False,
+        "include_soft_constraints": True,
         "include_quaternion_constraint": False,
         "include_delta_u": False,
     }
