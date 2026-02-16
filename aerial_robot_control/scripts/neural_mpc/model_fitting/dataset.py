@@ -86,28 +86,30 @@ class TrajectoryDataset(Dataset):
         return self.x[idx], self.y[idx]
 
     def prepare_data(self, state_feats, u_feats, y_reg_dims):
-        state_in = undo_jsonify(self.df["state_in"].to_numpy())
-        state_raw = state_in.copy()
-        state_out = undo_jsonify(self.df["state_out"].to_numpy())
+        state = undo_jsonify(self.df["state"].to_numpy())
+        state_prop = undo_jsonify(self.df["state_pred"].to_numpy())
         control = undo_jsonify(self.df["control"].to_numpy())
         dt = self.df["dt"].to_numpy()
         timestamp = self.df["timestamp"].to_numpy()
+
+        # Adjust for size of state_out
         if ModelFitConfig.prop_long_horizon:
-            state_prop = undo_jsonify(self.df["state_prop_long"].to_numpy())
-            state_prop = state_prop[10:, :]
-            state_in = state_in[:-10, :]
-            state_out = state_out[:-10, :]
+            # Offset by 10 because T_step is 0.1s but the data is sampled at 100Hz
+            state_out = state[10:, :]
+            state_in = state[:-10, :]
+            state_prop = state_prop[:-10, :]
             control = control[:-10, :]
             dt = dt[:-10]
             timestamp = timestamp[:-10]
+            state_raw = state_in.copy()
         else:
-            state_prop = undo_jsonify(self.df["state_prop_short"].to_numpy())
-            state_prop = state_prop[1:, :]
-            state_in = state_in[:-1, :]
-            state_out = state_out[:-1, :]
+            state_out = state[1:, :]
+            state_in = state[:-1, :]
+            state_prop = state_prop[:-1, :]
             control = control[:-1, :]
             dt = dt[:-1]
             timestamp = timestamp[:-1]
+            state_raw = state_in.copy()
 
         # Remove invalid entries (dt = 0)
         invalid = np.where(dt == 0)
@@ -150,15 +152,15 @@ class TrajectoryDataset(Dataset):
             # Don't transform labels but let network predict in world frame directly
             pass
         
-        if ModelFitConfig.prop_long_horizon:
-            # Shift output to correspond to state_prop after T_step seconds
-            next_timestamp = timestamp + T_step
-            next_idx = []
-            for t_next in next_timestamp:
-                idx_closest = (np.abs(timestamp - t_next)).argmin()
-                next_idx.append(idx_closest)
-            next_idx = np.array(next_idx)
-            state_out = state_out[next_idx, :]
+        # if ModelFitConfig.prop_long_horizon:
+        #     # Shift output to correspond to state_prop after T_step seconds
+        #     next_timestamp = timestamp + T_step
+        #     next_idx = []
+        #     for t_next in next_timestamp:
+        #         idx_closest = (np.abs(timestamp - t_next)).argmin()
+        #         next_idx.append(idx_closest)
+        #     next_idx = np.array(next_idx)
+        #     state_out = state_out[next_idx, :]
 
         # =============================================================
         # Compute residual dynamics of actual state and predicted (or "propagated") state
@@ -203,22 +205,22 @@ class TrajectoryDataset(Dataset):
         #                     j(w1*y2 - x1*z2 + y1*w2 + z1*x2)
         #                     k(w1*z2 + x1*y2 - y1*x2 + z1*w2)
         # NOTE: Here q1 is state_prop and q2 is state_out because we want to compute the error from propagated to actual
-        qw_prop = state_prop[:, 6]
-        qx_prop = state_prop[:, 7]
-        qy_prop = state_prop[:, 8]
-        qz_prop = state_prop[:, 9]
-        qw_out = state_out[:, 6]
-        qx_out = state_out[:, 7]
-        qy_out = state_out[:, 8]
-        qz_out = state_out[:, 9]
+        # qw_prop = state_prop[:, 6]
+        # qx_prop = state_prop[:, 7]
+        # qy_prop = state_prop[:, 8]
+        # qz_prop = state_prop[:, 9]
+        # qw_out = state_out[:, 6]
+        # qx_out = state_out[:, 7]
+        # qy_out = state_out[:, 8]
+        # qz_out = state_out[:, 9]
 
-        qe_w = qw_out * qw_prop - qx_out * qx_prop - qy_out * qy_prop - qz_out * qz_prop
-        qe_x = qw_out * qx_prop + qx_out * qw_prop + qy_out * qz_prop - qz_out * qy_prop
-        qe_y = qw_out * qy_prop - qx_out * qz_prop + qy_out * qw_prop + qz_out * qx_prop
-        qe_z = qw_out * qz_prop + qx_out * qy_prop - qy_out * qx_prop + qz_out * qw_prop
-        q_e = np.stack((qe_w, qe_x, qe_y, qe_z), axis=1)
-        y[:, 6:10] = q_e / np.expand_dims(dt, 1)
-        self.y_raw = y[:, y_reg_dims].copy()
+        # qe_w = qw_out * qw_prop - qx_out * qx_prop - qy_out * qy_prop - qz_out * qz_prop
+        # qe_x = qw_out * qx_prop + qx_out * qw_prop + qy_out * qz_prop - qz_out * qy_prop
+        # qe_y = qw_out * qy_prop - qx_out * qz_prop + qy_out * qw_prop + qz_out * qx_prop
+        # qe_z = qw_out * qz_prop + qx_out * qy_prop - qy_out * qx_prop + qz_out * qw_prop
+        # q_e = np.stack((qe_w, qe_x, qe_y, qe_z), axis=1)
+        # y[:, 6:10] = q_e / np.expand_dims(dt, 1)
+        # self.y_raw = y[:, y_reg_dims].copy()
         # =============================================================
 
         # Data filtering
@@ -234,9 +236,7 @@ class TrajectoryDataset(Dataset):
                 self.state_in_filtered = state_in.copy()
                 self.control_filtered = control.copy()
                 self.y_filtered = y[:, y_reg_dims].copy()
-        if ModelFitConfig.use_moving_average_filter and ModelFitConfig.use_moving_average_filter_only_label:
-            raise ValueError("Cannot use moving average filter only on labels when also using it on inputs.")
-        if ModelFitConfig.use_moving_average_filter_only_label:
+        elif ModelFitConfig.use_moving_average_filter_only_label:
             print(f"[DATASET] Applying moving average filter with window size {ModelFitConfig.window_size} to labels only.")
             y = moving_average_filter(y, window_size=ModelFitConfig.window_size)
         if ModelFitConfig.use_low_pass_filter:

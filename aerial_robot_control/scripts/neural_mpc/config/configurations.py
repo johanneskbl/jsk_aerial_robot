@@ -46,7 +46,7 @@ class EnvConfig:
             "plus_neural": True,
             "minus_neural": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
-            "neural_model_instance": "neuralmodel_167",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            "neural_model_instance": "neuralmodel_185",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
@@ -134,6 +134,20 @@ class EnvConfig:
             # 166 (bad learning): Same as 165 but lower grad loss and with zero-out loss
             # 167 [GOOD] (decent learning, good out, good cl, good sim): Same as 166 but with lower extra losses
             # 168 (good learning, decent out, more noisy cl)
+            # 169 (Bad generalization): On new dataset with correct recording
+            # 170 (decent generalization but almost no training 0.1->0.09): Same as 169 but with higher reg losses
+            # 171 (divergent loss): Same as 169 but with tiny network (8 nodes, 1 layer) ON ONLY JOY
+            # 172 (divergent loss): Same as 169 but with tiny network (8 nodes, 2 layers) ON ONLY JOY
+            # 175 (decent generalization!): Same as 169 but with dropout 0.5 & single layer ON ONLY JOY
+            # 176 (const loss, high val): Same as 175 but only with zero out reg and on full train dataset
+            # 177 (rising val loss): Same as 176 but with higher zero-out reg
+            # 179 (GOOD CL!, const loss, low val): Dropout on Input
+            # 180 (also good but slow learning): Same as 179 but with servo state as input and lower zero-out reg
+            # 181 (slightly better learning and still const val): Same as 180 but without zero-out reg (only dropout for regularization) (and lambda LR)
+            # 182 (same learning but worse val): Same as 181 but larger network (2 layers instead of 1))
+            # 183 (significantly better training but slightly worse val): Same as 181 but more nodes (62 nodes instead of 32))
+            # 184 (exactly the same): Same as 183 but with 2 layers instead of 1
+            # 185 (GOOD CL! good training, better val): Same as 183 but with zero out loss
             # ---- VAE ----
             # 1 (bad learning & stepwise output): Use VAE! NOT LEARNING LOGVAR
             # 2 (no learning & very low KL Loss): Learning logvar
@@ -156,7 +170,7 @@ class EnvConfig:
         "include_floor_bounds": False,
         "include_soft_constraints": True,
         "include_quaternion_constraint": False,
-        "include_delta_u": False,
+        "include_delta_u": True,
     }
 
     dataset_options = {"ds_name_suffix": "dataset_neural_sim_nominal_control"}  # "compare_nominal_neural_sim"}
@@ -260,8 +274,10 @@ class NetworkConfig:
 
     # Number of neurons in each hidden layer
     if model_type == "MLP":
+        # hidden_sizes = [8, 8]
+        hidden_sizes = [64]
         # hidden_sizes = [32, 32]
-        hidden_sizes = [64, 64]
+        # hidden_sizes = [64, 64]
         # hidden_sizes = [128, 256, 128, 64]
     elif model_type == "VAE":
         encoder_hidden_sizes = [16, 8]
@@ -288,12 +304,13 @@ class NetworkConfig:
     use_batch_norm = False
 
     # Use dropout after each layer
-    dropout_p = 0.0  # To disable dropout, set to 0.0
+    dropout_p = 0.5  # To disable dropout, set to 0.0
+    dropout_input = True
 
     # -----------------------------------------------------------------------------------------
 
     # Number of epochs
-    num_epochs = 100  # 200
+    num_epochs = 130
 
     # Batch size
     batch_size = 64
@@ -305,15 +322,15 @@ class NetworkConfig:
     # Optimizer
     optimizer = "AdamW"  # Options: "Adam", "SGD", "RMSprop", "Adagrad", "AdamW"
     # Weight decay (L2 regularization)
-    weight_decay = 1e-2  # Set to 0.0 to disable [1e-2 for AdamW, 1e-4 for Adam]
+    weight_decay = 1e-3  # Set to 0.0 to disable [1e-2 for AdamW, 1e-4 for Adam]
     # Zero-output regularization
-    zero_out_lambda = 1e-1  # Set to 0.0 to disable
+    zero_out_lambda = 1e-2  # Set to 0.0 to disable
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Penalize gradients
-    gradient_lambda = 1e0  # Set to 0.0 to disable
+    gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon
-    consistency_lambda = 1e-1  #1e-2 # 10.0  #1e4 # 5.0  # Set to 0.0 to disable
+    consistency_lambda = 0.0 #1e-1 # 10.0  #1e4 # 5.0  # Set to 0.0 to disable
     consistency_epsilon = 0.3  # Relative noise to input; Set to 0.0 to disable
     consistency_num_samples = 1
 
@@ -322,7 +339,7 @@ class NetworkConfig:
     # learning_rate = 1e-2  # for residual
     # learning_rate = 1e-5  # for temporal
     # learning_rate = 1e-3  # for LR scheduling
-    # lr_milestones = [30, 60] #[100, 150]
+    # lr_milestones = [50, 100] #[100, 150]
     lr_scheduler = "LambdaLR"  # "ReduceLROnPlateau", "LambdaLR", "MultiStepLR", "LRScheduler", None
 
     # Number of workers, i.e., number of threads for loading data
@@ -348,8 +365,8 @@ class ModelFitConfig:
     window_size = 5 #33  # Must be odd
 
     # ------- Coordinate Transform -------
-    input_transform = False
-    label_transform = False
+    input_transform = True
+    label_transform = True
 
     # ------- Pruning -------
     prune = False
@@ -364,7 +381,9 @@ class ModelFitConfig:
     save_plots = False
 
     # ------- Dataset loading -------
-    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_WITH_REF_ALL_PROP"
+    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
+    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ONLY_JOY"
+    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_WITH_REF_ALL_PROP"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_FULL"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_FOR_PAPER"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_GROUND_EFFECT_ONLY"
@@ -380,7 +399,8 @@ class ModelFitConfig:
     # residual neural sim nominal control 07, dataset 001: on simulator as large network trained with full state and transforms and L1 regularization
     # real machine GROUND_EFFECT_ONLY: hovering and ground effect data only (48k datapoints)
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_FOR_PAPER"
-    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
+    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
+    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
     val_ds_instance = "dataset_001"
     # === FROM HERE WITH MOVING AVERAGE FILTER APPLIED ===
     # NMPCTiltQdServo_real_machine_dataset_GROUND_EFFECT_ONLY,  dataset_002
@@ -390,7 +410,7 @@ class ModelFitConfig:
     state_feats.extend([3, 4, 5])  # [vx, vy, vz]
     state_feats.extend([6, 7, 8, 9])  # [qw, qx, qy, qz]
     # state_feats.extend([10, 11, 12])  # [roll_rate, pitch_rate, yaw_rate]
-    # state_feats.extend([13, 14, 15, 16])  # [servo_angle_1, servo_angle_2, servo_angle_3, servo_angle_4]
+    state_feats.extend([13, 14, 15, 16])  # [servo_angle_1, servo_angle_2, servo_angle_3, servo_angle_4]
     # state_feats.extend([17, 18, 19, 20, 21, 22])  # [fds_1, fds_2, fds_3, tau_ds_1, tau_ds_2, tau_ds_3]
     # state_feats.extend([17, 18, 19, 20])  # [thrust_1, thrust_2, thrust_3, thrust_4]
 

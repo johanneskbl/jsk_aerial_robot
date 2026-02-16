@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import rospkg
-from config.configurations import DirectoryConfig, NetworkConfig, ModelFitConfig
+from config.configurations import DirectoryConfig, NetworkConfig, ModelFitConfig, EnvConfig
 
 
 def safe_mkdir_recursive(directory, overwrite: bool = False):
@@ -239,7 +239,7 @@ def get_model_dir_and_file(ds_name, ds_instance, model_name):
                                                             and not key in ["state_feats", "u_feats", "y_reg_dims"]},
         "date": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
         "ds_mpc_type": metadata_dataset[ds_name]["mpc_type"],
-        "ds_mpc_params": metadata_dataset[ds_name]["mpc_params"],
+        "ds_mpc_params": metadata_dataset[ds_name]["mpc_params"] if not EnvConfig.run_options["real_machine"] else None,
         "ds_disturbances": metadata_dataset[ds_name][ds_instance]["disturbances"],
         "NetworkConfig": {key: value for (key, value) in vars(NetworkConfig).items() if not key.startswith("__")},
     }

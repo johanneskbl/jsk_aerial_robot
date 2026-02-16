@@ -29,6 +29,7 @@ class VAE(TorchMLCasadiModule):
         activation="relu",
         use_batch_norm=False,
         dropout_p=0.0,
+        dropout_input=False,
         x_mean=None,
         x_std=None,
         y_mean=None,
@@ -41,6 +42,8 @@ class VAE(TorchMLCasadiModule):
         # =============== Encoder ===============
         encoder_layers = []
         prev_size = in_size
+        if dropout_input:
+            encoder_layers.append(mcDropout(dropout_p))
         for i in range(len(encoder_hidden_sizes) + 1):  # +1 to compensate for input layer
             if i < len(encoder_hidden_sizes):
                 next_size = encoder_hidden_sizes[i]

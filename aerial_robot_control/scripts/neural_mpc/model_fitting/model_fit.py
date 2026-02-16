@@ -94,6 +94,7 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
             activation=NetworkConfig.activation,
             use_batch_norm=NetworkConfig.use_batch_norm,
             dropout_p=NetworkConfig.dropout_p,
+            dropout_input=NetworkConfig.dropout_input,
             x_mean=torch.tensor(train_dataset.x_mean),
             x_std=torch.tensor(train_dataset.x_std),
             y_mean=torch.tensor(train_dataset.y_mean),
@@ -227,6 +228,7 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
                     "activation": NetworkConfig.activation,
                     "use_batch_norm": NetworkConfig.use_batch_norm,
                     "dropout_p": NetworkConfig.dropout_p,
+                    "dropout_input": NetworkConfig.dropout_input,
                 }
             elif NetworkConfig.model_type == "VAE":
                 save_dict = {
@@ -240,6 +242,7 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
                     "activation": NetworkConfig.activation,
                     "use_batch_norm": NetworkConfig.use_batch_norm,
                     "dropout_p": NetworkConfig.dropout_p,
+                    "dropout_input": NetworkConfig.dropout_input,
                 }
             torch.save(save_dict, os.path.join(save_file_path, f"{save_file_name}.pt"))
     table.close()

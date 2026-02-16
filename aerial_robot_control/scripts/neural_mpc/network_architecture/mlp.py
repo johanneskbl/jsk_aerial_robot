@@ -17,6 +17,7 @@ class MLP(TorchMLCasadiModule):
         activation="relu",
         use_batch_norm=False,
         dropout_p=0.0,
+        dropout_input=False,
         x_mean=None,
         x_std=None,
         y_mean=None,
@@ -27,6 +28,8 @@ class MLP(TorchMLCasadiModule):
 
         layers = []
         prev_size = in_size
+        if dropout_input:
+            layers.append(mcDropout(dropout_p))
         for i in range(len(hidden_sizes) + 1):  # +1 to compensate for input layer
             if i < len(hidden_sizes):
                 next_size = hidden_sizes[i]

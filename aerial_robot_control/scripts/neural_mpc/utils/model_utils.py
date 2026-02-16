@@ -142,6 +142,7 @@ def load_model(model_options, sim_options, run_options):
             activation=saved_dict["activation"],
             use_batch_norm=saved_dict["use_batch_norm"],
             dropout_p=saved_dict["dropout_p"],
+            dropout_input=saved_dict["dropout_input"] if "dropout_input" in saved_dict else False,
             x_mean=torch.tensor(np.zeros((saved_dict["input_size"],))).float(),
             x_std=torch.tensor(np.zeros((saved_dict["input_size"],))).float(),
             y_mean=torch.tensor(np.zeros((saved_dict["output_size"],))).float(),
@@ -158,6 +159,7 @@ def load_model(model_options, sim_options, run_options):
             activation=saved_dict["activation"],
             use_batch_norm=saved_dict["use_batch_norm"],
             dropout_p=saved_dict["dropout_p"],
+            dropout_input=saved_dict["dropout_input"] if "dropout_input" in saved_dict else False,
             x_mean=torch.tensor(np.zeros((saved_dict["input_size"],))).float(),
             x_std=torch.tensor(np.zeros((saved_dict["input_size"],))).float(),
             y_mean=torch.tensor(np.zeros((saved_dict["output_size"],))).float(),
@@ -165,8 +167,8 @@ def load_model(model_options, sim_options, run_options):
         ).to(device)
 
     # Load weights and biases from saved model
-    neural_model.load_state_dict(saved_dict["state_dict"])
     neural_model.eval()
+    neural_model.load_state_dict(saved_dict["state_dict"])
 
     return neural_model, metadata
 
@@ -202,18 +204,19 @@ def cross_check_params(mpc_params, mlp_metadata):
     """
     Cross-check the MPC parameters with the metadata of the MLP model to ensure they match.
     """
-    if mpc_params["T_samp"] != mlp_metadata["ds_mpc_params"]["T_samp"]:
-        raise ValueError(
-            "Sampling time used in dataset for training the neural model doesn't match the MPC parameters."
+    if mlp_metadata["ds_mpc_params"]:
+        if mpc_params["T_samp"] != mlp_metadata["ds_mpc_params"]["T_samp"]:
+            raise ValueError(
+                "Sampling time used in dataset for training the neural model doesn't match the MPC parameters."
         )
 
-    if mpc_params["T_horizon"] != mlp_metadata["ds_mpc_params"]["T_horizon"]:
-        raise ValueError(
-            "Prediction horizon used in dataset for training the neural model doesn't match the MPC parameters."
-        )
+        if mpc_params["T_horizon"] != mlp_metadata["ds_mpc_params"]["T_horizon"]:
+            raise ValueError(
+                "Prediction horizon used in dataset for training the neural model doesn't match the MPC parameters."
+            )
 
-    if mpc_params["T_step"] != mlp_metadata["ds_mpc_params"]["T_step"]:
-        raise ValueError("Step time used in dataset for training the neural model doesn't match the MPC parameters.")
+        if mpc_params["T_step"] != mlp_metadata["ds_mpc_params"]["T_step"]:
+            raise ValueError("Step time used in dataset for training the neural model doesn't match the MPC parameters.")
 
 
 def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_dims, in_dim, out_dim, delay):
