@@ -99,7 +99,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
         sim_solver = create_acados_sim_solver(sim_rtnmpc, ocp_model, T_sim)
 
     # Undisturbed model for creating labels to train on
-    discretized_dynamics = init_forward_prop(rtnmpc, T_prop_step=T_prop_step, num_stages=4)  # T_prop_step
+    discretized_dynamics = init_forward_prop(rtnmpc, T_prop_step=T_prop_step, num_stages=4)
 
     # --- Set initial state ---
     if run_options["initial_state"] is None:
@@ -110,7 +110,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
         state_curr = run_options["initial_state"]
     state_curr_sim = state_curr.copy()
 
-    # --- Warm up network ---
+    # --- Warm up solver ---
     x_l = np.zeros((0, nx))
     u_l = np.zeros((0, nu))
     for i in range(N+1):
@@ -133,13 +133,8 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
     if run_options["preset_targets"] is not None:
         targets = run_options["preset_targets"]
     else:
+        # Takeoff
         targets = np.array([0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0])[np.newaxis, :]
-        # targets = sample_random_position_target(
-        #     np.array(state_curr[:3]),
-        #     sim_options["world_radius"],
-        #     aggressive=run_options["aggressive"],
-        #     low_flight=run_options["low_flight_targets"],
-        # )
     tracking_mode = "position"
     targets_reached = np.array([False for _ in targets])
 
@@ -209,18 +204,9 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 print(f"Euclidean dist: {(current_target[:3] - state_curr_sim[:3]) ** 2}")
                 print(f"Current state: {state_curr}")
                 i = 0
-                ocp_solver.set(0, "x", state_ref[-1, :])
-                sim_solver.set("x", state_ref[-1, :])
+                ocp_solver.set(0, "x", state_ref[-1, :])  # doesn't work
+                sim_solver.set("x", state_ref[-1, :])  # doesn't work
                 state_curr = state_ref[-1, :]
-
-            # --- Get current state ---
-            if u_cmd is None:
-                # If no command is available, use initial/last state
-                sim_solver.set("x", state_curr)
-                u_cmd = np.zeros((nu,))
-            else:
-                state_curr = sim_solver.get("x")
-                check_state_constraints(ocp_solver, state_curr, i)
 
             # --- Reference ---
             # Compute reference for Input u with an allocation matrix - TODO still makes sense if we don't know model in the first place?
@@ -230,6 +216,15 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             )
             # Track reference in solver over horizon
             rtnmpc.track(ocp_solver, state_ref, control_ref, u_cmd)
+
+            # --- Get current state ---
+            if u_cmd is None:
+                # If no command is available, use initial/last state
+                sim_solver.set("x", state_curr)  # doesn't work
+                u_cmd = np.zeros((nu,))
+            else:
+                state_curr = state_curr_sim.copy()
+                check_state_constraints(ocp_solver, state_curr, i)
 
             # --- Initial guess ---
             # TODO set initial guess to prev iteration?
@@ -284,7 +279,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 history = history[:-1, :]
                 history = np.append(np.append(state_curr, u_cmd)[np.newaxis, :], history, axis=0)
 
-            # --- Record time, target, current state and last optimized input ---
+            # --- Record time, reference, current state and last optimized input ---
             if recording or plot:
                 rec_dict["timestamp"] = np.append(rec_dict["timestamp"], t_now)
                 rec_dict["dt"] = np.append(  # -2 since current timestamp is just added on index -1
@@ -292,9 +287,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 )
                 rec_dict["comp_time"] = np.append(rec_dict["comp_time"], comp_time)
                 rec_dict["target"] = np.append(rec_dict["target"], current_target[np.newaxis, :], axis=0)
-                rec_dict["state_ref"] = np.append(
-                    rec_dict["state_ref"], state_ref[0:1, :], axis=0
-                )  # Assuming constant ref
+                rec_dict["state_ref"] = np.append(rec_dict["state_ref"], state_ref[0:1, :], axis=0)  # Assuming constant ref
                 rec_dict["state_in"] = np.append(rec_dict["state_in"], state_curr[np.newaxis, :], axis=0)
                 rec_dict["control"] = np.append(rec_dict["control"], u_cmd[np.newaxis, :], axis=0)
 
@@ -349,8 +342,8 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             while simulation_time < T_samp:
                 # Simulation runtime (inner loop)
                 simulation_time += T_sim
-                # --- Increment virutal time ---
-                # ASSUMPTION: Simulation time is exactly euqal to real time
+                # --- Increment virtual time ---
+                # ASSUMPTION: Simulation time is exactly equal to real time
                 # i.e., the simulation has a zero runtime
                 # This is somewhat realistic since in the real machine
                 # the simulation (i.e. measurement + estimation) is run

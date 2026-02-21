@@ -2,6 +2,12 @@ from config.configurations import EnvConfig
 from neural_controller import NeuralMPC
 
 model_options = EnvConfig.model_options
+sim_options = EnvConfig.sim_options
+sim_options["disturbances"]["cog_dist"] = False
+sim_options["disturbances"]["motor_noise"] = False
+sim_options["disturbances"]["drag"] = False
+sim_options["disturbances"]["payload"] = False
+
 
 controller_list = []
 controller_list.append("nominal")

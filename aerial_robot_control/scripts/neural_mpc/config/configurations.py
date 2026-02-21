@@ -104,7 +104,7 @@ class EnvConfig:
             # 128 (worse than 124): Same as 120 but with permutation symmetry loss (symmetry t1&t3, t2&t4, a1&a2, a3&a4)
             # 129 (very simple functions due not much learning): Same as 120 but with permutation symmetry loss (and on TRAIN ds) (symmetry thrust change 50% which two to swap, a1&a3, a2&a4)
             # 133 (no learning): Same as 120 but with label transform ON TRAIN
-            # ---- No symmetry loss and grad loss from here ----
+            # ---- No symmetry loss from here ----
             # 134 (symmetry doesnt make sense! UNSTABLE EVEN IN SIM FOR CIRC TRAJ!): Same as 120 / with consistency loss and weight decay L2 on TRAIN (no symmetry loss, no grad loss) ON TRAIN
             # 135 (better learning behavior for normal L2 loss): Same as 134 but with lower consistency weight and way lower epsilon ON TRAIN
             # 136 (good learning but unstable flight EVEN IN SIM): Same as 135 but with FULL state input and no servo cmd (no transform) && only normal loss + zero-out regularization loss ON TRAIN
@@ -138,6 +138,7 @@ class EnvConfig:
             # 170 (decent generalization but almost no training 0.1->0.09): Same as 169 but with higher reg losses
             # 171 (divergent loss): Same as 169 but with tiny network (8 nodes, 1 layer) ON ONLY JOY
             # 172 (divergent loss): Same as 169 but with tiny network (8 nodes, 2 layers) ON ONLY JOY
+            # --- all before don't have dropout ---
             # 175 (decent generalization!): Same as 169 but with dropout 0.5 & single layer ON ONLY JOY
             # 176 (const loss, high val): Same as 175 but only with zero out reg and on full train dataset
             # 177 (rising val loss): Same as 176 but with higher zero-out reg
@@ -170,7 +171,7 @@ class EnvConfig:
         "include_floor_bounds": False,
         "include_soft_constraints": True,
         "include_quaternion_constraint": False,
-        "include_delta_u": True,
+        "include_delta_u": False,
     }
 
     dataset_options = {"ds_name_suffix": "dataset_neural_sim_nominal_control"}  # "compare_nominal_neural_sim"}
@@ -187,14 +188,14 @@ class EnvConfig:
         "use_nominal_simulator": False,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_113",  # 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 25,
+        "max_sim_time": 45,
         "world_radius": 3,
         "seed": 897,
     }
 
     # Run options
     run_options = {
-        "real_machine": True,
+        "real_machine": False,
     }
 
     # Trajectory tracking options
@@ -207,7 +208,7 @@ class EnvConfig:
                 "lemniscate_I",
                 "lemniscate_II",
             ],  # "step", "hover", "takeoff", "smooth_takeoff", "circle"
-            "trajectory_length": 20.0,
+            "trajectory_length": 15.0,
         }
     )
 
