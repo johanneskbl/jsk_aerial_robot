@@ -199,6 +199,16 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
 
         while not finished:
             global_comp_time = time.time()
+
+            # --- Get current state ---
+            if u_cmd is None:
+                # If no command is available, use initial/last state
+                sim_solver.set("x", state_curr)  # doesn't work
+                u_cmd = np.zeros((nu,))
+            else:
+                state_curr = state_curr_sim.copy()
+                check_state_constraints(ocp_solver, state_curr, i)
+
             # --- Reference ---
             state_ref = np.zeros((N + 1, nx))
             state_ref[:, 6] = 1.0
@@ -266,15 +276,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                     control_ref[n, :] = control_ref_const[0, :]
             # Track reference in solver over horizon
             rtnmpc.track(ocp_solver, state_ref, control_ref, u_cmd)
-
-            # --- Get current state ---
-            if u_cmd is None:
-                # If no command is available, use initial/last state
-                sim_solver.set("x", state_curr)  # doesn't work
-                u_cmd = np.zeros((nu,))
-            else:
-                state_curr = state_curr_sim.copy()
-                check_state_constraints(ocp_solver, state_curr, i)
 
             # --- Initial guess ---
             # TODO set initial guess to prev iteration?

@@ -15363,6 +15363,74 @@
                 "lr_scheduler": "LambdaLR",
                 "num_workers": 0
             }
+        },
+        "neuralmodel_186": {
+            "ModelFitConfig": {
+                "prop_long_horizon": true,
+                "use_low_pass_filter": false,
+                "low_pass_filter_cutoff_input": 1.0,
+                "low_pass_filter_cutoff_label": 0.1,
+                "use_moving_average_filter": false,
+                "use_moving_average_filter_only_label": true,
+                "control_filtering": false,
+                "window_size": 5,
+                "input_transform": true,
+                "label_transform": true,
+                "prune": false,
+                "histogram_n_bins": 10,
+                "histogram_thresh": 0.001,
+                "vel_cap": 16,
+                "plot_dataset": false,
+                "save_plots": false,
+                "train_ds_name": "NMPCTiltQdServo_real_machine_dataset_TRAIN",
+                "train_ds_instance": "dataset_001",
+                "val_ds_name": "NMPCTiltQdServo_real_machine_dataset_VAL",
+                "val_ds_instance": "dataset_001",
+                "state_feats": "[2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16]",
+                "u_feats": "[0, 1, 2, 3, 4, 5, 6, 7]",
+                "y_reg_dims": "[3, 4, 5]"
+            },
+            "date": "2026-02-21 15:57:30",
+            "ds_mpc_type": "NMPCTiltQdServo",
+            "ds_mpc_params": null,
+            "ds_disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            },
+            "NetworkConfig": {
+                "model_type": "MLP",
+                "model_name": "residual_mlp",
+                "delay_horizon": 0,
+                "hidden_sizes": [
+                    32
+                ],
+                "activation": "GELU",
+                "use_batch_norm": false,
+                "dropout_p": 0.5,
+                "dropout_input": true,
+                "num_epochs": 130,
+                "batch_size": 64,
+                "loss_weight": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "optimizer": "AdamW",
+                "weight_decay": 0.001,
+                "zero_out_lambda": 0.01,
+                "l1_lambda": 0.0,
+                "gradient_lambda": 0.0,
+                "consistency_lambda": 0.0,
+                "consistency_epsilon": 0.3,
+                "consistency_num_samples": 1,
+                "learning_rate": 0.001,
+                "lr_scheduler": "LambdaLR",
+                "num_workers": 0
+            }
         }
     },
     "residual_vae": {

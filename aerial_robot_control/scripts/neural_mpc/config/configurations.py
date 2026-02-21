@@ -46,7 +46,7 @@ class EnvConfig:
             "plus_neural": True,
             "minus_neural": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
-            "neural_model_instance": "neuralmodel_185",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            "neural_model_instance": "neuralmodel_186",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
@@ -146,9 +146,10 @@ class EnvConfig:
             # 180 (also good but slow learning): Same as 179 but with servo state as input and lower zero-out reg
             # 181 (slightly better learning and still const val): Same as 180 but without zero-out reg (only dropout for regularization) (and lambda LR)
             # 182 (same learning but worse val): Same as 181 but larger network (2 layers instead of 1))
-            # 183 (significantly better training but slightly worse val): Same as 181 but more nodes (62 nodes instead of 32))
+            # 183 (significantly better training but slightly worse val): Same as 181 but more nodes, single layer (64 instead of 32x32))
             # 184 (exactly the same): Same as 183 but with 2 layers instead of 1
             # 185 (GOOD CL! good training, better val): Same as 183 but with zero out loss
+            # 186 (GOOD CL! worse train, same val): Same as 185 but with 32 nodes instead of 64 nodes (single layer)
             # ---- VAE ----
             # 1 (bad learning & stepwise output): Use VAE! NOT LEARNING LOGVAR
             # 2 (no learning & very low KL Loss): Learning logvar
@@ -195,7 +196,7 @@ class EnvConfig:
 
     # Run options
     run_options = {
-        "real_machine": False,
+        "real_machine": True,
     }
 
     # Trajectory tracking options
@@ -276,7 +277,8 @@ class NetworkConfig:
     # Number of neurons in each hidden layer
     if model_type == "MLP":
         # hidden_sizes = [8, 8]
-        hidden_sizes = [64]
+        hidden_sizes = [32]
+        # hidden_sizes = [64]
         # hidden_sizes = [32, 32]
         # hidden_sizes = [64, 64]
         # hidden_sizes = [128, 256, 128, 64]
