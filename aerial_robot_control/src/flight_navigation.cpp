@@ -550,28 +550,28 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
   }
 
   /* turn to ACC_CONTROL_MODE */
-  if (joy_cmd.buttons[PS3_BUTTON_ACTION_SQUARE] == 1 && !force_att_control_flag_)
+  if (joy_cmd.buttons[PS3_BUTTON_ACTION_TRIANGLE] == 1 && !force_att_control_flag_)
   {
     ROS_WARN("Force change to attitude control");
     force_att_control_flag_ = true;
     estimator_->setForceAttControlFlag(force_att_control_flag_);
     xy_control_mode_ = ACC_CONTROL_MODE;
   }
-  if (joy_cmd.buttons[PS3_BUTTON_ACTION_SQUARE] == 0 && force_att_control_flag_)
+  if (joy_cmd.buttons[PS3_BUTTON_ACTION_TRIANGLE] == 0 && force_att_control_flag_)
     force_att_control_flag_ = false;
 
   /* change to vel control mode */
-  if (joy_cmd.buttons[PS3_BUTTON_ACTION_TRIANGLE] == 1 && !vel_control_flag_)
-  {
-    ROS_INFO("change to vel pos-based control");
-    vel_control_flag_ = true;
-    force_att_control_flag_ = false;
-    xy_control_mode_ = VEL_CONTROL_MODE;
-    target_vel_.setValue(0, 0, 0);
-    target_acc_.setValue(0, 0, 0);
-  }
-  if (joy_cmd.buttons[PS3_BUTTON_ACTION_TRIANGLE] == 0 && vel_control_flag_)
-    vel_control_flag_ = false;
+  // if (joy_cmd.buttons[PS3_BUTTON_ACTION_TRIANGLE] == 1 && !vel_control_flag_)
+  // {
+  //   ROS_INFO("change to vel pos-based control");
+  //   vel_control_flag_ = true;
+  //   force_att_control_flag_ = false;
+  //   xy_control_mode_ = VEL_CONTROL_MODE;
+  //   target_vel_.setValue(0, 0, 0);
+  //   target_acc_.setValue(0, 0, 0);
+  // }
+  // if (joy_cmd.buttons[PS3_BUTTON_ACTION_TRIANGLE] == 0 && vel_control_flag_)
+  //   vel_control_flag_ = false;
 
   /* change to pos control mode */
   if (joy_cmd.buttons[PS3_BUTTON_ACTION_CROSS] == 1 && !pos_control_flag_)
