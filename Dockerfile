@@ -110,6 +110,7 @@ RUN echo "alias rosrun='rosrun 2> >(grep -v TF_REPEATED_DATA >&2) 2> >(grep -v b
 
 RUN echo '' >> /root/.bashrc
 RUN echo '# Workspace' >> /root/.bashrc
+RUN echo "alias jojo_ws='cd /root/ros/jojo_ws'" >> /root/.bashrc
 RUN echo "alias jsk_aerial_robot='cd /root/ros/jojo_ws/src/jsk_aerial_robot'" >> /root/.bashrc
 
 RUN echo '' >> /root/.bashrc
