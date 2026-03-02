@@ -28,7 +28,7 @@ plt.figure(figsize=(8, 3))
 
 # Fill regions with colors
 # Light red above prop_to_frame_ratio_no_collision
-plt.fill_between(N, prop_to_frame_ratio_no_collision, 1.0, alpha=0.3, color="lightcoral", label="Collision Risk")
+plt.fill_between(N, prop_to_frame_ratio_no_collision, 1.0, alpha=0.3, color="lightcoral", label="Collision Risk Zone")
 
 # Light blue between the two curves
 plt.fill_between(
@@ -37,20 +37,20 @@ plt.fill_between(
     prop_to_frame_ratio_no_collision,
     alpha=0.3,
     color="lightblue",
-    label="Aero-Interference Risk",
+    label="Aero-Interference Risk Zone",
 )
 
 # Light green below prop_to_frame_ratio_no_ae
 plt.fill_between(N, 0, prop_to_frame_ratio_no_ae, alpha=0.3, color="lightgreen", label="Safe Zone")
 
 # Plot the curves
-plt.plot(N, prop_to_frame_ratio_no_collision, marker="o", linewidth=2, label="Maximum No Collision")
-plt.plot(N, prop_to_frame_ratio_no_ae, marker="o", linewidth=2, label="Maximum No Aero-Interference")
+plt.plot(N, prop_to_frame_ratio_no_collision, marker="o", linewidth=2, label="No Collision Boundary")
+plt.plot(N, prop_to_frame_ratio_no_ae, marker="o", linewidth=2, label="No Aero-Interference Boundary")
 
 plt.legend()
 # plt.title("Minimum Propeller Size to Frame Size Ratio vs Number of Rotors")
-plt.xlabel("Number of Rotors $N$", fontsize=label_size)
-plt.ylabel("Propeller Size / Frame Size $R/l$", fontsize=label_size)
+plt.xlabel("Number of Tiltable-Rotors $N$", fontsize=label_size)
+plt.ylabel("Propeller Size $R$ / Frame Size $l$", fontsize=label_size)
 
 plt.legend(fontsize=label_size - 2)
 
