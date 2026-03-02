@@ -113,6 +113,32 @@ def get_alloc_mtx_tilt_tri():
     return alloc_matrix
 
 
+def get_alloc_mtx_tilt_general(rotor_num=5):  # rotors are evenly distributed in a circle
+    # Define Allocation Matrix
+    alloc_matrix = np.zeros((6, 2 * rotor_num))
+
+    sqrt_p_xy = np.sqrt(p1_b[0] ** 2 + p1_b[1] ** 2)
+    p_z = p1_b[2]
+    dr_init = dr1
+
+    angle_step = 2 * np.pi / rotor_num
+
+    p_b_list = []
+    dr_list = []
+
+    for i in range(rotor_num):
+        p_b_list.append([sqrt_p_xy * np.cos(i * angle_step), sqrt_p_xy * np.sin(i * angle_step), p_z])
+        dr_list.append(dr_init * ((-1) ** i))
+
+    for i in range(len(p_b_list)):
+        _fill_alloc_matrix_for_rotor(alloc_matrix, i, p_b_list[i], dr_list[i])
+
+    print("shape of alloc_mat", alloc_matrix.shape)
+    print("alloc_mat", alloc_matrix)
+    print("=======================\n")
+    return alloc_matrix
+
+
 def pseudoinverse_svd(mat, tolerance=1e-4):
     # Perform SVD
     U, singular_values, Vh = np.linalg.svd(mat, full_matrices=True)
