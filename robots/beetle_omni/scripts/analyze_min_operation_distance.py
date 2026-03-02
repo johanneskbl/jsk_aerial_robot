@@ -1,68 +1,45 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scienceplots
 
-l = 1.0
-R = 0.5 * l
-
-a = l / np.sqrt(2)
-P = np.array(
-    [
-        [a, a, 0.0],
-        [a, -a, 0.0],
-        [-a, a, 0.0],
-        [-a, -a, 0.0],
-    ]
-)
+R_div_l_set = [0.3, 0.5, 0.7]
 
 # 0..180 deg
-thetas_deg = np.linspace(0.0, 180.0, 721)
-thetas = np.deg2rad(thetas_deg)
+lambdas_deg = np.linspace(0.0, 180.0, 721)
+lambdas = np.deg2rad(lambdas_deg)
 
+d_div_l_grow = np.where(lambdas < np.pi / 2, np.sqrt(2) / 2 * np.cos(lambdas), np.sqrt(2) / 2 * np.cos(np.pi - lambdas))
+rod_div_l_grow = np.where(
+    lambdas < np.pi / 2, np.sqrt(0.5 * (1 + np.sin(lambdas) ** 2)), np.sqrt(0.5 * (1 + np.sin(np.pi - lambdas) ** 2))
+)
 
-def dist_point_to_segment(point, A, B):
-    AB = B - A
-    AP = point - A
-    denom = np.dot(AB, AB)
-    if denom < 1e-12:
-        return np.linalg.norm(point - A)
-    t = np.dot(AP, AB) / denom
-    t = np.clip(t, 0.0, 1.0)
-    closest = A + t * AB
-    return np.linalg.norm(point - closest)
+# ============== Plotting ==============
+plt.style.use(["science", "grid"])
+plt.rcParams.update({"font.size": 12})
+label_size = 13
 
+fig, ax1 = plt.subplots(figsize=(8, 3.7))
+for R_div_l in R_div_l_set:
+    ax1.plot(lambdas_deg, d_div_l_grow + R_div_l, label=f"$R/l$={R_div_l:.1f}")
 
-h_min = np.zeros_like(thetas)
-r_max = np.zeros_like(thetas)
-
-for k, th in enumerate(thetas):
-    n = np.array([np.cos(th), 0.0, np.sin(th)])  # unit
-
-    # minimum safe plane offset along +n
-    h = np.max(P @ n) + R
-    h_min[k] = h
-
-    O = np.zeros(3)
-    E = h * n  # can point "backward" when theta>90 deg
-
-    dmins = []
-    for p in P:
-        d_seg = dist_point_to_segment(p, O, E)
-        dmins.append(d_seg - R)
-
-    r_max[k] = max(0.0, min(dmins))
-
-print(f"r_max(0°)  = {r_max[0]:.6f} (expect {l/np.sqrt(2)-R:.6f})")
-print(f"r_max(180°)= {r_max[-1]:.6f} (should match 0° by symmetry if z=0 motors)")
-
-fig, ax1 = plt.subplots()
-ax1.plot(thetas_deg, h_min)
-ax1.set_xlabel("Tilt angle θ (deg), normal from +X to +Z to -X")
-ax1.set_ylabel("Minimum operating distance h_min")
+ax1.set_xlabel("Installing Angle $\\lambda$ [$^\circ$]", fontsize=label_size)
+ax1.set_ylabel("Min. Operation Dist. $d$ / Frame Size $l$", fontsize=label_size)
 ax1.grid(True)
+plt.legend(loc="lower left", fontsize=label_size - 2, framealpha=0.5)
 
 ax2 = ax1.twinx()
-ax2.plot(thetas_deg, r_max, color="orange")
-ax2.set_ylabel("Max support cylinder radius r_max")
+for R_div_l in R_div_l_set:
+    ax2.plot(lambdas_deg, rod_div_l_grow - R_div_l, label=f"$R/l$={R_div_l:.1f}", linestyle="dashed")
+ax2.set_ylabel("Max. Rod Radius $R_{\\rm rod}$ / Frame Size $l$", fontsize=label_size)
+plt.legend(loc="upper right", fontsize=label_size - 2, framealpha=0.5)
 
-plt.title("X-config: h_min and allowable support radius vs tilt angle (0–180°, R/l=0.5)")
+# plt.title("X-config: h_min and allowable support radius vs tilt angle (0–180°, R/l=0.5)")
+
+# legend
+plt.xlim(0, 180)
+# h_line = plt.Line2D([], [], color="blue", label="Minimum operating distance $h_{min}$")
+# r_line = plt.Line2D([], [], color="orange", label="Max support cylinder radius $r_{max}$")
+# plt.legend(handles=[h_line, r_line], fontsize=label_size - 2, loc="upper right")
+
+plt.tight_layout()
 plt.show()
