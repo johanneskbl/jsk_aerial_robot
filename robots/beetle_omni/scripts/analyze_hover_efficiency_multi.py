@@ -62,6 +62,82 @@ def compute_hover_efficiency(num_rotor, roll_grid, yaw_grid, fg_w):
     return result_hover_thrust_map
 
 
+def annotate_keypoints(
+    ax,
+    data,
+    roll_grid,
+    yaw_grid,
+    points,
+    text_color="white",
+    point_color="red",
+    fontsize=12,
+    point_size=15,
+    bbox=None,
+    value_fmt="{:.3f}",
+    xytext=(6, 6),
+):
+    """
+    Annotate selected keypoints on a heatmap.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes.
+    data : np.ndarray
+        Heatmap data with shape (len(roll_grid), len(yaw_grid)),
+        indexed as data[i_roll, j_yaw].
+    roll_grid, yaw_grid : np.ndarray
+        1D grids used to generate the heatmap.
+    points : list[tuple]
+        List of (roll_deg, yaw_deg, label_str_or_None).
+        If label is None, an automatic label will be generated.
+    text_color, point_color : str
+        Text and marker colors.
+    fontsize : int
+        Font size for annotation text.
+    point_size : float
+        Marker size for the keypoint.
+    bbox : dict or None
+        Matplotlib bbox style dict for the text background.
+    value_fmt : str
+        Format string for the displayed value (e.g., "{:.4f}").
+    xytext : tuple[int, int]
+        Pixel offset of the text relative to the point.
+    """
+    if bbox is None:
+        bbox = dict(boxstyle="round,pad=0.25", fc="black", ec="none", alpha=0.6)
+
+    for roll_deg, yaw_deg, label in points:
+        # Find nearest indices on the roll/yaw grids (robust to non-1deg resolution)
+        i = int(np.argmin(np.abs(roll_grid - roll_deg)))
+        j = int(np.argmin(np.abs(yaw_grid - yaw_deg)))
+
+        val = float(data[i, j])
+
+        # Draw the keypoint marker
+        ax.scatter([yaw_grid[j]], [roll_grid[i]], s=point_size, c=point_color, marker="o", zorder=5)
+
+        # Compose label text
+        if label is None:
+            label = f"r={roll_grid[i]:g}, y={yaw_grid[j]:g}\n{value_fmt.format(val)}"
+        else:
+            label = f"{label}\n{value_fmt.format(val)}"
+
+        # Add annotation
+        ax.annotate(
+            label,
+            (yaw_grid[j], roll_grid[i]),
+            textcoords="offset points",
+            xytext=xytext,
+            ha="center",
+            va="center",
+            color=text_color,
+            fontsize=fontsize,
+            bbox=bbox,
+            zorder=6,
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Analyze hovering efficiency under different attitudes for multiple rotor configurations."
@@ -70,14 +146,14 @@ if __name__ == "__main__":
         "--resolution",
         "-r",
         type=float,
-        default=15,
+        default=1,
         help="Angular resolution in degrees for the attitude grid. Covering 0 to 180 degrees in roll and yaw.",
     )
     parser.add_argument(
         "--show_thrust_or_ratio",
         "-s",
         choices=["thrust", "ratio"],
-        default="thrust",
+        default="ratio",
         help="Choose whether to show absolute thrust values ('thrust') or thrust-to-weight ratio ('ratio') in the plot.",
     )
 
@@ -116,8 +192,38 @@ if __name__ == "__main__":
 
     # Create 2x2 subplot layout
     plt.style.use(["science", "grid"])
-    plt.rcParams.update({"font.size": 12})
-    label_size = 14
+    plt.rcParams.update({"font.size": 14})
+    label_size = 16
+
+    # =========================
+    # Global annotation settings (tune these in one place)
+    # =========================
+    ANNO_TEXT_COLOR = "white"
+    ANNO_POINT_COLOR = "red"
+    ANNO_FONTSIZE = 14
+    ANNO_POINT_SIZE = 12
+    ANNO_BBOX = dict(boxstyle="round,pad=0.25", fc="black", ec="none", alpha=0.1)
+
+    # Each point is: (roll_deg, yaw_deg, label_str_or_None)
+    # - label is a custom string, or None to auto-generate (coords + value)
+    ANNO_POINTS_BY_CONFIG = {
+        3: [  # Tri
+            (90, -45, "(-45$^\circ$, 90$^\circ$)"),
+            (90, 45, "(45$^\circ$, 90$^\circ$)"),
+        ],
+        4: [  # Quad
+            (90, -90, "(-90$^\circ$, 90$^\circ$)"),
+            (90, 45, "(45$^\circ$, 90$^\circ$)"),
+        ],
+        5: [  # Penta
+            (90, -90, "(-90$^\circ$, 90$^\circ$)"),
+            (90, 36, "(36$^\circ$, 90$^\circ$)"),
+        ],
+        6: [  # Hex
+            (90, -60, "(-60$^\circ$, 90$^\circ$)"),
+            (90, 30, "(30$^\circ$, 90$^\circ$)"),
+        ],
+    }
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 8), sharex=True, sharey=True)
 
@@ -136,6 +242,36 @@ if __name__ == "__main__":
             vmax=vmax,
             aspect="auto",
         )
+        # =========================
+        # Add keypoint annotations
+        # =========================
+        if num_rotor in ANNO_POINTS_BY_CONFIG:
+            ax.text(
+                0.02,
+                0.98,
+                f"$N$={num_rotor}",
+                transform=ax.transAxes,  # use axes coordinates
+                ha="left",
+                va="top",
+                fontsize=16,
+                color="white",
+                bbox=dict(boxstyle="round,pad=0.25", fc="black", ec="none", alpha=0.0),
+                zorder=10,
+            )
+            annotate_keypoints(
+                ax=ax,
+                data=data,
+                roll_grid=roll_grid,
+                yaw_grid=yaw_grid,
+                points=ANNO_POINTS_BY_CONFIG[num_rotor],
+                text_color=ANNO_TEXT_COLOR,
+                point_color=ANNO_POINT_COLOR,
+                fontsize=ANNO_FONTSIZE,
+                point_size=ANNO_POINT_SIZE,
+                bbox=ANNO_BBOX,
+                value_fmt="{:.3f}",  # Increase precision if needed, e.g., "{:.4f}"
+                xytext=(0, -60),  # Text offset (pixels)
+            )
         images.append(im)
 
         # ax.set_title(title, fontsize=label_size)
@@ -144,11 +280,15 @@ if __name__ == "__main__":
         # Set labels only for edge subplots
         if row == 1:  # Bottom row
             ax.set_xlabel("Yaw $\\psi$ [$^{\circ}$]", fontsize=label_size)
+            # set x-ticks
+            ax.set_xticks(np.array([-180, -90, 0, 90, 180]))
         if col == 0:  # Left column
             ax.set_ylabel("Roll $\\alpha$ [$^{\circ}$]", fontsize=label_size)
+            # set y-ticks
+            ax.set_yticks(np.array([0, 45, 90, 135, 180]))
 
     # Add a single horizontal colorbar at the bottom
-    fig.subplots_adjust(bottom=0.15, hspace=0.05, wspace=0.05)
+    fig.subplots_adjust(bottom=0.15, hspace=0.1, wspace=0.1)
     cbar_ax = fig.add_axes([0.12, 0.06, 0.78, 0.02])  # [left, bottom, width, height]
     cbar = fig.colorbar(images[0], cax=cbar_ax, orientation="horizontal")
 
