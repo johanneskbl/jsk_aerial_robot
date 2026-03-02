@@ -13,17 +13,18 @@ import cvxpy as cp
 import matplotlib.pyplot as plt
 import scienceplots
 
-from analyze_allocation import get_alloc_mtx_tilt_qd, get_alloc_mtx_tilt_tri, get_cmd_w_inv_mat
+from analyze_allocation import get_alloc_mtx_tilt_qd, get_alloc_mtx_tilt_tri, get_alloc_mtx_tilt_general
+from analyze_allocation import get_cmd_w_inv_mat
 from analyze_allocation import mass, gravity
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Analyze hovering efficiency under different attitudes.")
     parser.add_argument(
-        "--arch",
-        "-a",
-        choices=["qd", "tri"],
+        "--num_rotor",
+        "-n",
+        type=int,
         required=True,
-        help="Choose the architecture to analyze: 'qd' for tiltable quadrotor, 'tri' for tiltable trirotor.",
+        help="Number of rotors in the configuration. 3, and 4 are specialized, more numbers are evenly distributed.",
     )
     parser.add_argument(
         "--resolution",
@@ -42,15 +43,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    qd_alloc_mat = get_alloc_mtx_tilt_qd()
-    qd_alloc_pinv = np.linalg.pinv(qd_alloc_mat)
-    tri_alloc_mat = get_alloc_mtx_tilt_tri()  # shutdown rotor 3 (1,2,4 active)
-    tri_alloc_pinv = np.linalg.pinv(tri_alloc_mat)
-
-    if args.arch == "qd":
-        alloc_pinv = qd_alloc_pinv
+    if args.num_rotor == 4:
+        alloc_mat = get_alloc_mtx_tilt_qd()
+    elif args.num_rotor == 3:
+        alloc_mat = get_alloc_mtx_tilt_tri()  # shutdown rotor 3 (1,2,4 active)
+        # alloc_mat = get_alloc_mtx_tilt_general(args.num_rotor)
     else:
-        alloc_pinv = tri_alloc_pinv
+        alloc_mat = get_alloc_mtx_tilt_general(args.num_rotor)
+
+    alloc_pinv = np.linalg.pinv(alloc_mat)
 
     fg_w = np.array([0, 0, mass * gravity])
 
