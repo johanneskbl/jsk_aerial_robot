@@ -52,6 +52,33 @@ ROTOR_UP_IDX = 0  # rotor 1
 ROTOR_DOWN_IDX = 2  # rotor 3
 
 
+def _fill_alloc_matrix_for_rotor(alloc_matrix, i, p_b, dr):
+    """
+    Fill allocation matrix entries for a single rotor.
+
+    Parameters:
+        alloc_matrix (np.ndarray): The allocation matrix to fill (modified in-place)
+        i (int): Rotor index (0-based)
+        p_b (list/array): Position vector of the rotor in body frame [x, y, z]
+        dr (float): Drag ratio for the rotor
+    """
+    sqrt_p_xy = np.sqrt(p_b[0] ** 2 + p_b[1] ** 2)
+
+    # Force entries
+    alloc_matrix[0, 2 * i] = p_b[1] / sqrt_p_xy
+    alloc_matrix[1, 2 * i] = -p_b[0] / sqrt_p_xy
+    alloc_matrix[2, 2 * i + 1] = 1
+
+    # Torque entries
+    alloc_matrix[3, 2 * i] = -dr * kq_d_kt * p_b[1] / sqrt_p_xy + p_b[0] * p_b[2] / sqrt_p_xy
+    alloc_matrix[4, 2 * i] = dr * kq_d_kt * p_b[0] / sqrt_p_xy + p_b[1] * p_b[2] / sqrt_p_xy
+    alloc_matrix[5, 2 * i] = -p_b[0] ** 2 / sqrt_p_xy - p_b[1] ** 2 / sqrt_p_xy
+
+    alloc_matrix[3, 2 * i + 1] = p_b[1]
+    alloc_matrix[4, 2 * i + 1] = -p_b[0]
+    alloc_matrix[5, 2 * i + 1] = -dr * kq_d_kt
+
+
 def get_alloc_mtx_tilt_qd():
     # Define Allocation Matrix
     alloc_matrix = np.zeros((6, 8))
@@ -61,23 +88,7 @@ def get_alloc_mtx_tilt_qd():
     dr_list = [dr1, dr2, dr3, dr4]
 
     for i in range(len(p_b_list)):
-        p_b = p_b_list[i]
-        sqrt_p_xy = np.sqrt(p_b[0] ** 2 + p_b[1] ** 2)
-        dr = dr_list[i]
-
-        # Force entries
-        alloc_matrix[0, 2 * i] = p_b[1] / sqrt_p_xy
-        alloc_matrix[1, 2 * i] = -p_b[0] / sqrt_p_xy
-        alloc_matrix[2, 2 * i + 1] = 1
-
-        # Torque entries
-        alloc_matrix[3, 2 * i] = -dr * kq_d_kt * p_b[1] / sqrt_p_xy + p_b[0] * p_b[2] / sqrt_p_xy
-        alloc_matrix[4, 2 * i] = dr * kq_d_kt * p_b[0] / sqrt_p_xy + p_b[1] * p_b[2] / sqrt_p_xy
-        alloc_matrix[5, 2 * i] = -p_b[0] ** 2 / sqrt_p_xy - p_b[1] ** 2 / sqrt_p_xy
-
-        alloc_matrix[3, 2 * i + 1] = p_b[1]
-        alloc_matrix[4, 2 * i + 1] = -p_b[0]
-        alloc_matrix[5, 2 * i + 1] = -dr * kq_d_kt
+        _fill_alloc_matrix_for_rotor(alloc_matrix, i, p_b_list[i], dr_list[i])
 
     print("shape of alloc_mat", alloc_matrix.shape)
     print("alloc_mat", alloc_matrix)
@@ -94,23 +105,7 @@ def get_alloc_mtx_tilt_tri():
     dr_list = [dr1, dr2, dr4]
 
     for i in range(len(p_b_list)):
-        p_b = p_b_list[i]
-        sqrt_p_xy = np.sqrt(p_b[0] ** 2 + p_b[1] ** 2)
-        dr = dr_list[i]
-
-        # Force entries
-        alloc_matrix[0, 2 * i] = p_b[1] / sqrt_p_xy
-        alloc_matrix[1, 2 * i] = -p_b[0] / sqrt_p_xy
-        alloc_matrix[2, 2 * i + 1] = 1
-
-        # Torque entries
-        alloc_matrix[3, 2 * i] = -dr * kq_d_kt * p_b[1] / sqrt_p_xy + p_b[0] * p_b[2] / sqrt_p_xy
-        alloc_matrix[4, 2 * i] = dr * kq_d_kt * p_b[0] / sqrt_p_xy + p_b[1] * p_b[2] / sqrt_p_xy
-        alloc_matrix[5, 2 * i] = -p_b[0] ** 2 / sqrt_p_xy - p_b[1] ** 2 / sqrt_p_xy
-
-        alloc_matrix[3, 2 * i + 1] = p_b[1]
-        alloc_matrix[4, 2 * i + 1] = -p_b[0]
-        alloc_matrix[5, 2 * i + 1] = -dr * kq_d_kt
+        _fill_alloc_matrix_for_rotor(alloc_matrix, i, p_b_list[i], dr_list[i])
 
     print("shape of alloc_mat", alloc_matrix.shape)
     print("alloc_mat", alloc_matrix)
