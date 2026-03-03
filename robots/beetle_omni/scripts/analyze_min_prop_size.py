@@ -45,14 +45,16 @@ plt.fill_between(N, 0, prop_to_frame_ratio_no_ae, alpha=0.3, color="lightgreen",
 
 # Plot the curves
 plt.plot(N, prop_to_frame_ratio_no_collision, marker="o", linewidth=2, label="No Collision Boundary")
-plt.plot(N, prop_to_frame_ratio_no_ae, marker="o", linewidth=2, label="No Aero-Interference Boundary")
+plt.plot(N, prop_to_frame_ratio_no_ae, marker="x", linewidth=2, label="No Aero-Interference Boundary")
 
-plt.legend()
+# our design point: N=4, R/l=0.2286/2/0.275
+plt.scatter(4, 0.2286 / 2 / 0.275, marker="*", color="red", s=150, label="Our Design (N=4, R/l=0.416)")
+
 # plt.title("Minimum Propeller Size to Frame Size Ratio vs Number of Rotors")
 plt.xlabel("Number of Tiltable-Rotors $N$", fontsize=label_size)
 plt.ylabel("Propeller Size $R$ / Frame Size $l$", fontsize=label_size)
 
-plt.legend(fontsize=label_size - 2)
+plt.legend(ncol=1, fontsize=label_size - 2, framealpha=0.85)
 
 # # set legend transparency
 # legend = plt.gca().get_legend()

@@ -2,7 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scienceplots
 
-R_div_l_set = [0.3, 0.5, 0.7]
+our_R_div_l = 0.2286 / 2 / 0.275
+
+R_div_l_set = [0.3, 0.5, 0.7, our_R_div_l]
 
 # 0..180 deg
 lambdas_deg = np.linspace(0.0, 180.0, 721)
@@ -20,7 +22,10 @@ label_size = 13
 
 fig, ax1 = plt.subplots(figsize=(8, 3.7))
 for R_div_l in R_div_l_set:
-    ax1.plot(lambdas_deg, d_div_l_grow + R_div_l, label=f"$R/l$={R_div_l:.1f}")
+    if not np.isclose(R_div_l, our_R_div_l):
+        ax1.plot(lambdas_deg, d_div_l_grow + R_div_l, label=f"$R/l$={R_div_l:.1f}")
+    else:
+        ax1.plot(lambdas_deg, d_div_l_grow + R_div_l, label=f"$R/l$={R_div_l:.3f} (Ours)")
 
 ax1.set_xlabel("Installing Angle $\\lambda$ [$^\circ$]", fontsize=label_size)
 ax1.set_ylabel("Min. Operation Dist. $d$ / Frame Size $l$", fontsize=label_size)
@@ -29,7 +34,10 @@ plt.legend(loc="lower left", fontsize=label_size - 2, framealpha=0.5)
 
 ax2 = ax1.twinx()
 for R_div_l in R_div_l_set:
-    ax2.plot(lambdas_deg, rod_div_l_grow - R_div_l, label=f"$R/l$={R_div_l:.1f}", linestyle="dashed")
+    if not np.isclose(R_div_l, our_R_div_l):
+        ax2.plot(lambdas_deg, rod_div_l_grow - R_div_l, label=f"$R/l$={R_div_l:.1f}", linestyle="dashed")
+    else:
+        ax2.plot(lambdas_deg, rod_div_l_grow - R_div_l, label=f"$R/l$={R_div_l:.3f}", linestyle="dashed")
 ax2.set_ylabel("Max. Rod Radius $R_{\\rm rod}$ / Frame Size $l$", fontsize=label_size)
 plt.legend(loc="upper right", fontsize=label_size - 2, framealpha=0.5)
 
