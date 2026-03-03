@@ -20,6 +20,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from analyze_allocation import get_alloc_mtx_tilt_qd
 from analyze_allocation import mass, gravity, p1_b
+from analyze_wrench_body_frame import check_wrench_available
 
 # ------------------------------------------------------------------------
 # CONSTANTS
@@ -30,41 +31,19 @@ WRENCH_ERROR_LIMIT = 1e-3
 
 
 # ------------------------------------------------------------------------
-
-
-def check_wrench_available(alloc_mtx, tgt_wrench, f_th_max=THRUST_MAX, wrench_error_limit=WRENCH_ERROR_LIMIT):
-    """
-    Determine whether the target wrench can be produced given:
-      - alloc_mtx: allocation matrix (6×8)
-      - tgt_wrench: desired wrench vector (6×1)
-      - f_th_max: maximum thrust magnitude per rotor
-      - wrench_error_limit: tolerated wrench error
-    Returns:
-      - (is_available: bool, wrench_error: float)
-    """
-    x = cp.Variable(8)
-    objective = cp.Minimize(cp.sum_squares(alloc_mtx @ x - tgt_wrench[:, 0]))
-
-    constraints = []
-    for i in range(4):
-        constraints.append(x[2 * i] ** 2 + x[2 * i + 1] ** 2 <= f_th_max**2)
-
-    prob = cp.Problem(objective, constraints)
-    try:
-        prob.solve(verbose=False)
-    except cp.SolverError as e:
-        print(f"Solver error when checking wrench availability: {e}")
-        return False, np.inf
-
-    if prob.status not in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
-        return False, np.inf
-
-    wrench_error = np.linalg.norm(alloc_mtx @ x.value - tgt_wrench[:, 0])
-    return (wrench_error <= wrench_error_limit), wrench_error
-
-
 def find_max_wrench_for_orientation_world(
-    alloc_mtx, fg_w, roll_deg, pitch_deg, yaw_deg, search_min, search_max, mode="force", tol=1e-2, max_iters=30
+    alloc_mtx,
+    fg_w,
+    roll_deg,
+    pitch_deg,
+    yaw_deg,
+    search_min,
+    search_max,
+    mode="force",
+    tol=1e-2,
+    max_iters=30,
+    ex_f_w=np.zeros(3),
+    ex_tau_w=np.zeros(3),
 ):
     """
     Binary search to find the maximum force or torque along the WORLD z-axis
@@ -85,7 +64,8 @@ def find_max_wrench_for_orientation_world(
     # Compute rotation from world frame to body frame (R_bw)
     R_bw = R.from_euler("zyx", [yaw_deg, pitch_deg, roll_deg], degrees=True).as_matrix().T
     # Rotate gravity into body frame once
-    fg_b = R_bw @ fg_w
+    tgt_f_b = R_bw @ (fg_w + ex_f_w)
+    tgt_tau_b = R_bw @ ex_tau_w
 
     lo, hi = search_min, search_max
     best_value = search_min
@@ -99,10 +79,11 @@ def find_max_wrench_for_orientation_world(
         # Build target 6×1 wrench: [Fx; Fy; Fz; τx; τy; τz]
         tgt_wrench = np.zeros((6, 1))
         if mode == "force":
-            tgt_wrench[0:3, 0] = fg_b + mid_b
+            tgt_wrench[0:3, 0] = tgt_f_b + mid_b
+            tgt_wrench[3:6, 0] = tgt_tau_b
         elif mode == "torque":
-            tgt_wrench[0:3, 0] = fg_b
-            tgt_wrench[3:6, 0] = mid_b
+            tgt_wrench[0:3, 0] = tgt_f_b
+            tgt_wrench[3:6, 0] = tgt_tau_b + mid_b
         else:
             raise ValueError("mode must be 'force' or 'torque'")
 
