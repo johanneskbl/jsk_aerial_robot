@@ -44,6 +44,7 @@ def find_max_wrench_for_orientation_world(
     max_iters=30,
     ex_f_w=np.zeros(3),
     ex_tau_w=np.zeros(3),
+    install_angle_deg=90,  # Note: for horizontal push, the pitch_deg should be the same w. install angle.
 ):
     """
     Binary search to find the maximum force or torque along the WORLD z-axis
@@ -74,7 +75,8 @@ def find_max_wrench_for_orientation_world(
     iter_idx = 0
     for iter_idx in range(max_iters):
         mid = (lo + hi) / 2
-        mid_b = np.array([0.0, 0.0, mid])  # the end-effector is installed along the body z-axis
+        install_angle_rad = np.deg2rad(install_angle_deg)
+        mid_b = np.array([mid * np.cos(install_angle_rad), 0.0, mid * np.sin(install_angle_rad)])
 
         # Build target 6×1 wrench: [Fx; Fy; Fz; τx; τy; τz]
         tgt_wrench = np.zeros((6, 1))

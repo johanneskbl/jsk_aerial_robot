@@ -60,7 +60,7 @@ if __name__ == "__main__":
         "-n",
         type=int,
         default=20,
-        help="Number of samples to evaluate (default: 50).",
+        help="Number of samples to evaluate.",
     )
 
     args = parser.parse_args()
@@ -71,25 +71,39 @@ if __name__ == "__main__":
     alloc_mat = get_alloc_mtx_tilt_qd()
     fg_w = np.array([0.0, 0.0, mass * gravity])  # supporting gravity in world frame
 
+    install_ang_deg_list = [90.0, 60.0, 30.0, 0.0]  # the angle of end-effector
+
+    # === plot configuration ===
+    plt.style.use(["science", "grid"])
+    plt.rcParams.update({"font.size": 14})
+    label_size = 15
+    fig, ax = plt.subplots(figsize=(8, 4))
+    linewidth = 1.5
+    line_style_list = ["--", ":", "-.", "-"]
+
     if mode == "force_given_torque":
         thrust_limit = 6 * THRUST_MAX
 
         torque_list = np.linspace(0, 30, num_samples)
 
-        max_f_yaw_0_list = []
-        for given_torque in torque_list:
-            max_f, err = find_max_wrench_for_orientation_world(
-                alloc_mat,
-                fg_w,
-                roll_deg=0.0,
-                pitch_deg=90.0,
-                yaw_deg=0.0,
-                search_min=0.0,
-                search_max=thrust_limit,
-                mode="force",
-                ex_tau_w=np.array([given_torque, 0, 0]),
-            )
-            max_f_yaw_0_list.append(max_f)
+        max_f_data_list = []
+        for install_ang_deg in install_ang_deg_list:
+            max_f_list = []
+            for given_torque in torque_list:
+                max_f, err = find_max_wrench_for_orientation_world(
+                    alloc_mat,
+                    fg_w,
+                    roll_deg=0.0,
+                    pitch_deg=install_ang_deg,
+                    yaw_deg=0.0,
+                    search_min=0.0,
+                    search_max=thrust_limit,
+                    mode="force",
+                    ex_tau_w=np.array([given_torque, 0, 0]),
+                    install_angle_deg=install_ang_deg,
+                )
+                max_f_list.append(max_f)
+            max_f_data_list.append(max_f_list)
 
         max_f_yaw_45_list = []
         for given_torque in torque_list:
@@ -97,24 +111,29 @@ if __name__ == "__main__":
                 alloc_mat,
                 fg_w,
                 roll_deg=0.0,
-                pitch_deg=90.0,
+                pitch_deg=90,
                 yaw_deg=45.0,
                 search_min=0.0,
                 search_max=thrust_limit,
                 mode="force",
                 ex_tau_w=np.array([given_torque, 0, 0]),
+                install_angle_deg=90,
             )
             max_f_yaw_45_list.append(max_f)
 
-        plt.style.use(["science", "grid"])
-        plt.rcParams.update({"font.size": 12})
-        label_size = 13
-
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot(torque_list, np.array(max_f_yaw_0_list), label="$\\lambda=90^\circ$, x shape")
-        ax.plot(torque_list, np.array(max_f_yaw_45_list), label="$\\lambda=90^\circ$, + shape")
-        ax.set_xlabel(f"Required Torque $^W\\tau_z$ [N·m]", fontsize=label_size)
-        ax.set_ylabel(f"Maximum Force $^Wf_x$ [N]", fontsize=label_size)
+        # Plotting
+        ax.plot(torque_list, np.array(max_f_yaw_45_list), label="$\\lambda=90^\circ$, + config", linewidth=linewidth)
+        for install_ang_deg, max_f_list in zip(install_ang_deg_list, max_f_data_list):
+            idx = install_ang_deg_list.index(install_ang_deg)
+            ax.plot(
+                torque_list,
+                np.array(max_f_list),
+                label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$ config",
+                linewidth=linewidth,
+                linestyle=line_style_list[idx % len(line_style_list)],
+            )
+        ax.set_xlabel(f"Required Horizontal Torque $^W\\tau_z$ [N·m]", fontsize=label_size)
+        ax.set_ylabel(f"Max. Horizontal Force $^Wf_x$ [N]", fontsize=label_size)
         # ax.grid(True, alpha=0.3)
         ax.set_xlim(left=0, right=torque_list[-1])
         ax.set_ylim(bottom=0)
@@ -128,20 +147,25 @@ if __name__ == "__main__":
 
         force_list = np.linspace(0, 120, num_samples)
 
-        max_tau_yaw_0_list = []
-        for given_force in force_list:
-            max_tau, err = find_max_wrench_for_orientation_world(
-                alloc_mat,
-                fg_w,
-                roll_deg=0.0,
-                pitch_deg=90.0,
-                yaw_deg=0.0,
-                search_min=0.0,
-                search_max=thrust_limit,
-                mode="torque",
-                ex_f_w=np.array([given_force, 0, 0]),
-            )
-            max_tau_yaw_0_list.append(max_tau)
+        max_tau_data_list = []
+
+        for install_ang_deg in install_ang_deg_list:
+            max_tau_list = []
+            for given_force in force_list:
+                max_tau, err = find_max_wrench_for_orientation_world(
+                    alloc_mat,
+                    fg_w,
+                    roll_deg=0.0,
+                    pitch_deg=install_ang_deg,
+                    yaw_deg=0.0,
+                    search_min=0.0,
+                    search_max=thrust_limit,
+                    mode="torque",
+                    ex_f_w=np.array([given_force, 0, 0]),
+                    install_angle_deg=install_ang_deg,
+                )
+                max_tau_list.append(max_tau)
+            max_tau_data_list.append(max_tau_list)
 
         max_tau_yaw_45_list = []
         for given_force in force_list:
@@ -155,18 +179,29 @@ if __name__ == "__main__":
                 search_max=thrust_limit,
                 mode="torque",
                 ex_f_w=np.array([given_force, 0, 0]),
+                install_angle_deg=90.0,
             )
             max_tau_yaw_45_list.append(max_tau)
 
-        plt.style.use(["science", "grid"])
-        plt.rcParams.update({"font.size": 12})
-        label_size = 13
+        # Plotting
+        ax.plot(force_list, np.array(max_tau_yaw_45_list), label="$\\lambda=90^\circ$, + config", linewidth=linewidth)
+        for install_ang_deg, max_tau_list in zip(install_ang_deg_list, max_tau_data_list):
+            idx = install_ang_deg_list.index(install_ang_deg)
+            ax.plot(
+                force_list,
+                np.array(max_tau_list),
+                label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$ config",
+                linewidth=linewidth,
+                linestyle=line_style_list[idx % len(line_style_list)],
+            )
 
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot(force_list, np.array(max_tau_yaw_0_list), label="$\\lambda=90^\circ$, x shape")
-        ax.plot(force_list, np.array(max_tau_yaw_45_list), label="$\\lambda=90^\circ$, + shape")
-        ax.set_xlabel(f"Required Force $^Wf_x$ [N]", fontsize=label_size)
-        ax.set_ylabel(f"Maximum Torque $^W\\tau_z$ [N·m]", fontsize=label_size)
+        # fill between for the area under the curve of yaw 45
+        ax.fill_between(
+            force_list, np.array(max_tau_yaw_45_list), alpha=0.05, color="C0", label="Feasible region", zorder=-1
+        )
+
+        ax.set_xlabel(f"Required Horizontal Force $^Wf_x$ [N]", fontsize=label_size)
+        ax.set_ylabel(f"Max. Horizontal Torque $^W\\tau_z$ [N·m]", fontsize=label_size)
         # ax.grid(True, alpha=0.3)
         ax.set_xlim(left=0, right=force_list[-1])
         ax.set_ylim(bottom=0)
