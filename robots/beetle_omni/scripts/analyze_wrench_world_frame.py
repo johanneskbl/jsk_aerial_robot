@@ -25,7 +25,7 @@ from analyze_wrench_body_frame import check_wrench_available
 # ------------------------------------------------------------------------
 # CONSTANTS
 # ------------------------------------------------------------------------
-THRUST_MAX = 30.0
+THRUST_MAX = 23.0
 THRUST_MIN = 0.0
 WRENCH_ERROR_LIMIT = 1e-3
 

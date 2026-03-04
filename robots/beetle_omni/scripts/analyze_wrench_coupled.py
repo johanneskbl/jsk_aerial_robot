@@ -40,7 +40,7 @@ from analyze_wrench_world_frame import find_max_wrench_for_orientation_world
 # ------------------------------------------------------------------------
 # CONSTANTS
 # ------------------------------------------------------------------------
-THRUST_MAX = 30.0
+THRUST_MAX = 23.0
 THRUST_MIN = 0.0
 WRENCH_ERROR_LIMIT = 1e-3
 
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     if mode == "force_given_torque":
         thrust_limit = 6 * THRUST_MAX
 
-        torque_list = np.linspace(0, 30, num_samples)
+        torque_list = np.linspace(0, 20, num_samples)
 
         max_f_data_list = []
         for install_ang_deg in install_ang_deg_list:
@@ -104,6 +104,7 @@ if __name__ == "__main__":
                 )
                 max_f_list.append(max_f)
             max_f_data_list.append(max_f_list)
+            print(f"Finished computing for install angle {install_ang_deg} degrees.")
 
         max_f_yaw_45_list = []
         for given_torque in torque_list:
@@ -145,7 +146,7 @@ if __name__ == "__main__":
     if mode == "torque_given_force":
         thrust_limit = 6 * THRUST_MAX
 
-        force_list = np.linspace(0, 120, num_samples)
+        force_list = np.linspace(0, 90, num_samples)
 
         max_tau_data_list = []
 
@@ -166,6 +167,7 @@ if __name__ == "__main__":
                 )
                 max_tau_list.append(max_tau)
             max_tau_data_list.append(max_tau_list)
+            print(f"Finished computing for install angle {install_ang_deg} degrees.")
 
         max_tau_yaw_45_list = []
         for given_force in force_list:

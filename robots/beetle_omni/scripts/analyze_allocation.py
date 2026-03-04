@@ -38,7 +38,7 @@ kq_d_kt = physical_params["kq_d_kt"]
 t_servo = physical_params["t_servo"]  # time constant of servo
 t_rotor = physical_params["t_rotor"]  # time constant of rotor
 
-thrust_max = 30
+thrust_max = 23
 thrust_min = 0
 alpha_max = np.pi
 alpha_min = -np.pi
