@@ -71,7 +71,7 @@ if __name__ == "__main__":
     alloc_mat = get_alloc_mtx_tilt_qd()
     fg_w = np.array([0.0, 0.0, mass * gravity])  # supporting gravity in world frame
 
-    install_ang_deg_list = [90.0, 60.0, 30.0, 0.0]  # the angle of end-effector
+    install_ang_deg_list = [90, 75, 60, 45, 30, 15, 0, -45, -60]  # the angle of end-effector
 
     # === plot configuration ===
     plt.style.use(["science", "grid"])
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     label_size = 15
     fig, ax = plt.subplots(figsize=(8, 4))
     linewidth = 1.5
-    line_style_list = ["--", ":", "-.", "-"]
+    line_style_list = ["-"]
 
     if mode == "force_given_torque":
         thrust_limit = 6 * THRUST_MAX
@@ -186,28 +186,56 @@ if __name__ == "__main__":
             max_tau_yaw_45_list.append(max_tau)
 
         # Plotting
-        ax.plot(force_list, np.array(max_tau_yaw_45_list), label="$\\lambda=90^\circ$, + config", linewidth=linewidth)
+        ax.plot(force_list, np.array(max_tau_yaw_45_list), label="$\\lambda=90^\circ$, $+$", linewidth=linewidth)
         for install_ang_deg, max_tau_list in zip(install_ang_deg_list, max_tau_data_list):
             idx = install_ang_deg_list.index(install_ang_deg)
-            ax.plot(
-                force_list,
-                np.array(max_tau_list),
-                label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$ config",
-                linewidth=linewidth,
-                linestyle=line_style_list[idx % len(line_style_list)],
-            )
 
-        # fill between for the area under the curve of yaw 45
-        ax.fill_between(
-            force_list, np.array(max_tau_yaw_45_list), alpha=0.05, color="C0", label="Feasible region", zorder=-1
-        )
+            if install_ang_deg not in [0, -45, -60]:
+                ax.plot(
+                    force_list,
+                    np.array(max_tau_list),
+                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
+                    linewidth=linewidth,
+                    linestyle=line_style_list[idx % len(line_style_list)],
+                )
+            elif install_ang_deg == 0:
+                ax.plot(
+                    force_list,
+                    np.array(max_tau_list),
+                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
+                    linewidth=linewidth,
+                    linestyle="-.",
+                )
+            elif install_ang_deg == -45:
+                ax.plot(
+                    force_list,
+                    np.array(max_tau_list),
+                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
+                    color="C4",
+                    linewidth=linewidth,
+                    linestyle="--",
+                )
+            elif install_ang_deg == -60:
+                ax.plot(
+                    force_list,
+                    np.array(max_tau_list),
+                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
+                    color="C3",
+                    linewidth=linewidth,
+                    linestyle="--",
+                )
+
+        # # fill between for the area under the curve of yaw 45
+        # ax.fill_between(
+        #     force_list, np.array(max_tau_yaw_45_list), alpha=0.05, color="C0", label="Feasible region", zorder=-1
+        # )
 
         ax.set_xlabel(f"Required Horizontal Force $^Wf_x$ [N]", fontsize=label_size)
-        ax.set_ylabel(f"Max. Horizontal Torque $^W\\tau_z$ [N·m]", fontsize=label_size)
+        ax.set_ylabel(f"Max. Horizontal Torque $^W\\tau_x$ [N·m]", fontsize=label_size)
         # ax.grid(True, alpha=0.3)
         ax.set_xlim(left=0, right=force_list[-1])
         ax.set_ylim(bottom=0)
 
-        plt.legend(fontsize=label_size - 2, framealpha=0.85)
+        plt.legend(fontsize=label_size - 2, framealpha=0.85, ncol=2)
         plt.tight_layout()
         plt.show()
