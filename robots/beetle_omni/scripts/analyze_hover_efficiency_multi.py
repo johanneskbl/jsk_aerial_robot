@@ -249,7 +249,7 @@ if __name__ == "__main__":
             ax.text(
                 0.02,
                 0.98,
-                f"$N$={num_rotor}",
+                f"$N_p$={num_rotor}",
                 transform=ax.transAxes,  # use axes coordinates
                 ha="left",
                 va="top",
@@ -293,7 +293,7 @@ if __name__ == "__main__":
     cbar = fig.colorbar(images[0], cax=cbar_ax, orientation="horizontal")
 
     if args.show_thrust_or_ratio == "ratio":
-        cbar.set_label("Thrust-to-Weight Ratio", fontsize=label_size)
+        cbar.set_label("Thrust-to-Weight Ratio (TWR)", fontsize=label_size)
     else:
         cbar.set_label("Total Thrust [N]", fontsize=label_size)
 
