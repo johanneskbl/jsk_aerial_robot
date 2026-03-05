@@ -1,6 +1,7 @@
 """
 Created by li-jinjie on 25-6-1.
 """
+from numexpr.expressions import max_int32
 
 """
 Compute maximum thrust or torque in the world frame for a fully actuated omnidirectional aerial vehicle.
@@ -133,171 +134,288 @@ if __name__ == "__main__":
     alloc_mat = get_alloc_mtx_tilt_qd()
     fg_w = np.array([0.0, 0.0, mass * gravity])  # supporting gravity in world frame, so positive z-axis
 
-    yaw_list = np.linspace(-180, 180, int(360 / resolution) + 1)
-    pitch_list = np.linspace(0, 180, int(180 / resolution) + 1)
-
-    Nyaw = len(yaw_list)
-    Npitch = len(pitch_list)
+    plt.style.use(["science", "grid"])
+    plt.rcParams.update({"font.size": 14})
+    label_size = 15
 
     if mode == "force":
-        result_map = np.zeros((Npitch, Nyaw))
         thrust_limit = 6 * THRUST_MAX
 
-        for i, pitch_deg in enumerate(pitch_list):
-            max_f_list = []
-            for j, yaw_deg in enumerate(yaw_list):
+        install_angle_deg_list = [90, 90, 75, 60, 45, 30, 15, 0, -45, -60]
+        pitch_deg_list_list = []
+        max_f_result_list = []
+
+        has_plot_45deg = False
+
+        for install_angle_deg in install_angle_deg_list:
+            pitch_deg_list = np.linspace(-90 + install_angle_deg, 90 + install_angle_deg, int(180 / resolution) + 1)
+            max_f_result = np.zeros(len(pitch_deg_list))
+
+            if not has_plot_45deg:
+                yaw_deg = 45
+                has_plot_45deg = True
+            else:
+                yaw_deg = 0
+
+            for i, pitch_deg in enumerate(pitch_deg_list):
                 max_f, _ = find_max_wrench_for_orientation_world(
                     alloc_mat,
                     fg_w,
                     roll_deg=0.0,
                     pitch_deg=pitch_deg,
-                    yaw_deg=0.0,
+                    yaw_deg=yaw_deg,
                     search_min=0.0,
                     search_max=thrust_limit,
                     mode="force",
+                    install_angle_deg=install_angle_deg,
                 )
-                max_f_list.append(max_f)
-            result_map[i, :] = min(max_f_list)  # The result should be the same around the yaw axis
-            print(f"[World Force] Completed pitch = {pitch_deg:.1f}°")
 
-        if save_to_npz:
-            np.savez("world_force_map.npz", yaw_list=yaw_list, pitch_list=pitch_list, force_map=result_map)
-            print("Saved world-frame force map to 'world_force_map.npz'.")
+                max_f_result[i] = max_f
 
-        # ---------- Plot 3D surface in world frame ----------
-        dirs = []
-        mags = []
-        for i, pitch_deg in enumerate(pitch_list):
-            for j, yaw_deg in enumerate(yaw_list):
-                # Body z-axis expressed in world using zero roll
-                R_wb_zero_roll = R.from_euler("zyx", [yaw_deg, pitch_deg, 0.0], degrees=True).as_matrix().T
-                dir_z = R_wb_zero_roll[:, 2]
-                dirs.append(dir_z)
-                mags.append(result_map[i, j])
-        dirs = np.array(dirs)
-        mags = np.array(mags)
+            pitch_deg_list_list.append(pitch_deg_list)
+            max_f_result_list.append(max_f_result)
 
-        origins = np.zeros_like(dirs)
-        U = dirs[:, 0] * mags
-        V = dirs[:, 1] * mags
-        W = dirs[:, 2] * mags
+            print(f"[World Force] Completed install angle = {install_angle_deg:.1f}°")
 
-        endpoints = origins + np.column_stack((U, V, W))
-        X = endpoints[:, 0].reshape(Npitch, Nyaw)
-        Y = endpoints[:, 1].reshape(Npitch, Nyaw)
-        Z = endpoints[:, 2].reshape(Npitch, Nyaw)
+        # ---------- 2D X–Z projection plot ----------
+        fig, ax = plt.subplots(figsize=(5, 8))
 
-        norm = plt.Normalize(result_map.min(), result_map.max())
-        colors = cm.viridis(norm(result_map))
+        is_first = True
+        for i, install_angle_deg in enumerate(install_angle_deg_list):
+            pitch_deg_list = pitch_deg_list_list[i]
+            max_f_result = max_f_result_list[i]
 
-        # Create 3D surface plot for force
-        plt.style.use(["science"])
+            if is_first:
+                ax.plot(
+                    max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $+$",
+                    linestyle="-",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+                is_first = False
+                continue
 
-        fig = plt.figure(figsize=(5, 4))
-        ax = fig.add_subplot(111, projection="3d")
-        surf = ax.plot_surface(
-            X, Y, Z, facecolors=colors, rstride=1, cstride=1, linewidth=0, antialiased=False, shade=False
-        )
-        ax.set_xlabel("$^W f_x$ [N]")
-        ax.set_ylabel("$^W f_y$ [N]")
-        ax.set_zlabel("$^W f_z$ [N]")
-        ax.set_box_aspect((np.ptp(endpoints[:, 0]), np.ptp(endpoints[:, 1]), np.ptp(endpoints[:, 2])))
-        fig.savefig("world_force_3d.pdf", bbox_inches="tight", pad_inches=0.3)
+            if install_angle_deg not in [0, -45, -60]:
+                ax.plot(
+                    max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    # marker="o",
+                    linestyle="-",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+            elif install_angle_deg == 0:
+                ax.plot(
+                    max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    linestyle="-.",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+            elif install_angle_deg == -45:
+                ax.plot(
+                    max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    # marker="s",
+                    color="C4",
+                    linestyle="--",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+            else:  # install_angle_deg == -60
+                ax.plot(
+                    max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    # marker="s",
+                    color="C3",
+                    linestyle="--",
+                    linewidth=1.5,
+                    markersize=5,
+                )
 
-        # ---------- 2D X–Z projection scatter plot ----------
-        fig2 = plt.figure(figsize=(5, 4))
-        ax2 = fig2.add_subplot(111)
-        sc2 = ax2.scatter(endpoints[:, 0], endpoints[:, 2], c=mags, cmap="viridis", s=8)
-        ax2.set_xlabel("$^W f_x$ [N]")
-        ax2.set_ylabel("$^W f_z$ [N]")
-        ax2.set_aspect("equal", adjustable="box")
-        ax2.grid(True)
-        divider = make_axes_locatable(ax2)
-        cax = divider.append_axes("bottom", size="6%", pad=0.5)
-        cb = fig2.colorbar(sc2, cax=cax, orientation="horizontal")
-        cb.set_label("Force [N]")
-        plt.tight_layout(rect=[0, 0.0, 1.0, 1.1])
-        fig2.savefig("world_force_xz_projection.pdf", bbox_inches="tight", pad_inches=0.3)
+        ax.set_xlabel("$^W f_x$ [N]", fontsize=label_size)
+        ax.set_ylabel("$^W f_z$ [N]", fontsize=label_size)
+        ax.set_aspect("equal", adjustable="box")
+
+        # ---------- add polar-like rays from origin ----------
+        ray_min_deg, ray_max_deg = -90, 90
+        n_rays = int((ray_max_deg - ray_min_deg) / 10 + 1)
+        ray_len = None
+        if ray_len is None:
+            xmin, xmax = ax.get_xlim()
+            ymin, ymax = ax.get_ylim()
+            ray_len = 1.0 * max(abs(xmin), abs(xmax), abs(ymin), abs(ymax))
+
+        angles_deg = np.linspace(ray_min_deg, ray_max_deg, n_rays)
+        angles_rad = np.deg2rad(angles_deg)
+
+        for a_deg, a in zip(angles_deg, angles_rad):
+            factor = (ray_max_deg - a_deg) / (ray_max_deg - ray_min_deg) * 0.5 + 0.5
+            x_end = factor * ray_len * np.cos(a)
+            z_end = factor * ray_len * np.sin(a)
+            ax.plot([0, x_end], [0, z_end], color="0.7", linewidth=1.0, linestyle="--", zorder=0)
+
+            ax.text(
+                1.03 * x_end,
+                1.03 * z_end,
+                f"${-int(a_deg)}^\circ$",
+                fontsize=label_size - 2,
+                color="0.5",
+                ha="center",
+                va="center",
+            )
+
+        plt.legend(fontsize=label_size - 2, framealpha=0.5, loc="center left")
+
+        plt.tight_layout()
+        fig.savefig("world_force_xz_projection.pdf", bbox_inches="tight", pad_inches=0.3)
         plt.show()
 
     elif mode == "torque":
-        result_map = np.zeros((Npitch, Nyaw))
         torque_limit = 6 * THRUST_MAX * np.linalg.norm(p1_b[0:2])
 
-        for i, pitch_deg in enumerate(pitch_list):
-            max_tau_list = []
-            for j, yaw_deg in enumerate(yaw_list):
+        install_angle_deg_list = [90, 90, 75, 60, 45, 30, 15, 0, -45, -60]
+        pitch_deg_list_list = []
+        max_tau_result_list = []
+
+        has_plot_45deg = False
+
+        for install_angle_deg in install_angle_deg_list:
+            pitch_deg_list = np.linspace(-90 + install_angle_deg, 90 + install_angle_deg, int(180 / resolution) + 1)
+            max_tau_result = np.zeros(len(pitch_deg_list))
+
+            if not has_plot_45deg:
+                yaw_deg = 45
+                has_plot_45deg = True
+            else:
+                yaw_deg = 0
+
+            for i, pitch_deg in enumerate(pitch_deg_list):
                 max_tau, _ = find_max_wrench_for_orientation_world(
                     alloc_mat,
                     fg_w,
                     roll_deg=0.0,
                     pitch_deg=pitch_deg,
-                    yaw_deg=0.0,
+                    yaw_deg=yaw_deg,
                     search_min=0.0,
                     search_max=torque_limit,
                     mode="torque",
+                    install_angle_deg=install_angle_deg,
                 )
-                max_tau_list.append(max_tau)
-            result_map[i, :] = min(max_tau_list)  # The result should be the same around the yaw axis
-            print(f"[World Torque] Completed pitch = {pitch_deg:.1f}°")
 
-        if save_to_npz:
-            np.savez("world_torque_map.npz", yaw_list=yaw_list, pitch_list=pitch_list, torque_map=result_map)
-            print("Saved world-frame torque map to 'world_torque_map.npz'.")
+                max_tau_result[i] = max_tau
 
-        # ---------- Plot 3D surface in world frame (torque) ----------
-        dirs = []
-        mags = []
-        for i, pitch_deg in enumerate(pitch_list):
-            for j, yaw_deg in enumerate(yaw_list):
-                R_wb_zero_roll = R.from_euler("zyx", [yaw_deg, pitch_deg, 0.0], degrees=True).as_matrix().T
-                dir_z = R_wb_zero_roll[:, 2]
-                dirs.append(dir_z)
-                mags.append(result_map[i, j])
-        dirs = np.array(dirs)
-        mags = np.array(mags)
+            pitch_deg_list_list.append(pitch_deg_list)
+            max_tau_result_list.append(max_tau_result)
 
-        origins = np.zeros_like(dirs)
-        U = dirs[:, 0] * mags
-        V = dirs[:, 1] * mags
-        W = dirs[:, 2] * mags
+            print(f"[World Torque] Completed install angle = {install_angle_deg:.1f}°")
 
-        endpoints = origins + np.column_stack((U, V, W))
-        X = endpoints[:, 0].reshape(Npitch, Nyaw)
-        Y = endpoints[:, 1].reshape(Npitch, Nyaw)
-        Z = endpoints[:, 2].reshape(Npitch, Nyaw)
+        # ---------- 2D X–Z projection plot ----------
+        fig, ax = plt.subplots(figsize=(5, 8))
 
-        norm = plt.Normalize(result_map.min(), result_map.max())
-        colors = cm.plasma(norm(result_map))
+        is_first = True
+        for i, install_angle_deg in enumerate(install_angle_deg_list):
+            pitch_deg_list = pitch_deg_list_list[i]
+            max_tau_result = max_tau_result_list[i]
 
-        # Create 3D surface plot for force
-        plt.style.use(["science"])
+            if is_first:
+                ax.plot(
+                    max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $+$",
+                    linestyle="-",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+                is_first = False
+                continue
 
-        fig = plt.figure(figsize=(5, 4))
-        ax = fig.add_subplot(111, projection="3d")
-        surf = ax.plot_surface(
-            X, Y, Z, facecolors=colors, rstride=1, cstride=1, linewidth=0, antialiased=False, shade=False
-        )
-        ax.set_xlabel("$^W \\tau_x$ [N·m]")
-        ax.set_ylabel("$^W \\tau_y$ [N·m]")
-        ax.set_zlabel("$^W \\tau_z$ [N·m]")
-        ax.set_box_aspect((np.ptp(endpoints[:, 0]), np.ptp(endpoints[:, 1]), np.ptp(endpoints[:, 2])))
-        fig.savefig("world_torque_3d.pdf", bbox_inches="tight", pad_inches=0.3)
+            if install_angle_deg not in [0, -45, -60]:
+                ax.plot(
+                    max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    # marker="o",
+                    linestyle="-",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+            elif install_angle_deg == 0:
+                ax.plot(
+                    max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    linestyle="-.",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+            elif install_angle_deg == -45:
+                ax.plot(
+                    max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    # marker="s",
+                    color="C4",
+                    linestyle="--",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+            else:  # install_angle_deg == -60
+                ax.plot(
+                    max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
+                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    # marker="s",
+                    color="C3",
+                    linestyle="--",
+                    linewidth=1.5,
+                    markersize=5,
+                )
+        ax.set_xlabel("$^W \\tau_x$ [N·m]", fontsize=label_size)
+        ax.set_ylabel("$^W \\tau_z$ [N·m]", fontsize=label_size)
+        ax.set_aspect("equal", adjustable="box")
 
-        # ---------- 2D X–Z projection scatter plot for torque ----------
-        fig2 = plt.figure(figsize=(5, 4))
-        ax2 = fig2.add_subplot(111)
-        sc2 = ax2.scatter(endpoints[:, 0], endpoints[:, 2], c=mags, cmap="plasma", s=8)
-        ax2.set_xlabel("$^W \\tau_x$ [N·m]")
-        ax2.set_ylabel("$^W \\tau_z$ [N·m]")
-        ax2.set_aspect("equal", adjustable="box")
-        ax2.grid(True)
-        divider = make_axes_locatable(ax2)
-        cax = divider.append_axes("bottom", size="6%", pad=0.5)
-        cb = fig2.colorbar(sc2, cax=cax, orientation="horizontal")
-        cb.set_label("Torque [N·m]")
-        plt.tight_layout(rect=[0, 0.0, 1.0, 1.1])
-        fig2.savefig("world_torque_xz_projection.pdf", bbox_inches="tight", pad_inches=0.3)
+        # ---------- add polar-like rays from origin ----------
+        ray_min_deg, ray_max_deg = -90, 90
+        n_rays = int((ray_max_deg - ray_min_deg) / 10 + 1)
+        ray_len = None
+        if ray_len is None:
+            xmin, xmax = ax.get_xlim()
+            ymin, ymax = ax.get_ylim()
+            ray_len = 1.00 * max(abs(xmin), abs(xmax), abs(ymin), abs(ymax))
+
+        angles_deg = np.linspace(ray_min_deg, ray_max_deg, n_rays)
+        angles_rad = np.deg2rad(angles_deg)
+
+        for a_deg, a in zip(angles_deg, angles_rad):
+            if a_deg < 0:
+                factor = (ray_max_deg - a_deg) / (ray_max_deg - ray_min_deg) * 0.5 + 0.5
+            else:
+                factor = (a_deg - ray_min_deg) / (ray_max_deg - ray_min_deg) * 0.5 + 0.5
+
+            x_end = factor * ray_len * np.cos(a)
+            z_end = factor * ray_len * np.sin(a)
+            ax.plot([0, x_end], [0, z_end], color="0.7", linewidth=1.0, linestyle="--", zorder=0)
+
+            ax.text(
+                1.03 * x_end,
+                1.03 * z_end,
+                f"${-int(a_deg)}^\circ$",
+                fontsize=label_size - 2,
+                color="0.5",
+                ha="center",
+                va="center",
+            )
+
+        plt.legend(fontsize=label_size - 2, framealpha=0.5, loc="center left")
+        plt.tight_layout()
+        fig.savefig("world_torque_xz_projection.pdf", bbox_inches="tight", pad_inches=0.3)
         plt.show()
 
     else:
