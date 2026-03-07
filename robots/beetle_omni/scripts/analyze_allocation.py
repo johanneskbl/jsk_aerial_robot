@@ -322,7 +322,7 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------
     # (2)  YAW-ANGLE SWEEP (deg)
     # -------------------------------------------------------------------
-    yaw_deg = np.arange(40.0, 50.0 + 0.1, 0.1)
+    yaw_deg = np.arange(38.0, 52.0 + 0.1, 0.1)
 
     # -------------------------------------------------------------------
     # (3)  ARRAYS THAT STORE RESULTS FOR EVERY METHOD AND EVERY YAW
@@ -358,7 +358,7 @@ if __name__ == "__main__":
                 target_force = alloc_mat_inv_svd @ tgt_w
                 ft_ref, a_ref = full_force_to_cmd(target_force)
                 # 2) check if one rotor's thrust is less than threshold and flip backwards
-                ft_thresh = 1.0  # N
+                ft_thresh = 1.5  # N
                 rotor_idx_ft_cond = np.where(np.array(ft_ref) < ft_thresh)
                 rotor_idx_alpha_cond = np.where((np.array(a_ref) > np.pi / 2) | (np.array(a_ref) < -np.pi / 2))
                 rotor_idx = np.intersect1d(rotor_idx_ft_cond[0], rotor_idx_alpha_cond[0])
