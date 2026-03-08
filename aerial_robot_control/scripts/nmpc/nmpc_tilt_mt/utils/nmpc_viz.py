@@ -194,7 +194,9 @@ class Visualizer:
             plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
 
         # Plot Computation Time
-        print("Average computation time: ", np.mean(self.comp_time))
+        # Remove data below 0.0002s, since all the data of some rounds are not meaningful.
+        comp_time_filtered = self.comp_time[self.comp_time > 0.0002]
+        print("Average computation time: ", np.mean(comp_time_filtered))
         plt.subplot(ceil(n_plots / 2), 2, 6)
         plt.plot(time_data_x, self.comp_time)
         plt.xlabel("Time (s)")
