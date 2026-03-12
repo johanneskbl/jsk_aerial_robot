@@ -134,6 +134,7 @@ class EnvConfig:
             # 166 (bad learning): Same as 165 but lower grad loss and with zero-out loss
             # 167 [GOOD] (decent learning, good out, good cl, good sim): Same as 166 but with lower extra losses
             # 168 (good learning, decent out, more noisy cl)
+            # --- from here on complete recording dataset ---
             # 169 (Bad generalization): On new dataset with correct recording
             # 170 (decent generalization but almost no training 0.1->0.09): Same as 169 but with higher reg losses
             # 171 (divergent loss): Same as 169 but with tiny network (8 nodes, 1 layer) ON ONLY JOY
@@ -150,6 +151,7 @@ class EnvConfig:
             # 184 (exactly the same): Same as 183 but with 2 layers instead of 1
             # 185 (GOOD CL! good training, better val): Same as 183 but with zero out loss
             # 186 (GOOD CL! worse train, same val): Same as 185 but with 32 nodes instead of 64 nodes (single layer)
+            # 187 (decent learning): FOR ROBOMECH PAPER Same as 185 but on dataset with simulated labels (nominal control, sim 185 model)
             # ---- VAE ----
             # 1 (bad learning & stepwise output): Use VAE! NOT LEARNING LOGVAR
             # 2 (no learning & very low KL Loss): Learning logvar
@@ -188,9 +190,9 @@ class EnvConfig:
         },
         "use_nominal_simulator": False,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
-        "sim_neural_model_instance": "neuralmodel_113",  # 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 45,
-        "world_radius": 3,
+        "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
+        "max_sim_time": 10,
+        "world_radius": 2,
         "seed": 897,
     }
 
@@ -220,7 +222,7 @@ class EnvConfig:
             "low_flight_targets": True,
             "initial_state": None,
             "initial_guess": None,
-            "aggressive": True,
+            "aggressive": False,
         }
     )
 
@@ -390,7 +392,7 @@ class ModelFitConfig:
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_FULL"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_FOR_PAPER"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_GROUND_EFFECT_ONLY"
-    # train_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_07"
+    # train_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_03"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_06"
     train_ds_instance = "dataset_001"  # "dataset_020"
     # real machine 01, dataset 007: Large dataset from many old flights with mode 0 and other discrepancies (200k datapoints)
@@ -404,6 +406,7 @@ class ModelFitConfig:
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_FOR_PAPER"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
     val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    # val_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_03"
     val_ds_instance = "dataset_001"
     # === FROM HERE WITH MOVING AVERAGE FILTER APPLIED ===
     # NMPCTiltQdServo_real_machine_dataset_GROUND_EFFECT_ONLY,  dataset_002

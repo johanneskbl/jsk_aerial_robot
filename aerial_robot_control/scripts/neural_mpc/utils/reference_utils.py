@@ -56,7 +56,10 @@ def sample_random_position_target(current_pos, world_radius, aggressive=True, lo
 
     else:
         # Sample random target position
-        target_pos = np.random.uniform(-world_radius, world_radius, (1, 3))
+        target_x = np.random.uniform(-world_radius / 3, world_radius / 3)
+        target_y = np.random.uniform(-world_radius / 3, world_radius / 3)
+        target_z = np.random.uniform(0, world_radius)
+        target_pos = np.array([target_x, target_y, target_z])
 
     if low_flight:
         if np.random.random() < 0.8:

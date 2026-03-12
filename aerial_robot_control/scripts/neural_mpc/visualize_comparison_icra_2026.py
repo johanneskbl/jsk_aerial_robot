@@ -32,13 +32,16 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     """
     # Extract recorded data
     timestamp = rec_dict["timestamp"]
-    target_nominal = rec_dict["target_nominal"]
-    target_neural = rec_dict["target_neural"]
+    if "target_neural" in rec_dict.keys():
+        target_neural = rec_dict["target_neural"]
+        target_nominal = rec_dict["target_nominal"]
+    else:
+        target = rec_dict["target"]
+        target_nominal = None
     state_in_neural = rec_dict["state_in_neural"]
     state_in_nominal = rec_dict["state_in_nominal"]
     state_out_neural = rec_dict["state_out_neural"]
     state_out_nominal = rec_dict["state_out_nominal"]
-    state_prop = rec_dict["state_prop"]
     control_neural = rec_dict["control_neural"]
     control_nominal = rec_dict["control_nominal"]
     comp_time_neural = rec_dict["comp_time_neural"]
@@ -48,7 +51,7 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     plt.style.use(["science", "grid"])
     plt.rcParams.update({"font.size": 11})
     label_size = 14
-    figsize = (7, 6)
+    figsize = (7, 9)
     linewidth = 2
     alpha = 0.2
 
@@ -65,26 +68,36 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     # --- Position
     plt.subplots(figsize=figsize)
     plt.subplot(3, 1, 1)
-    plt.plot(
-        timestamp[idx_start:idx_end],
-        target_nominal[idx_start:idx_end, 0],
-        label=r"Nominal Reference",
-        color="tab:orange",
-        linestyle="--",
-        alpha=0.5,
-    )
-    plt.plot(
-        timestamp[idx_start:idx_end],
-        target_neural[idx_start:idx_end, 0],
-        label=r"Neural Reference",
-        color="tab:red",
-        linestyle="--",
-        alpha=0.5,
-    )
-    plt.plot(timestamp[idx_start:idx_end], state_out_nominal[idx_start:idx_end, 0], label=r"Nominal MPC")
+    if target_nominal is not None:
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target_nominal[idx_start:idx_end, 0],
+            label=r"Nominal Reference",
+            color="tab:orange",
+            linestyle="--",
+            # alpha=0.5,
+        )
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target_neural[idx_start:idx_end, 0],
+            label=r"Neural Reference",
+            color="tab:red",
+            linestyle="--",
+            # alpha=0.5,
+        )
+    else:
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target[idx_start:idx_end, 0],
+            label=r"Reference",
+            color="tab:red",
+            linestyle="--",
+            # alpha=0.5,
+        )
+    plt.plot(timestamp[idx_start:idx_end], state_out_nominal[idx_start:idx_end, 0], label=r"Nominal MPC", linewidth=linewidth)
     # plt.plot(timestamp[idx_start:idx_end], state_prop[idx_start:idx_end, 0], label=r"Nominal MPC")
     plt.plot(
-        timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 0], label=r"Neural MPC", color=matlab_yellow
+        timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 0], label=r"Neural MPC", color=matlab_yellow, linewidth=linewidth
     )
     plt.xlim(timestamp[idx_start], timestamp[idx_end - 1])
     plt.ylabel("$x$ [m]", fontsize=label_size)
@@ -94,25 +107,35 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     ax.axes.xaxis.set_ticklabels([])
 
     plt.subplot(3, 1, 2)
-    plt.plot(
-        timestamp[idx_start:idx_end],
-        target_nominal[idx_start:idx_end, 1],
-        label=r"Nominal Reference",
-        color="tab:orange",
-        linestyle="--",
-        alpha=0.5,
-    )
-    plt.plot(
-        timestamp[idx_start:idx_end],
-        target_neural[idx_start:idx_end, 1],
-        label=r"Neural Reference",
-        color="tab:red",
-        linestyle="--",
-        alpha=0.5,
-    )
-    plt.plot(timestamp[idx_start:idx_end], state_out_nominal[idx_start:idx_end, 1])
+    if target_nominal is not None:
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target_nominal[idx_start:idx_end, 1],
+            label=r"Nominal Reference",
+            color="tab:orange",
+            linestyle="--",
+            # alpha=0.5,
+        )
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target_neural[idx_start:idx_end, 1],
+            label=r"Neural Reference",
+            color="tab:red",
+            linestyle="--",
+            # alpha=0.5,
+        )
+    else:
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target[idx_start:idx_end, 1],
+            label=r"Reference",
+            color="tab:red",
+            linestyle="--",
+            # alpha=0.5,
+        )
+    plt.plot(timestamp[idx_start:idx_end], state_out_nominal[idx_start:idx_end, 1], linewidth=linewidth)
     # plt.plot(timestamp[idx_start:idx_end], state_prop[idx_start:idx_end, 1])
-    plt.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 1], color=matlab_yellow)
+    plt.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 1], color=matlab_yellow, linewidth=linewidth)
     plt.xlim(timestamp[idx_start], timestamp[idx_end - 1])
     plt.ylabel("$y$ [m]", fontsize=label_size)
     plt.grid("on")
@@ -120,25 +143,35 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     ax.axes.xaxis.set_ticklabels([])
 
     plt.subplot(3, 1, 3)
-    plt.plot(
-        timestamp[idx_start:idx_end],
-        target_nominal[idx_start:idx_end, 2],
-        label=r"Nominal Reference",
-        color="tab:orange",
-        linestyle="--",
-        alpha=0.5,
-    )
-    plt.plot(
-        timestamp[idx_start:idx_end],
-        target_neural[idx_start:idx_end, 2],
-        label=r"Neural Reference",
-        color="tab:red",
-        linestyle="--",
-        alpha=0.5,
-    )
-    plt.plot(timestamp[idx_start:idx_end], state_out_nominal[idx_start:idx_end, 2])
+    if target_nominal is not None:
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target_nominal[idx_start:idx_end, 2],
+            label=r"Nominal Reference",
+            color="tab:orange",
+            linestyle="--",
+            # alpha=0.5,
+        )
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target_neural[idx_start:idx_end, 2],
+            label=r"Neural Reference",
+            color="tab:red",
+            linestyle="--",
+            # alpha=0.5,
+        )
+    else:
+        plt.plot(
+            timestamp[idx_start:idx_end],
+            target[idx_start:idx_end, 2],
+            label=r"Reference",
+            color="tab:red",
+            linestyle="--",
+            # alpha=0.5,
+        )
+    plt.plot(timestamp[idx_start:idx_end], state_out_nominal[idx_start:idx_end, 2], linewidth=linewidth)
     # plt.plot(timestamp[idx_start:idx_end], state_prop[idx_start:idx_end, 2])
-    plt.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 2], color=matlab_yellow)
+    plt.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 2], color=matlab_yellow, linewidth=linewidth)
     plt.xlim(timestamp[idx_start], timestamp[idx_end - 1])
     plt.xlabel("$t$ [s]", fontsize=label_size)
     plt.ylabel("$z$ [m]", fontsize=label_size)
@@ -146,12 +179,12 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
 
     # --- Velocity
     linewidth = 2
-    plt.subplots(figsize=(7, 9))
+    plt.subplots(figsize=figsize)
     ax = plt.subplot(3, 1, 1)
     ax2 = ax.twinx()
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     # ax2.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 3] - state_prop[idx_start:idx_end, 3], label="Difference", color="r", linewidth=linewidth, linestyle="--", alpha=0.5)
     # ax2.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 3] - state_out_nominal[idx_start:idx_end, 3], label="Difference", color="r", linewidth=linewidth, linestyle="--", alpha=0.5)
     # ax.plot(timestamp[idx_start:idx_end], state_prop[idx_start:idx_end, 3], label=r"Nominal MPC", linewidth=linewidth, color="tab:blue")#, linestyle="--")
@@ -185,9 +218,9 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
 
     ax = plt.subplot(3, 1, 2)
     ax2 = ax.twinx()
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     # ax2.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 4] - state_prop[idx_start:idx_end, 4], color="r", linewidth=linewidth, linestyle="--", alpha=0.5)
     # ax2.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 4] - state_out_nominal[idx_start:idx_end, 4], color="r", linewidth=linewidth, linestyle="--", alpha=0.5)
     # ax.plot(timestamp[idx_start:idx_end], state_prop[idx_start:idx_end, 4], linewidth=linewidth, color="tab:blue")#, linestyle="--")
@@ -206,9 +239,9 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
 
     ax = plt.subplot(3, 1, 3)
     ax2 = ax.twinx()
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     # ax2.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 5] - state_prop[idx_start:idx_end, 5], color="r", linewidth=linewidth, linestyle="--", alpha=0.5)
     # ax2.plot(timestamp[idx_start:idx_end], state_out_neural[idx_start:idx_end, 5] - state_out_nominal[idx_start:idx_end, 5], color="r", linewidth=linewidth, linestyle="--", alpha=0.5)
     # ax.plot(timestamp[idx_start:idx_end], state_prop[idx_start:idx_end, 5], linewidth=linewidth, color="tab:blue")#, linestyle="--")
@@ -404,9 +437,9 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     # figsize = (14, 12)
     plt.subplots(figsize=(14, 6))
     ax = plt.subplot(3, 1, 1)
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     ax.plot(
         timestamp[idx_start:idx_end],
         lin_acc[idx_start:idx_end, 0],
@@ -417,9 +450,8 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
         timestamp[idx_start:idx_end],
         lin_acc[idx_start:idx_end, 0] + mlp_out[idx_start:idx_end, 0],
         label=r"Neural Compensation $\boldsymbol{a} + \boldsymbol{f}_{\mathrm{Neural}}$",
-        color=matlab_orange,
+        color=matlab_yellow,
         linewidth=linewidth,
-        linestyle="--",
     )
     # ln3 = ax_err.fill_between(t, 0, abs_err, color=matlab_blue, alpha=0.2, label="error")
     ax.set_xlim(timestamp[idx_start], timestamp[idx_end - 1])
@@ -429,16 +461,15 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     ax.axes.xaxis.set_ticklabels([])
 
     ax = plt.subplot(3, 1, 2)
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     ax.plot(timestamp[idx_start:idx_end], lin_acc[idx_start:idx_end, 1], linewidth=linewidth)
     ax.plot(
         timestamp[idx_start:idx_end],
         lin_acc[idx_start:idx_end, 1] + mlp_out[idx_start:idx_end, 1],
-        color=matlab_orange,
+        color=matlab_yellow,
         linewidth=linewidth,
-        linestyle="--",
     )
     ax.set_xlim(timestamp[idx_start], timestamp[idx_end - 1])
     ax.set_ylabel("$a_y$ [m/s$^2$]", fontsize=label_size)
@@ -446,16 +477,15 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     ax.axes.xaxis.set_ticklabels([])
 
     ax = plt.subplot(3, 1, 3)
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     ax.plot(timestamp[idx_start:idx_end], lin_acc[idx_start:idx_end, 2], linewidth=linewidth)
     ax.plot(
         timestamp[idx_start:idx_end],
         lin_acc[idx_start:idx_end, 2] + mlp_out[idx_start:idx_end, 2],
-        color=matlab_orange,
+        color=matlab_yellow,
         linewidth=linewidth,
-        linestyle="--",
     )
     ax.set_xlim(timestamp[idx_start], timestamp[idx_end - 1])
     ax.set_xlabel("$t$ [s]", fontsize=label_size)
@@ -465,9 +495,9 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     # --- Ground effect
     plt.subplots(figsize=(7, 6))
     ax = plt.subplot(3, 1, 1)
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     ax.plot(timestamp[idx_start:idx_end], control_neural[idx_start:idx_end, 0], color=matlab_green)
     ax.plot(timestamp[idx_start:idx_end], control_neural[idx_start:idx_end, 1], color=matlab_green)
     ax.plot(timestamp[idx_start:idx_end], control_neural[idx_start:idx_end, 2], color=matlab_green)
@@ -478,9 +508,9 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     ax.grid("on")
 
     ax = plt.subplot(3, 1, 2)
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     ax.plot(timestamp[idx_start:idx_end], state_in_neural[idx_start:idx_end, 2], color=matlab_blue)
     ax.set_xlim(timestamp[idx_start], timestamp[idx_end - 1])
     ax.set_ylabel("$z$ [m]", fontsize=label_size)
@@ -488,9 +518,9 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
     ax.grid("on")
 
     ax = plt.subplot(3, 1, 3)
-    ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate1, time_stop_rotate1, facecolor=matlab_yellow, alpha=alpha)
     # ax.axvspan(time_start_rotate2, time_stop_rotate2, facecolor=matlab_yellow, alpha=alpha)
-    ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
+    # ax.axvspan(time_start_rotate3, time_stop_rotate3, facecolor=matlab_yellow, alpha=alpha)
     ax.plot(timestamp[idx_start:idx_end], lin_acc[idx_start:idx_end, 2], linewidth=linewidth)
     ax.plot(
         timestamp[idx_start:idx_end],
