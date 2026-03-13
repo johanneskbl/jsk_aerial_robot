@@ -293,7 +293,7 @@ if __name__ == "__main__":
     cbar = fig.colorbar(images[0], cax=cbar_ax, orientation="horizontal")
 
     if args.show_thrust_or_ratio == "ratio":
-        cbar.set_label("Thrust-to-Weight Ratio (TWR)", fontsize=label_size)
+        cbar.set_label("Total Thrust-to-Weight Ratio (TWR) \ $\sum_{i=1}^{N_p} f_i / (mg)$", fontsize=label_size)
     else:
         cbar.set_label("Total Thrust [N]", fontsize=label_size)
 
