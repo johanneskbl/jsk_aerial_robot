@@ -10,6 +10,7 @@ from decimal import Decimal
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dataset import TrajectoryDataset
+from energy_regularization import EnergyRegularization
 from network_architecture.mlp import MLP
 from network_architecture.vae import VAE
 from vae_loss import VAELoss
@@ -127,6 +128,10 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
         raise ValueError("Loss weight doesn't match output dimension!")
     if NetworkConfig.model_type == "MLP":
         loss_function = l2_loss_function
+    if NetworkConfig.energy_lambda > 0.0:
+        energy_reg = EnergyRegularization()
+    else:
+        energy_reg = None
 
     # === Optimizer ===
     optimizer = get_optimizer(model, NetworkConfig.learning_rate)
@@ -172,6 +177,8 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
         table.add_column("Zero-Out Reg", color="blue", width=15)
     if NetworkConfig.l1_lambda > 0.0:
         table.add_column("L1 Reg", color="green", width=15)
+    if NetworkConfig.energy_lambda > 0.0:
+        table.add_column("Energy Reg", color="LIGHTBLUE_EX", width=15)
     if NetworkConfig.gradient_lambda > 0.0:
         table.add_column("Gradient", color="magenta", width=15)
     if NetworkConfig.consistency_lambda > 0.0:
@@ -196,7 +203,7 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
             loss_function = VAELoss(beta=beta, weight=weight, device=device)
 
         # === Train Step ===
-        train_losses = train(train_dataloader, model, loss_function, weight, optimizer, device, table)
+        train_losses = train(train_dataloader, model, loss_function, energy_reg, weight, optimizer, device, table)
         total_losses["train"].append(train_losses)
 
         # === Validation ===
@@ -285,7 +292,7 @@ def get_optimizer(model, learning_rate):
     return optimizer_class(model.parameters(), lr=learning_rate, weight_decay=NetworkConfig.weight_decay)
 
 
-def train(dataloader, model, loss_function, weight, optimizer, device, table):
+def train(dataloader, model, loss_function, energy_reg, weight, optimizer, device, table):
     size = len(dataloader.dataset)
     model.train()
     loss_avg = 0.0
@@ -321,6 +328,16 @@ def train(dataloader, model, loss_function, weight, optimizer, device, table):
             loss_l1 = NetworkConfig.l1_lambda * sum(p.abs().sum() for p in model.parameters())
             loss += loss_l1
         # L2 regularization (weight decay) is handled by the optimizer
+
+        # === Energy-based regularization ===
+        if NetworkConfig.energy_lambda > 0.0:
+            if NetworkConfig.model_type == "MLP":
+                # Assume the energy is represented by the first output dimension for demonstration purposes
+                E_delta = energy_reg.compute_residual_energy(x, y_pred, len(ModelFitConfig.state_feats))
+                loss_energy = NetworkConfig.energy_lambda * torch.mean(E_delta**2)
+                loss += loss_energy
+            elif NetworkConfig.model_type == "VAE":
+                raise NotImplementedError("Energy-based regularization not implemented for VAE yet.")
 
         # === Gradient penalty ===
         if NetworkConfig.gradient_lambda > 0.0:
@@ -365,6 +382,8 @@ def train(dataloader, model, loss_function, weight, optimizer, device, table):
             table["Zero-Out Reg"] = loss_reg
         if NetworkConfig.l1_lambda > 0.0:
             table["L1 Reg"] = loss_l1
+        if NetworkConfig.energy_lambda > 0.0:
+            table["Energy Reg"] = loss_energy
         if NetworkConfig.gradient_lambda > 0.0:
             table["Gradient"] = loss_gradient
         if NetworkConfig.consistency_lambda > 0.0:

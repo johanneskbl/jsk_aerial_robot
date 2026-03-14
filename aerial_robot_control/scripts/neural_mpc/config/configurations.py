@@ -152,6 +152,7 @@ class EnvConfig:
             # 185 (GOOD CL! good training, better val): Same as 183 but with zero out loss
             # 186 (GOOD CL! worse train, same val): Same as 185 but with 32 nodes instead of 64 nodes (single layer)
             # 187 (decent learning): FOR ROBOMECH PAPER Same as 185 but on dataset with simulated labels (nominal control, sim 185 model)
+            # 188: Vanilla configuration without any additional losses (to observe difference when adding new energy reg loss)
             # ---- VAE ----
             # 1 (bad learning & stepwise output): Use VAE! NOT LEARNING LOGVAR
             # 2 (no learning & very low KL Loss): Learning logvar
@@ -169,12 +170,14 @@ class EnvConfig:
     )
 
     solver_options = {
+        "cost_function_type": "NONLINEAR_LS",  # "NONLINEAR_LS" or "EXTERNAL"
         "solver_type": "PARTIAL_CONDENSING_HPIPM",  # TODO actually implement this
         "terminal_cost": True,  # TODO actually implement this
         "include_floor_bounds": False,
         "include_soft_constraints": True,
         "include_quaternion_constraint": False,
         "include_delta_u": False,
+        "include_energy_cost": False,
     }
 
     dataset_options = {"ds_name_suffix": "dataset_neural_sim_nominal_control"}  # "compare_nominal_neural_sim"}
@@ -253,6 +256,8 @@ class EnvConfig:
         for value in sim_options["disturbances"].values():
             if value == True:
                 raise ValueError("Simulated disturbances not meaningful when using real world simulator.")
+    if solver_options["cost_function_type"] == "NONLINEAR_LS" and solver_options["include_energy_cost"]:
+        raise ValueError("NONLINEAR_LS cost function does not support energy cost as it is an additional term.")
     # if run_options["real_machine"]:
     #     for value in sim_options["disturbances"].values():
     #         if value == True:
@@ -332,6 +337,8 @@ class NetworkConfig:
     zero_out_lambda = 1e-2  # Set to 0.0 to disable
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
+    # Energy regularization
+    energy_lambda = 0.0 # 1e-2  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon

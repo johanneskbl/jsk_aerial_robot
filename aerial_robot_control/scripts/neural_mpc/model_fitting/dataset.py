@@ -21,8 +21,8 @@ neural_mpc = NeuralMPC(
     EnvConfig.sim_options,
     EnvConfig.run_options,
 )
-T_samp = neural_mpc.params["T_samp"]
-T_step = neural_mpc.params["T_step"]
+T_samp = neural_mpc.T_samp
+T_step = neural_mpc.T_step
 
 
 class TrajectoryDataset(Dataset):

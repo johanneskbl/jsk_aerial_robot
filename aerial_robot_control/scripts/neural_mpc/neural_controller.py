@@ -84,10 +84,12 @@ class NeuralMPC(RecedingHorizonBase):
         self.include_motor_noise_parameter = sim_options["disturbances"]["motor_noise"]
 
         # Solver options
+        self.cost_function_type = solver_options["cost_function_type"]
         self.include_floor_bounds = solver_options["include_floor_bounds"]
         self.include_soft_constraints = solver_options["include_soft_constraints"]
         self.include_quaternion_constraint = solver_options["include_quaternion_constraint"]
         self.include_delta_u = solver_options["include_delta_u"]
+        self.include_energy_cost = solver_options["include_energy_cost"]
 
         # Load neural network model
         if not model_options["only_use_nominal"]:
@@ -181,8 +183,8 @@ class NeuralMPC(RecedingHorizonBase):
         parameters = ca.vertcat(self.qwr, self.qxr, self.qyr, self.qzr)
 
         # Make physical parameters available in the model
-        mass = ca.MX.sym("mass")
-        gravity = ca.MX.sym("gravity")
+        self.mass = ca.MX.sym("mass")
+        self.gravity = ca.MX.sym("gravity")
 
         Ixx = ca.MX.sym("Ixx")
         Iyy = ca.MX.sym("Iyy")
@@ -210,7 +212,7 @@ class NeuralMPC(RecedingHorizonBase):
         self.ee_q = ca.MX.sym("ee_qwxyz", 4)  # qw, qx, qy, qz
 
         phy_params = ca.vertcat(
-            mass, gravity, Ixx, Iyy, Izz, kq_d_kt,
+            self.mass, self.gravity, Ixx, Iyy, Izz, kq_d_kt,
             dr1, p1_b, dr2, p2_b, dr3, p3_b, dr4, p4_b, t_rotor, t_servo,
             self.ee_p, self.ee_q
         )
@@ -378,19 +380,19 @@ class NeuralMPC(RecedingHorizonBase):
         # Note: The torque is in Body frame in the dynamics to make computation easier.
 
         # Compute Inertia
-        I = ca.diag(ca.vertcat(Ixx, Iyy, Izz))
+        self.I = ca.diag(ca.vertcat(Ixx, Iyy, Izz))
         I_inv = ca.diag(ca.vertcat(1 / Ixx, 1 / Iyy, 1 / Izz))
-        g_w = ca.vertcat(0, 0, -gravity)  # World frame
+        g_w = ca.vertcat(0, 0, -self.gravity)  # World frame
 
         # Dynamic model (Time-derivative of state)
         ds = ca.vertcat(
             self.v,
-            (fu_w + self.fds_w + self.fdp_w) / mass + g_w,
+            (fu_w + self.fds_w + self.fdp_w) / self.mass + g_w,
             (-self.wx * self.qx - self.wy * self.qy - self.wz * self.qz) / 2,  # Convert angular velocity to rotation in World frame
             ( self.wx * self.qw + self.wz * self.qy - self.wy * self.qz) / 2,
             ( self.wy * self.qw - self.wz * self.qx + self.wx * self.qz) / 2,
             ( self.wz * self.qw + self.wy * self.qx - self.wx * self.qy) / 2,
-            ca.mtimes(I_inv, (-ca.cross(self.w, ca.mtimes(I, self.w)) + tau_u_b + self.tau_ds_b + self.tau_dp_b)),  # Stay in Body frame
+            ca.mtimes(I_inv, (-ca.cross(self.w, ca.mtimes(self.I, self.w)) + tau_u_b + self.tau_ds_b + self.tau_dp_b)),  # Stay in Body frame
         )
 
         # - Extend model by servo first-order dynamics
@@ -576,10 +578,57 @@ class NeuralMPC(RecedingHorizonBase):
         model.x = state
         model.xdot = x_dot
         model.u = controls
+        if self.cost_function_type == "EXTERNAL":
+            Q, R = self.get_weights()
+            W = np.block([[Q, np.zeros((state.size()[0], controls.size()[0]))], [np.zeros((controls.size()[0], state.size()[0])), R]])
+            W = ca.sparsify(ca.DM(W))
+            Q = ca.sparsify(ca.DM(Q))
+
+            # EXTERNAL cost has no yref; inject stage references through model parameters.
+            self.external_state_ref = ca.MX.sym("x_ref_ext", state.size()[0])
+            self.external_control_ref = ca.MX.sym("u_ref_ext", controls.size()[0])
+            self.external_state_ref_start_idx = parameters.size()[0]
+            parameters = ca.vertcat(parameters, self.external_state_ref)
+            self.external_state_ref_end_idx = parameters.size()[0]
+            self.external_control_ref_start_idx = parameters.size()[0]
+            parameters = ca.vertcat(parameters, self.external_control_ref)
+            self.external_control_ref_end_idx = parameters.size()[0]
+
+            stage_error = ca.vertcat(state_y - self.external_state_ref, control_y - self.external_control_ref)
+            terminal_error = state_y_e - self.external_state_ref
+
+            ### Cost function ###
+            model.cost_expr_ext_cost = stage_error.T @ W @ stage_error
+            model.cost_expr_ext_cost_e = terminal_error.T @ Q @ terminal_error
+            #####################
+            
+            # Apply Energy-based cost shaping for better convergence of NMPC with neural dynamics
+            # Note: This is only implemented for the case where the MLP predicts the full acceleration in World frame (i.e., y_reg_dims = [3, 4, 5])
+            if self.include_energy_cost:
+                # Compute kinetic energy from velocity
+                v_b = v_dot_q(self.v, quaternion_inverse(self.q))  # Velocity in Body frame
+                KE = 0.5 * self.mass * ca.dot(self.v, self.v) + 0.5 * ca.mtimes(ca.mtimes(self.w.T, self.I), self.w)
+
+                # Compute potential energy from height
+                PE = self.mass * self.gravity * self.p[2]
+
+                # Total energy
+                E = KE + PE
+
+                # Desired total energy (at reference state)
+                # E_ref = 0.5 * self.mass * ca.dot(self.vr, self.vr) + 0.5 * ca.mtimes(ca.mtimes(self.wr.T, self.I), self.wr) + self.mass * self.gravity * self.zr
+
+                # Energy error
+                # E_error = E - E_ref
+
+                model.cost_expr_ext_cost += self.params["QE"] * E
+                model.cost_expr_ext_cost_e += self.params["QE"] * E
+
+        else:
+            model.cost_y_expr = ca.vertcat(state_y, control_y)  # NONLINEAR_LS
+            model.cost_y_expr_e = state_y_e
+
         model.p = parameters
-        model.cost_y_expr_0 = ca.vertcat(state_y, control_y)  # NONLINEAR_LS
-        model.cost_y_expr = ca.vertcat(state_y, control_y)  # NONLINEAR_LS
-        model.cost_y_expr_e = state_y_e
 
         return model
 
@@ -701,15 +750,14 @@ class NeuralMPC(RecedingHorizonBase):
         nu = ocp.model.u.size()[0]
         n_param = ocp.model.p.size()[0]
 
-        # Get weights from parametrization child file
-        Q, R = self.get_weights()
-
         # Cost function options
         # see https://docs.acados.org/python_interface/#acados_template.acados_ocp_cost.AcadosOcpCost for details
-        ocp.cost.cost_type = "NONLINEAR_LS"
-        ocp.cost.cost_type_e = "NONLINEAR_LS"
-        ocp.cost.W = np.block([[Q, np.zeros((nx, nu))], [np.zeros((nu, nx)), R]])
-        ocp.cost.W_e = Q  # Weight matrix at terminal shooting node (N)
+        ocp.cost.cost_type = self.cost_function_type
+        ocp.cost.cost_type_e = self.cost_function_type
+        if self.cost_function_type != "EXTERNAL":  # Weights already included in cost function expression for EXTERNAL cost type
+            Q, R = self.get_weights()
+            ocp.cost.W = np.block([[Q, np.zeros((nx, nu))], [np.zeros((nu, nx)), R]])
+            ocp.cost.W_e = Q  # Weight matrix at terminal shooting node (N)
 
         # Set constraints
         # - State box constraints bx
@@ -1006,8 +1054,9 @@ class NeuralMPC(RecedingHorizonBase):
         # Note, these are placeholders and will be updated online during tracking
         x_ref = np.zeros((nx,))
         u_ref = np.zeros((nu,))
-        ocp.cost.yref = np.concatenate((x_ref, u_ref))
-        ocp.cost.yref_e = x_ref
+        if self.cost_function_type != "EXTERNAL":
+            ocp.cost.yref = np.concatenate((x_ref, u_ref))
+            ocp.cost.yref_e = x_ref
         ocp.constraints.x0 = x_ref
 
         # Solver options
@@ -1038,21 +1087,33 @@ class NeuralMPC(RecedingHorizonBase):
         :param ur: Reference control input trajectory (N, control_dim)
         """
         if self.include_delta_u:
+            raise NotImplementedError("Use with EXTERNAL and update appropriately.")
             delta_u_ref = np.tile(u_prev, (self.N, 1))
             ur += delta_u_ref
 
-        # 0 ~ N-1
         for j in range(ocp_solver.N):
-            yr = np.concatenate((xr[j, :], ur[j, :]))
-            ocp_solver.set(j, "yref", yr)
             quaternion_ref = xr[j, 6:10]
             self.acados_parameters[j, 0:4] = quaternion_ref  # For nonlinear quaternion error
 
-        # N
-        yr = xr[ocp_solver.N, :]
-        ocp_solver.set(ocp_solver.N, "yref", yr)
+            if self.cost_function_type != "EXTERNAL":
+                yr = np.concatenate((xr[j, :], ur[j, :]))
+                ocp_solver.set(j, "yref", yr)
+            else:
+                self.acados_parameters[j, self.external_state_ref_start_idx : self.external_state_ref_end_idx] = xr[j, :]
+                self.acados_parameters[
+                    j, self.external_control_ref_start_idx : self.external_control_ref_end_idx
+                ] = ur[j, :]
+
         quaternion_ref = xr[ocp_solver.N, 6:10]
         self.acados_parameters[ocp_solver.N, 0:4] = quaternion_ref  # For nonlinear quaternion error
+
+        if self.cost_function_type != "EXTERNAL":
+            yr = xr[ocp_solver.N, :]
+            ocp_solver.set(ocp_solver.N, "yref", yr)
+        else:
+            self.acados_parameters[
+                ocp_solver.N, self.external_state_ref_start_idx : self.external_state_ref_end_idx
+            ] = xr[ocp_solver.N, :]
 
     def append_delay(self, delay: int = 0):
         """
