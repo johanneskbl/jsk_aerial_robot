@@ -41,9 +41,9 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoPlusMPC::callbackViz, this);
 
   /* publishers */
-  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_curr", 1);
-  pub_record_ref_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_ref", 1);
-  pub_record_pred_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_pred", 1);
+  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::MPCState>("nmpc/record_curr", 1);
+  pub_record_ref_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_ref", 1);
+  pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
   pub_viz_ref_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_ref", 1);
   pub_viz_pred_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_pred", 1);
   pub_flight_cmd_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
@@ -108,7 +108,9 @@ bool nmpc::TiltMtNeuralServoPlusMPC::update()
   {
     controlCore();
     sendCmd();
-    publishRecording();
+    // *** RECORDING ***
+    // Only needed to record dataset but else its computationally expensive, so we can comment it out when not needed.
+    // publishRecording();
   }
 
   return true;
@@ -132,11 +134,14 @@ void nmpc::TiltMtNeuralServoPlusMPC::reset()
   }
   std::copy(x_vec_ee.begin(), x_vec_ee.begin() + NX, x_u_ref_.x.data.begin() + NX * NN);
 
-  // reset mpc solver
   mpc_solver_ptr_->resetXrUrByX0U0(x_vec_ee, u_vec);
-
+  
+  // reset solver & set initial guess to hovering
   std::vector<double> x_vec = meas2VecX();
-  mpc_solver_ptr_->resetSolverByX0U0(x_vec, u_vec);
+  std::vector<double> u_hover(mpc_solver_ptr_->NU_, 0.0);
+  for (int i = 0; i < motor_num_ && i < static_cast<int>(u_hover.size()); ++i)
+    u_hover[i] = 8.0;  // in [N]
+  mpc_solver_ptr_->resetSolverByX0U0(x_vec, u_hover);
 
   /* reset control input */
   flight_cmd_.base_thrust = std::vector<float>(motor_num_, 0.0);
@@ -500,10 +505,10 @@ void nmpc::TiltMtNeuralServoPlusMPC::controlCore(bool is_warmup)
 
   prepareMPCParams();
 
-  /* prepare initial value */
+  /* Get current state from estimator */
   std::vector<double> bx0 = meas2VecX();
 
-  /* solve */
+  /* Call solver to solve the optimization problem */
   try
   {
     mpc_solver_ptr_->solve(bx0, is_debug_);
@@ -512,9 +517,9 @@ void nmpc::TiltMtNeuralServoPlusMPC::controlCore(bool is_warmup)
   {
     ROS_FATAL("MPC solver failed. Details: %s", e.what());
   }
-  // The result is stored in mpc_solver_ptr_->uo_
+  // Note: The result is stored in mpc_solver_ptr_->uo_
 
-  /* get result */
+  /* Get result from solver */
   // - thrust
   for (int i = 0; i < motor_num_; i++)
   {
@@ -534,7 +539,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::controlCore(bool is_warmup)
 
 void nmpc::TiltMtNeuralServoPlusMPC::sendCmd()
 {
-  /* publish */
+  /* Publish commands */
   if (motor_num_ > 0)
     pub_flight_cmd_.publish(flight_cmd_);
   if (joint_num_ > 0)
@@ -680,6 +685,33 @@ void nmpc::TiltMtNeuralServoPlusMPC::setXrUrRef(const tf::Vector3& ref_pos_i, co
   /* set values */
   if (horizon_idx == -1)
   {
+    // ATTENTION!
+    // Passing -1 to horizon_idx causes a shift in the reference trajectory (x_u_ref_). It shifts all previous points backwards and adds your new takeoff target point exactly at the end of the prediction horizon (t = NN).
+    // While this works perfectly for smoothing out continuous joystick commands, it is disastrous for a step function setpoint like takeoff (where target altitude abruptly jumps from 0.0m to 1.0m+).
+    // By shifting the step change, you accidentally told the MPC:
+    // "You must stay exactly at z = 0.0 for the next 1.95 seconds. Then, in precisely 0.05 seconds, you must instantly be at z = 1.0."
+
+    // ************** CASE STEP SIGNAL! **************
+    // If the target point is significantly different from the last point in the reference trajectory,
+    // we assume it is a large step input (e.g. takeoff). In this case, we populate the entire horizon 
+    // with the new target point to avoid an unfeasible step function within the prediction horizon 
+    // which causes aggressive bursting and oscillations.
+    double dist = std::sqrt(std::pow(x[0] - x_u_ref_.x.data[NX * (NN - 1)], 2) +
+                            std::pow(x[1] - x_u_ref_.x.data[NX * (NN - 1) + 1], 2) +
+                            std::pow(x[2] - x_u_ref_.x.data[NX * (NN - 1) + 2], 2));
+
+    if (dist > 0.1) // > 10cm jump
+    {
+      for (int i = 0; i <= NN; i++)
+      {
+        std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * i);
+        if (i < NN)
+          std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * i);
+      }
+      return;
+    }
+
+    // ************** CASE CONTINOUS JOYSTICK COMMAND! **************
     // Aim: gently add the target point to the end of the reference trajectory
     // - x: NN + 1, u: NN
     // - for 0 ~ NN-2 x and u, shift

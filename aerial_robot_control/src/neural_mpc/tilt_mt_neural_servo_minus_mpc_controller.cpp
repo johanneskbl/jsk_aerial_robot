@@ -41,9 +41,9 @@ void nmpc::TiltMtNeuralServoMinusMPC::initialize(ros::NodeHandle nh, ros::NodeHa
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoMinusMPC::callbackViz, this);
 
   /* publishers */
-  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_curr", 1);
-  pub_record_ref_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_ref", 1);
-  pub_record_pred_ = nh_.advertise<aerial_robot_msgs::PredXU>("nmpc/record_pred", 1);
+  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::MPCState>("nmpc/record_curr", 1);
+  pub_record_ref_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_ref", 1);
+  pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
   pub_viz_ref_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_ref", 1);
   pub_viz_pred_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_pred", 1);
   pub_flight_cmd_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);

@@ -50,7 +50,7 @@ controller:
     # Rac_d: 1  # 250  # difference of ac
     # ==== Default ====
     Qp_xy: 300  # 500 (sim)
-    Qp_z: 400  # 500 (sim)
+    Qp_z: 100  # 400 # 500 (sim)
     Qv_xy: 10
     Qv_z: 10
     Qq_xy: 300  # 0.1 (sim)
