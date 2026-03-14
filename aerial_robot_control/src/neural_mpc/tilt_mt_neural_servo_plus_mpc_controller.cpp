@@ -685,50 +685,12 @@ void nmpc::TiltMtNeuralServoPlusMPC::setXrUrRef(const tf::Vector3& ref_pos_i, co
   /* set values */
   if (horizon_idx == -1)
   {
-    // ATTENTION!
-    // Passing -1 to horizon_idx causes a shift in the reference trajectory (x_u_ref_). It shifts all previous points backwards and adds your new takeoff target point exactly at the end of the prediction horizon (t = NN).
-    // While this works perfectly for smoothing out continuous joystick commands, it is disastrous for a step function setpoint like takeoff (where target altitude abruptly jumps from 0.0m to 1.0m+).
-    // By shifting the step change, you accidentally told the MPC:
-    // "You must stay exactly at z = 0.0 for the next 1.95 seconds. Then, in precisely 0.05 seconds, you must instantly be at z = 1.0."
-
-    // ************** CASE STEP SIGNAL! **************
-    // If the target point is significantly different from the last point in the reference trajectory,
-    // we assume it is a large step input (e.g. takeoff). In this case, we populate the entire horizon 
-    // with the new target point to avoid an unfeasible step function within the prediction horizon 
-    // which causes aggressive bursting and oscillations.
-    double dist = std::sqrt(std::pow(x[0] - x_u_ref_.x.data[NX * (NN - 1)], 2) +
-                            std::pow(x[1] - x_u_ref_.x.data[NX * (NN - 1) + 1], 2) +
-                            std::pow(x[2] - x_u_ref_.x.data[NX * (NN - 1) + 2], 2));
-
-    if (dist > 0.1) // > 10cm jump
+    for (int i = 0; i <= NN; i++)
     {
-      for (int i = 0; i <= NN; i++)
-      {
-        std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * i);
-        if (i < NN)
-          std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * i);
-      }
-      return;
+      std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * i);
+      if (i < NN)
+        std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * i);
     }
-
-    // ************** CASE CONTINOUS JOYSTICK COMMAND! **************
-    // Aim: gently add the target point to the end of the reference trajectory
-    // - x: NN + 1, u: NN
-    // - for 0 ~ NN-2 x and u, shift
-    // - copy x to x: NN-1 and NN, copy u to u: NN-1
-    for (int i = 0; i < NN - 1; i++)
-    {
-      // shift one step
-      std::copy(x_u_ref_.x.data.begin() + NX * (i + 1), x_u_ref_.x.data.begin() + NX * (i + 2),
-                x_u_ref_.x.data.begin() + NX * i);
-      std::copy(x_u_ref_.u.data.begin() + NU * (i + 1), x_u_ref_.u.data.begin() + NU * (i + 2),
-                x_u_ref_.u.data.begin() + NU * i);
-    }
-    std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * (NN - 1));
-    std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * (NN - 1));
-
-    std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * NN);
-
     return;
   }
 
