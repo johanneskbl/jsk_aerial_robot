@@ -123,14 +123,15 @@ if __name__ == "__main__":
             max_f_yaw_45_list.append(max_f)
 
         # Plotting
-        ax.plot(torque_list, np.array(max_f_yaw_45_list), label="$\\lambda=90^\circ$, + config", linewidth=linewidth)
+        ax.plot(torque_list, np.array(max_f_yaw_45_list), label="$\\lambda=90^\\circ$, + config", linewidth=linewidth)
         for install_ang_deg, max_f_list in zip(install_ang_deg_list, max_f_data_list):
             idx = install_ang_deg_list.index(install_ang_deg)
+            current_linewidth = linewidth * 3 if install_ang_deg in (0, 90) else linewidth
             ax.plot(
                 torque_list,
                 np.array(max_f_list),
-                label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$ config",
-                linewidth=linewidth,
+                label=f"$\\lambda={int(install_ang_deg)}^\\circ$, $\\times$ config",
+                linewidth=current_linewidth,
                 linestyle=line_style_list[idx % len(line_style_list)],
             )
         ax.set_xlabel(f"Required Horizontal Torque $^W\\tau_z$ [N·m]", fontsize=label_size)
@@ -186,7 +187,7 @@ if __name__ == "__main__":
             max_tau_yaw_45_list.append(max_tau)
 
         # Plotting
-        ax.plot(force_list, np.array(max_tau_yaw_45_list), label="$\\lambda=90^\circ$, $+$", linewidth=linewidth)
+        ax.plot(force_list, np.array(max_tau_yaw_45_list), label="$\\lambda=90^\\circ$, $+$", linewidth=linewidth)
         for install_ang_deg, max_tau_list in zip(install_ang_deg_list, max_tau_data_list):
             idx = install_ang_deg_list.index(install_ang_deg)
 
@@ -194,23 +195,23 @@ if __name__ == "__main__":
                 ax.plot(
                     force_list,
                     np.array(max_tau_list),
-                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
-                    linewidth=linewidth,
+                    label=f"$\\lambda={int(install_ang_deg)}^\\circ$, $\\times$",
+                    linewidth=linewidth * 2 if install_ang_deg == 90 else linewidth,
                     linestyle=line_style_list[idx % len(line_style_list)],
                 )
             elif install_ang_deg == 0:
                 ax.plot(
                     force_list,
                     np.array(max_tau_list),
-                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
-                    linewidth=linewidth,
+                    label=f"$\\lambda={int(install_ang_deg)}^\\circ$, $\\times$",
+                    linewidth=linewidth * 2,
                     linestyle="-.",
                 )
             elif install_ang_deg == -45:
                 ax.plot(
                     force_list,
                     np.array(max_tau_list),
-                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
+                    label=f"$\\lambda={int(install_ang_deg)}^\\circ$, $\\times$",
                     color="C4",
                     linewidth=linewidth,
                     linestyle="--",
@@ -219,7 +220,7 @@ if __name__ == "__main__":
                 ax.plot(
                     force_list,
                     np.array(max_tau_list),
-                    label=f"$\\lambda={int(install_ang_deg)}^\circ$, $\\times$",
+                    label=f"$\\lambda={int(install_ang_deg)}^\\circ$, $\\times$",
                     color="C3",
                     linewidth=linewidth,
                     linestyle="--",

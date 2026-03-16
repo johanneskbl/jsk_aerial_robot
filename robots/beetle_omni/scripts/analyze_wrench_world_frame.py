@@ -184,12 +184,13 @@ if __name__ == "__main__":
         for i, install_angle_deg in enumerate(install_angle_deg_list):
             pitch_deg_list = pitch_deg_list_list[i]
             max_f_result = max_f_result_list[i]
+            current_lw = 3.0 if install_angle_deg in (0, 90) else 1.5
 
             if is_first:
                 ax.plot(
                     max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $+$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $+$",
                     linestyle="-",
                     linewidth=1.5,
                     markersize=5,
@@ -201,26 +202,26 @@ if __name__ == "__main__":
                 ax.plot(
                     max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     # marker="o",
                     linestyle="-",
-                    linewidth=1.5,
+                    linewidth=current_lw,
                     markersize=5,
                 )
             elif install_angle_deg == 0:
                 ax.plot(
                     max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     linestyle="-.",
-                    linewidth=1.5,
+                    linewidth=current_lw,
                     markersize=5,
                 )
             elif install_angle_deg == -45:
                 ax.plot(
                     max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     # marker="s",
                     color="C4",
                     linestyle="--",
@@ -231,7 +232,7 @@ if __name__ == "__main__":
                 ax.plot(
                     max_f_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_f_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     # marker="s",
                     color="C3",
                     linestyle="--",
@@ -323,12 +324,13 @@ if __name__ == "__main__":
         for i, install_angle_deg in enumerate(install_angle_deg_list):
             pitch_deg_list = pitch_deg_list_list[i]
             max_tau_result = max_tau_result_list[i]
+            current_lw = 3.0 if install_angle_deg in (0, 90) else 1.5
 
             if is_first:
                 ax.plot(
                     max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $+$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $+$",
                     linestyle="-",
                     linewidth=1.5,
                     markersize=5,
@@ -340,26 +342,26 @@ if __name__ == "__main__":
                 ax.plot(
                     max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     # marker="o",
                     linestyle="-",
-                    linewidth=1.5,
+                    linewidth=current_lw,
                     markersize=5,
                 )
             elif install_angle_deg == 0:
                 ax.plot(
                     max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     linestyle="-.",
-                    linewidth=1.5,
+                    linewidth=current_lw,
                     markersize=5,
                 )
             elif install_angle_deg == -45:
                 ax.plot(
                     max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     # marker="s",
                     color="C4",
                     linestyle="--",
@@ -370,7 +372,7 @@ if __name__ == "__main__":
                 ax.plot(
                     max_tau_result * np.cos(np.deg2rad(install_angle_deg - pitch_deg_list)),
                     max_tau_result * np.sin(np.deg2rad(install_angle_deg - pitch_deg_list)),
-                    label=f"$\\lambda={install_angle_deg}^\circ$, $\\times$",
+                    label=f"$\\lambda={install_angle_deg}^\\circ$, $\\times$",
                     # marker="s",
                     color="C3",
                     linestyle="--",

@@ -202,7 +202,7 @@ if __name__ == "__main__":
     ANNO_POINT_COLOR = "red"
     ANNO_FONTSIZE = 14
     ANNO_POINT_SIZE = 12
-    ANNO_BBOX = dict(boxstyle="round,pad=0.25", fc="black", ec="none", alpha=0.1)
+    ANNO_BBOX = dict(boxstyle="round,pad=0.25", fc="black", ec="none", alpha=0.0)
 
     # Each point is: (roll_deg, yaw_deg, label_str_or_None)
     # - label is a custom string, or None to auto-generate (coords + value)
@@ -283,7 +283,7 @@ if __name__ == "__main__":
             # set x-ticks
             ax.set_xticks(np.array([-180, -90, 0, 90, 180]))
         if col == 0:  # Left column
-            ax.set_ylabel("Roll $\\alpha$ [$^{\circ}$]", fontsize=label_size)
+            ax.set_ylabel("Roll $\\phi$ [$^{\circ}$]", fontsize=label_size)
             # set y-ticks
             ax.set_yticks(np.array([0, 45, 90, 135, 180]))
 
@@ -293,7 +293,9 @@ if __name__ == "__main__":
     cbar = fig.colorbar(images[0], cax=cbar_ax, orientation="horizontal")
 
     if args.show_thrust_or_ratio == "ratio":
-        cbar.set_label("Total Thrust-to-Weight Ratio (TWR) \ $\sum_{i=1}^{N_p} f_i / (mg)$", fontsize=label_size)
+        cbar.set_label(
+            "Required Thrust-to-Weight Ratio (TWR) in Hovering \ $\sum_{i=1}^{N_p} f_i / (mg)$", fontsize=label_size
+        )
     else:
         cbar.set_label("Total Thrust [N]", fontsize=label_size)
 
