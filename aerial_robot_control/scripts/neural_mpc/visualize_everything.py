@@ -135,7 +135,7 @@ def main():
     diff_mlp = (state_out_mlp - state_prop_mlp) / dt
     diff_const_mlp = (state_out_mlp - state_prop_mlp) / 0.01
 
-    device = "cpu"  # "cuda"
+    device = "cuda" if model_options["use_gpu"] else "cpu"
     state_in_mlp_tensor = torch.from_numpy(state_in_mlp).type(torch.float32).to(torch.device(device))
     control_tensor = torch.from_numpy(control).type(torch.float32).to(torch.device(device))
     mlp_in = torch.cat((state_in_mlp_tensor[:, state_feats], control_tensor[:, u_feats]), axis=1)

@@ -8,7 +8,7 @@ from sim_environment.forward_prop import init_forward_prop, forward_prop
 from sim_environment.disturbances import apply_cog_disturbance, apply_motor_noise
 from utils.controller_utils import check_state_constraints, check_input_constraints, get_rotor_positions
 from utils.data_utils import get_recording_dict_and_file, make_blank_dict, write_recording_data
-from utils.model_utils import set_approximation_params, set_linearization_params, set_l4casadi_params, set_l4casadi_params_sim, set_temporal_states_as_params
+from utils.model_utils import set_approximation_params, set_linearization_params, set_linearization_params_sim, set_l4casadi_params, set_l4casadi_params_sim, set_temporal_states_as_params
 from utils.reference_utils import sample_random_position_target, sample_random_orientation_target
 from utils.geometry_utils import unit_quaternion, euclidean_dist, quaternion_dist
 from utils.visualization_utils import initialize_plotter, draw_robot, animate_robot, plot_trajectory, plot_disturbances
@@ -40,7 +40,10 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
 
     # --- Initialize controller ---
     rtnmpc = NeuralMPC(
-        model_options=model_options, solver_options=solver_options, sim_options=sim_options, run_options=run_options
+        model_options=model_options,
+        solver_options=solver_options,
+        sim_options=sim_options,
+        run_options=run_options
     )
 
     ocp_solver = rtnmpc.get_ocp_solver()
@@ -64,13 +67,13 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
     # --- Initialize simulation environment ---
     if sim_options["use_real_world_simulator"]:
         # Use neural model trained on real world data as simulator
-        temp = model_options.copy()
-        model_options["only_use_nominal"] = False
-        model_options["plus_neural"] = True
-        model_options["minus_neural"] = False
-        model_options["neural_model_instance"] = sim_options["sim_neural_model_instance"]
+        sim_model_options = model_options.copy()
+        sim_model_options["only_use_nominal"] = False
+        sim_model_options["plus_neural"] = True
+        sim_model_options["minus_neural"] = False
+        sim_model_options["neural_model_instance"] = sim_options["sim_neural_model_instance"]
         sim_rtnmpc = NeuralMPC(
-            model_options=model_options,
+            model_options=sim_model_options,
             solver_options=solver_options,
             sim_options=sim_options,
             run_options=run_options,
@@ -78,13 +81,12 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
         )
         sim_model = sim_rtnmpc.get_acados_model()
         sim_solver = create_acados_sim_solver(sim_rtnmpc, sim_model, T_sim)
-        model_options = temp
     elif sim_options["use_nominal_simulator"]:
         # Use nominal model as simulator
-        temp = model_options.copy()
-        model_options["only_use_nominal"] = True
+        sim_model_options = model_options.copy()
+        sim_model_options["only_use_nominal"] = True
         sim_rtnmpc = NeuralMPC(
-            model_options=model_options,
+            model_options=sim_model_options,
             solver_options=solver_options,
             sim_options=sim_options,
             run_options=run_options,
@@ -92,10 +94,10 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
         )
         sim_model = sim_rtnmpc.get_acados_model()
         sim_solver = create_acados_sim_solver(sim_rtnmpc, sim_model, T_sim)
-        model_options = temp
     else:
         # Create sim solver with same model as controller
         sim_rtnmpc = rtnmpc
+        sim_model_options = model_options
         sim_solver = create_acados_sim_solver(sim_rtnmpc, ocp_model, T_sim)
 
     # Undisturbed model for creating labels to train on
@@ -123,6 +125,17 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
         u_temp = ocp_solver.solve_for_x0(state_curr)
         sim_solver.simulate(x=state_curr_sim, u=u_temp, p=sim_solver.acados_sim.parameter_values)
     x_l = []
+
+    # --- Initial guess ---
+    # TODO Provide a new initial guess when changing target
+    u_init = np.zeros((nu,))
+    u_init[:4] = 8.0  # Thrust in N for hovering
+    for i in range(N):
+        ocp_solver.set(i, "x", state_curr)
+        ocp_solver.set(i, "u", u_init)
+    ocp_solver.set(N, "x", state_curr)
+    sim_solver.set("x", state_curr)
+    sim_solver.set("u", u_init)
 
     # --- Set up running history for temporal neural networks ---
     if rtnmpc.use_mlp and "temporal" in rtnmpc.mlp_metadata["NetworkConfig"]["model_name"]:
@@ -226,13 +239,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 state_curr = state_curr_sim.copy()
                 check_state_constraints(ocp_solver, state_curr, i)
 
-            # --- Initial guess ---
-            # TODO set initial guess to prev iteration?
-            # TODO Provide a new initial guess when changing target
-            # initial_guess = rtnmpc.reshape_input_sequence(u_cmd)
-            # TODO understand: "Save initial guess for future optimization. It is a time-shift of the current optimized variables"
-            # initial_guess = np.array(cs.vertcat(initial_guess[1:, :], cs.DM.zeros(4).T))
-
             # --- Prepare neural model approximation ---
             # Optimization cycle
             # RTNMPC without model:    0.31 ms
@@ -243,11 +249,12 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             # Ours with our model:     27.1 ms (without approximation) [4x64+full in]
             # Ours with their model:   17.1 ms (without approximation) [4x64+full in&out]
 
+            comp_time = time.time()
             if rtnmpc.use_mlp and model_options["approximate_mlp"]:
                 set_approximation_params(rtnmpc, ocp_solver)
 
             if rtnmpc.use_mlp and model_options["linearize_mlp"]:
-                set_linearization_params(rtnmpc, ocp_solver)
+                set_linearization_params(rtnmpc, ocp_solver, model_options["linearize_order"])
 
             if rtnmpc.use_mlp and model_options["use_l4casadi"]:
                 set_l4casadi_params(rtnmpc, ocp_solver)
@@ -264,7 +271,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             # --- Optimize control input ---
             # Compute control feedback and take the first action
             # acados wrapper to solve the OCP and get first control command from sequence
-            comp_time = time.time()
             u_cmd = ocp_solver.solve_for_x0(state_curr)
             comp_time = (time.time() - comp_time) * 1000  # in ms
 
@@ -311,25 +317,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                     animation=run_options["save_animation"],
                 )
 
-            # --- Prepare sim solver ---
-            if sim_rtnmpc.use_mlp and model_options["approximate_mlp"]:
-                raise NotImplementedError("Implement.")
-                set_approximation_params(sim_rtnmpc, sim_solver)
-
-            if sim_rtnmpc.use_mlp and model_options["linearize_mlp"]:
-                raise NotImplementedError("Implement.")
-                set_linearization_params(sim_rtnmpc, sim_solver)
-
-            if sim_rtnmpc.use_mlp and model_options["use_l4casadi"]:
-                set_l4casadi_params_sim(sim_rtnmpc, sim_solver, u_cmd)
-
-            # --- Prepare temporal neural network input ---
-            if sim_rtnmpc.use_mlp and "temporal" in sim_rtnmpc.mlp_metadata["NetworkConfig"]["model_name"]:
-                raise NotImplementedError("Implement.")
-                set_temporal_states_as_params(sim_rtnmpc, sim_solver, history, u_cmd)
-
-            # --- Set parameters in OCP solver ---
-            sim_solver.set("p", sim_rtnmpc.acados_parameters[0, :])
 
             # --- Simulate forward ---
             # Simulate with the optimized input until the next time step of the control period is reached
@@ -381,9 +368,28 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                             axis=0,
                         )
 
+                # --- Prepare sim solver ---
+                if sim_rtnmpc.use_mlp and model_options["approximate_mlp"]:
+                    raise NotImplementedError("Implement.")
+                    set_approximation_params(sim_rtnmpc, sim_solver)
+
+                if sim_rtnmpc.use_mlp and model_options["linearize_mlp"]:
+                    set_linearization_params_sim(sim_rtnmpc, state_curr_sim, u_cmd, sim_model_options["linearize_order"])
+
+                if sim_rtnmpc.use_mlp and model_options["use_l4casadi"]:
+                    set_l4casadi_params_sim(sim_rtnmpc, sim_solver, u_cmd)
+
+                # --- Prepare temporal neural network input ---
+                if sim_rtnmpc.use_mlp and "temporal" in sim_rtnmpc.mlp_metadata["NetworkConfig"]["model_name"]:
+                    raise NotImplementedError("Implement.")
+                    set_temporal_states_as_params(sim_rtnmpc, sim_solver, history, u_cmd)
+
+                # --- Set parameters in OCP solver ---
+                sim_solver.set("p", sim_rtnmpc.acados_parameters[0, :])
+
                 # Simulate
                 state_curr_sim = sim_solver.simulate(
-                    x=state_curr_sim, u=u_cmd, p=sim_solver.acados_sim.parameter_values
+                    x=state_curr_sim, u=u_cmd
                 )
 
                 # Ensure unit quaternion

@@ -163,9 +163,11 @@ class EnvConfig:
             # 10 (better learning, but same generalization): Beta = 1e-5
             # 11 (same learning but DOESNT MAKE SENSE): Beta = 0.0
             "approximate_mlp": False,  # TODO implement!; Approximation using first or second order Taylor Expansion
-            "approx_order": 1,  # Order of Taylor Expansion (first or second)
+            "approximate_order": 1,  # Order of Taylor Expansion (first or second)
             "linearize_mlp": False,  # Linearize MLP at each control step in the MPC
+            "linearize_order": 1,  # Order of linearization (first or second)
             "use_l4casadi": False,
+            "use_gpu": False,
         }
     )
 
@@ -250,6 +252,10 @@ class EnvConfig:
         raise ValueError("Conflict in options.")
     if model_options["approximate_mlp"] and model_options["approx_order"] == 0:
         raise ValueError("Conflict in options.")
+    if model_options["linearize_mlp"] and model_options["approximate_mlp"]:
+        raise ValueError("Conflict in options.")
+    if not (model_options["linearize_mlp"] or model_options["approximate_mlp"]) and model_options["use_gpu"]:
+        raise ValueError("acados does not support GPU in optimization framework.")
     if sim_options["use_real_world_simulator"] and sim_options["use_nominal_simulator"]:
         raise ValueError("Conflict in options.")
     if sim_options["use_real_world_simulator"]:

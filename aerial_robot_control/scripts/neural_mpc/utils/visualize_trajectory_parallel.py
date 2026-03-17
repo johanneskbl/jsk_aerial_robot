@@ -141,12 +141,12 @@ def plot_trajectory_parallel(
         state_b_torch_nominal = (
             torch.from_numpy(state_b_nominal[:, rtnmpc_minus_neural.state_feats])
             .type(torch.float32)
-            .to(torch.device("cuda"))
+            .to(rtnmpc_minus_neural.device)
         )
         control_torch_nominal = (
             torch.from_numpy(control_nominal[:, rtnmpc_minus_neural.u_feats])
             .type(torch.float32)
-            .to(torch.device("cuda"))
+            .to(rtnmpc_minus_neural.device)
         )
         mlp_in = torch.cat((state_b_torch_nominal, control_torch_nominal), dim=1)
         # Forward call MLP

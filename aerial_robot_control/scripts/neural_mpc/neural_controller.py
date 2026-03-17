@@ -6,7 +6,7 @@ from acados_template import AcadosModel, AcadosOcpSolver
 
 from utils.data_utils import delete_previous_solver_files
 from utils.geometry_utils import quaternion_inverse, v_dot_q
-from utils.model_utils import load_model, get_output_mapping
+from utils.model_utils import load_model, get_output_mapping, get_device
 from utils.model_utils import cross_check_params
 
 import l4casadi as l4c
@@ -94,8 +94,14 @@ class NeuralMPC(RecedingHorizonBase):
         # Load neural network model
         if not model_options["only_use_nominal"]:
             self.use_mlp = True
+            if (model_options["approximate_mlp"] or model_options["linearize_mlp"]) and model_options["use_gpu"]:
+                if not torch.cuda.is_available():
+                    print("[CUDA] GPU is not available. Using CPU instead.")
+                self.device = get_device()
+            else:
+                self.device = torch.device("cpu")
             # Load pre-trained MLP
-            self.neural_model, self.mlp_metadata = load_model(model_options, sim_options, run_options)
+            self.neural_model, self.mlp_metadata = load_model(model_options, sim_options, run_options, self.device)
             # Cross-check meta parameters used for MPC to train MLP
             cross_check_params(self.params, self.mlp_metadata)
             print(
@@ -464,21 +470,41 @@ class NeuralMPC(RecedingHorizonBase):
                     if self.model_options["approximate_mlp"]:
                         # TODO investigate this function and parallel Flag!
                         # Parallel flag only active for order == 2
-                        mlp_out = self.neural_model.approx(mlp_in, order=self.model_options["approx_order"], parallel=False)
-                        approx_params = self.neural_model.sym_approx_params(order=self.model_options["approx_order"], flat=True)
+                        mlp_out = self.neural_model.approx(mlp_in, order=self.model_options["approximate_order"], parallel=False)
+                        approx_params = self.neural_model.sym_approx_params(order=self.model_options["approximate_order"], flat=True)
                         self.approx_start_idx = parameters.size()[0]
                         parameters = ca.vertcat(parameters, approx_params)
                         self.approx_end_idx = parameters.size()[0]
                     elif self.model_options["linearize_mlp"]:
                         # Linearize MLP around current operating point
-                        # state0 needs to be updated as acados parameters
-                        state0 = ca.MX.sym("x0", mlp_in.size()[0])
+                        # x0, y0, J0 (and H0) need to be updated as acados parameters
+                        x0 = ca.MX.sym("x0", mlp_in.size()[0])
+                        y0 = ca.MX.sym("y0", self.y_reg_dims.shape[0])
+                        J0 = ca.MX.sym("J0", self.y_reg_dims.shape[0], mlp_in.size()[0])
+                        delta_x = mlp_in - x0
                         self.linearize_start_idx = parameters.size()[0]
-                        parameters = ca.vertcat(parameters, state0)
+                        if self.model_options["linearize_order"] == 1:
+                            mlp_out = y0 + ca.mtimes(J0, delta_x)
+                            parameters = ca.vertcat(parameters, x0, y0, J0.reshape((-1, 1)))  # flatten Jacobian by appending all rows into one column
+                        elif self.model_options["linearize_order"] == 2:
+                            H0_list = []
+                            for i in range(self.y_reg_dims.shape[0]):
+                                H0_i = ca.MX.sym(f'H0_{i}', mlp_in.size()[0], mlp_in.size()[0])
+                                H0_list.append(H0_i)
+                            second_order_term = 0.5 * ca.vcat(
+                                [ca.mtimes(ca.transpose(delta_x), ca.mtimes(H0_i, delta_x))
+                                for H0_i in H0_list]
+                            )
+                            mlp_out = y0 + ca.mtimes(J0, delta_x) + second_order_term
+                            # Flatten Jacobian and Hessian by appending all rows into one column in the parameters vector
+                            # Flatten Hessian by appending all rows of each sub-Hessian matrix H0_i into one column and then concatenating all Hessian columns after each other
+                            # NOTE: The resulting parameter vector is of shape [H0[0,0,0], H0[0,0,1], ..., H0[0,0,n], H0[0,1,0], ..., H0[0,1,n], ..., H0[0,n,0], ..., H0[0,n,n], H0[1,0,0], ..., H0[1,n,n], ..., H0[m,n,n]] where n is the input size and m the output size
+                            parameters = ca.vertcat(parameters, x0, y0, J0.reshape((-1, 1)), *[H0_i.reshape((-1, 1)) for H0_i in H0_list])
+                        else:
+                            raise ValueError("Linearization order only implemented until second order.")
                         self.linearize_end_idx = parameters.size()[0]
-                        mlp_out = self.neural_model.sym_linearize(mlp_in, state0)
                     elif self.model_options["use_l4casadi"]:
-                        self.learned_dyn_model = l4c.realtime.RealTimeL4CasADi(self.neural_model, approximation_order=1)
+                        self.learned_dyn_model = l4c.realtime.RealTimeL4CasADi(self.neural_model, approximation_order=self.model_options["linearize_order"])
                         mlp_out = self.learned_dyn_model(mlp_in)
 
                         self.l4casadi_start_idx = parameters.size()[0]

@@ -17,13 +17,185 @@ def set_approximation_params(rtnmpc, ocp_solver):
     #     rtnmpc.acados_parameters[j, rtnmpc.approx_start_idx : rtnmpc.approx_end_idx] = 1
     pass
 
-def set_linearization_params(rtnmpc, ocp_solver):
+def aux_function(func):
+    def inner_aux(inputs):
+        out = func(inputs)
+        return out, out
+
+    return inner_aux
+
+
+import torch.func as functorch
+def batched_jacobian(func, inputs: torch.Tensor, create_graph=False, return_func_output=False):
+    r"""Function that computes batches of the Jacobian of a given function and a batch of inputs.
+
+    Args:
+        func: a Python function that takes Tensor inputs and returns a tuple of Tensors or a Tensor.
+        inputs: inputs to the function ``func``. First dimension is treated as batch dimension
+        create_graph: If ``True``, the Jacobian will be computed in a differentiable manner.
+        return_func_output: If ``True``, the function output will be returned.
+
+    Returns:Jacobian
+
+    """
+
+    if inputs.shape[0] == 1:
+        vmap_randomness = 'same'
+    else:
+        # https://github.com/pytorch/functorch/issues/996
+        # Should be 'different'
+        vmap_randomness = 'same'
+
+    if not create_graph:
+        with torch.no_grad():
+            if not return_func_output:
+                return functorch.vmap(functorch.jacrev(func))(inputs)
+            return functorch.vmap(functorch.jacrev(aux_function(func), has_aux=True), randomness=vmap_randomness)(
+                inputs[:, None])
+    else:
+        if not return_func_output:
+            return functorch.vmap(functorch.jacrev(func))(inputs)
+        return functorch.vmap(functorch.jacrev(aux_function(func), has_aux=True), randomness=vmap_randomness)(
+            inputs[:, None])
+    
+def aux_function_jac(func):
+    def inner_aux(inputs):
+        out = func(inputs)
+        return out[0], (out[0], out[1])
+
+    return inner_aux
+
+def batched_hessian(func, inputs: torch.Tensor, create_graph=False,
+                    return_jacobian=False, return_func_output=False):
+    r"""
+
+    Args:
+        func: a Python function that takes Tensor inputs and returns a tuple of Tensors or a Tensor.
+        inputs: inputs to the function ``func``. First dimension is treated as batch dimension
+        create_graph: If ``True``, the Hessian will be computed in a differentiable manner.
+        return_jacobian: If ``True``, the Jacobian will be returned.
+        return_func_output: If ``True``, the function output will be returned.
+
+    Returns: Hessian
+
+    """
+
+    if inputs.shape[0] == 1:
+        vmap_randomness = 'same'
+    else:
+        # https://github.com/pytorch/functorch/issues/996
+        # Should be 'different'
+        vmap_randomness = 'same'
+
+    with torch.no_grad():
+        if not return_func_output and not return_jacobian:
+            return functorch.vmap(functorch.jacrev(functorch.jacrev(func)), randomness=vmap_randomness)(
+                inputs[:, None])
+        elif not return_func_output and return_jacobian:
+            return functorch.vmap(functorch.jacrev(aux_function_jac(functorch.jacrev(func)), has_aux=True),
+                                    randomness=vmap_randomness)(inputs[:, None])
+        elif return_func_output and not return_jacobian:
+            return functorch.vmap(functorch.jacrev(functorch.jacrev(aux_function(func), has_aux=True)),
+                                    randomness=vmap_randomness)(inputs[:, None])
+        elif return_func_output and return_jacobian:
+            (hessian, (jacobian, value)) = functorch.vmap(
+                functorch.jacrev(aux_function_jac(functorch.jacrev(aux_function(func), has_aux=True)),
+                                    has_aux=True), randomness=vmap_randomness)(inputs[:, None])
+            return hessian, jacobian, value
+
+
+def linearize(rtnmpc, x0, order):
+    """
+    Linearize the neural network around the working point x0.
+    Returns the linear approximation: y ≈ y0 + J @ (x - x0) + 0.5 * (x - x0)^T * H @ (x - x0)
+    Args:
+        x0: Working point tensor of shape (input_size,) or (batch_size, input_size)
+        order: Order of linearization (1 for first-order Taylor expansion, 2 for second-order Taylor expansion)
+    Returns:
+        y0: Output at the working point
+        J0: Jacobian matrix at the working point
+        H0: Hessian matrix at the working point (only if order=2)
+    """
+
+    # Taylor expansion: y = y0 + J0 * (x - x0) + 0.5 * (x - x0)^T * H0 * (x - x0)
+    if order == 1:
+        # J0, y0 = batched_jacobian(rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True)
+        y0 = rtnmpc.neural_model(x0)
+        J0 = rtnmpc.neural_model.compute_jacobian(x0, y0)
+    elif order == 2:
+        H0, J0, y0 = batched_hessian(rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True, return_jacobian=True)
+
+    # Flatten Jacobian and Hessian by appending all rows into one column
+    # =============================
+    # The two libraries have opposite default ordering:
+    # Library           | Default order	        | Reads elements...
+    # ------------------|-----------------------|-----------------
+    # NumPy .reshape	| Row-major ('C')	    | row by row
+    # CasADi .reshape	| Column-major ('F')	| column by column
+
+    # Example:
+    # J = [[a, b],
+    #      [c, d]]
+    # NumPy: J.reshape(-1)          # → [a, b, c, d]  (row by row)
+    # CasADi: casadi.reshape(J, -1) # → [a, c, b, d]  (column by column)
+
+    # => CasADi's reshape is equivalent to NumPy's reshape(..., order='F').
+    # NOTE: PyTorch's reshape follows NumPy's convention
+    # =============================
+
+    y0_np = y0.detach().cpu().numpy().reshape(-1, order='F')
+    J0_np = J0.detach().cpu().numpy().reshape(-1, order='F')
+    if order == 2:
+        # Remove zero dimensions
+        H0 = H0.squeeze(0).squeeze(0).squeeze(1).squeeze(2)  # shape (output_size, input_size, input_size)
+        # Flatten all inner input_size x input_size Hessian matrices H0_i into one column and concatenate all Hessian columns after each other
+        H0_list = []
+        for i in range(H0.shape[0]):
+            H0_list.append(H0[i,:,:].cpu().numpy().reshape(-1, order='F'))
+        
+        H0_np = np.concatenate([*H0_list])  # concatenate columns of all Hessian matrices into one column vector
+    else:
+        H0_np = np.array([])
+
+    return y0_np, J0_np, H0_np
+
+def set_linearization_params(rtnmpc, ocp_solver, order):
     # Set linearization point as parameters
-    for j in range(ocp_solver.N + 1):
+    for j in range(ocp_solver.N):
         state_j = ocp_solver.get(j, "x")
-        u_cmd_j = ocp_solver.get(j, "u") if j < ocp_solver.N else ocp_solver.get(ocp_solver.N - 1, "u")
-        mlp_in_at_0 = np.concatenate([state_j[rtnmpc.state_feats], u_cmd_j[rtnmpc.u_feats]])
-        rtnmpc.acados_parameters[j, rtnmpc.linearize_start_idx : rtnmpc.linearize_end_idx] = mlp_in_at_0.flatten()
+        u_cmd_j = ocp_solver.get(j, "u")
+        x0_np = np.concatenate([state_j[rtnmpc.state_feats], u_cmd_j[rtnmpc.u_feats]])
+        x0 = torch.tensor(x0_np).float().to(rtnmpc.device).requires_grad_(True)
+        y0_np, J0_np, H0_np = linearize(rtnmpc, x0, order)
+        rtnmpc.acados_parameters[j, rtnmpc.linearize_start_idx : rtnmpc.linearize_end_idx] = \
+            np.concatenate([x0_np, y0_np, J0_np, H0_np])
+
+def set_linearization_params_sim(sim_rtnmpc, state_curr_sim, u_cmd, order):
+    # Set linearization point as parameters for one step in simulator
+    x0_np = np.concatenate([state_curr_sim[sim_rtnmpc.state_feats], u_cmd[sim_rtnmpc.u_feats]])
+    x0 = torch.tensor(x0_np).float().to(sim_rtnmpc.device).requires_grad_(True)
+    # y0 = sim_rtnmpc.neural_model(x0)
+    # J0 = sim_rtnmpc.neural_model.compute_jacobian(x0, y0)
+
+    # if order == 1:
+    #     J0, y0 = batched_jacobian(sim_rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True)
+    # elif order == 2:
+    #     H0, J0, y0 = batched_hessian(sim_rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True, return_jacobian=True)
+
+    # # Flatten Jacobian and Hessian by appending all rows into one column
+    # y0_np = y0.squeeze(0).cpu().numpy().flatten()
+    # J0_np = J0.transpose(-2, -1).squeeze(0).cpu().numpy().flatten()
+    # if order == 2:
+    #     H_np = np.array([H0[:, i].transpose(-2, -1).cpu().numpy() for i in range(H0.shape[1])]).flatten()
+    # else:
+    #     H_np = np.array([])
+    # sim_rtnmpc.acados_parameters[0, sim_rtnmpc.linearize_start_idx : sim_rtnmpc.linearize_end_idx] = \
+    #     np.concatenate([x0_np, y0_np, J0_np, H_np])
+
+    y0_np, J0_np, H0_np = linearize(sim_rtnmpc, x0, order)
+    sim_rtnmpc.acados_parameters[0, sim_rtnmpc.linearize_start_idx : sim_rtnmpc.linearize_end_idx] = \
+        np.concatenate([x0_np, y0_np, J0_np, H0_np])
+
 
 def set_l4casadi_params(rtnmpc, ocp_solver):
     # Set l4casadi parameters
@@ -115,7 +287,7 @@ def get_device():
     return torch.device(device)
 
 
-def load_model(model_options, sim_options, run_options):
+def load_model(model_options, sim_options, run_options, device):
     """
     Load a pre-trained neural network for the MPC controller.
     """
@@ -130,7 +302,6 @@ def load_model(model_options, sim_options, run_options):
     cross_check_options(model_options, sim_options, run_options, metadata)
 
     # Define trained MLP model
-    device = "cpu"  # get_device()  # TODO Make use of GPU later
     file_name = os.path.join(DirectoryConfig.SAVE_DIR, neural_model_name, f"{neural_model_instance}.pt")
     saved_dict = torch.load(file_name, map_location=device)
 
@@ -169,6 +340,9 @@ def load_model(model_options, sim_options, run_options):
     # Load weights and biases from saved model
     neural_model.eval()
     neural_model.load_state_dict(saved_dict["state_dict"])
+
+    for parameters in neural_model.parameters():
+        parameters.requires_grad = False
 
     return neural_model, metadata
 

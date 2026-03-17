@@ -768,10 +768,10 @@ def plot_trajectory(model_options, sim_options, rec_dict, rtnmpc: NeuralMPC, dis
             for t in range(state_in.shape[0]):
                 v_b = v_dot_q(state_in[t, 3:6], quaternion_inverse(state_in[t, 6:10]))
                 state_b[t, :] = np.concatenate((state_in[t, :3], v_b, state_in[t, 6:]), axis=0)
-        state_b_torch = torch.from_numpy(state_b[:, rtnmpc.state_feats]).type(torch.float32).to(torch.device("cpu"))
+        state_b_torch = torch.from_numpy(state_b[:, rtnmpc.state_feats]).type(torch.float32).to(rtnmpc.device)
 
         control_in = control[:, rtnmpc.u_feats]
-        control_torch = torch.from_numpy(control_in).type(torch.float32).to(torch.device("cpu"))
+        control_torch = torch.from_numpy(control_in).type(torch.float32).to(rtnmpc.device)
 
         mlp_in = torch.cat((state_b_torch, control_torch), dim=1)
         # Forward call MLP

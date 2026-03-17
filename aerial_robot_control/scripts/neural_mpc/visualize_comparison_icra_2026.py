@@ -369,9 +369,8 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
 
     state_feats = eval(rtnmpc_neural_ctrl.mlp_metadata["ModelFitConfig"]["state_feats"])
     u_feats = eval(rtnmpc_neural_ctrl.mlp_metadata["ModelFitConfig"]["u_feats"])
-    device = "cpu"
-    state_in_mlp_tensor = torch.from_numpy(state_in_mlp).type(torch.float32).to(torch.device(device))
-    control_tensor = torch.from_numpy(control_neural).type(torch.float32).to(torch.device(device))
+    state_in_mlp_tensor = torch.from_numpy(state_in_mlp).type(torch.float32).to(rtnmpc_neural_ctrl.device)
+    control_tensor = torch.from_numpy(control_neural).type(torch.float32).to(rtnmpc_neural_ctrl.device)
     mlp_in = torch.cat((state_in_mlp_tensor[:, state_feats], control_tensor[:, u_feats]), axis=1)
 
     mlp_out = rtnmpc_neural_ctrl.neural_model(mlp_in)

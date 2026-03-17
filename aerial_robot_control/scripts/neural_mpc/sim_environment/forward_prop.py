@@ -13,6 +13,7 @@ def init_forward_prop(mpc: NeuralMPC, T_prop_step: float = 0.01, num_stages: int
     NOTE: The step size T_prop_step here needs to match the step size used for the forward_prop() method.
     Careful, this is not necessarily the same as the step size T_step used in the controller!
     """
+    assert T_prop_step > 0, "T_prop_step must be non-zero."
     p = ca.MX.sym("p", 3)
     v = ca.MX.sym("v", 3)
     q = ca.MX.sym("q", 4)
@@ -54,6 +55,8 @@ def forward_prop(discretized_dynamics, state_0, u_cmd, T_prop_horizon, T_prop_st
     computed as T_prop_horizon / T_prop_step.
     :return: An m x n array of propagated state estimates
     """
+    assert T_prop_step > 0 and T_prop_horizon > 0, "T_prop_step and T_prop_horizon must be non-zero."
+
     if round(T_prop_horizon % T_prop_step, 6) != 0:  # round() needed for floating point precision
         print(f"[Warning] In forward propagation, T_prop_horizon {T_prop_horizon} is not a multiple of T_prop_step {T_prop_step}.")
         print(f"Matching T_prop_step to be a multiple of T_prop_horizon: T_prop_step = T_prop_horizon / 2 = {T_prop_horizon / 2}.")

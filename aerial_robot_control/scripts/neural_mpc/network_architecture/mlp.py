@@ -75,12 +75,6 @@ class MLP(TorchMLCasadiModule):
         self.input_size = in_size
         self.output_size = out_size
 
-    def sym_linearize(self, x, x0):
-        # Linearized evaluation: y0 + J @ (x - x0)
-        y0 = self.cs_forward(x0)
-        J_at_x0 = ca.jacobian(y0, x0)
-        return y0 + J_at_x0 @ (x - x0)
-
     def forward(self, x):
         # Input normalization
         x = (x - self.x_mean) / self.x_std
@@ -99,32 +93,31 @@ class MLP(TorchMLCasadiModule):
         # Output denormalization
         return (x * self.y_std.cpu().numpy()) + self.y_mean.cpu().numpy()
 
-    def compute_jacobian(self, x):
+    def compute_jacobian(self, x, y):
         """
         Compute the Jacobian of the network output with respect to the input at point x.
         
         Args:
             x: Input tensor of shape (batch_size, input_size) or (input_size,)
-            
+            ATTENTION: x must require gradients for autograd to work properly, e.g. "x.clone().detach().requires_grad_(True)"
+            y: Output tensor of shape (batch_size, output_size) or (output_size,), e.g. "y = neural_model(x)"
+
         Returns:
             Jacobian matrix of shape (batch_size, output_size, input_size) or (output_size, input_size)
-        """
-        x = x.clone().detach().requires_grad_(True)
-        y = self.forward(x)
-        
-        # Handle both single sample and batch
+        """        
+        assert x.dim() == y.dim()
         is_single = x.dim() == 1
-        if is_single:
-            x = x.unsqueeze(0)
-            y = y.unsqueeze(0)
-        
-        batch_size = x.shape[0]
+        batch_size = 1 if is_single else x.shape[0]
         jacobian = torch.zeros(batch_size, self.output_size, self.input_size, device=x.device)
         
         for i in range(self.output_size):
             # Compute gradient of output i with respect to input
             grad_outputs = torch.zeros_like(y)
-            grad_outputs[:, i] = 1.0
+            if is_single:
+                grad_outputs[i] = 1.0
+            else:
+                grad_outputs[:, i] = 1.0
+                
             grads = torch.autograd.grad(
                 outputs=y,
                 inputs=x,
@@ -132,6 +125,7 @@ class MLP(TorchMLCasadiModule):
                 create_graph=False,
                 retain_graph=True
             )[0]
+            
             jacobian[:, i, :] = grads
         
         if is_single:
