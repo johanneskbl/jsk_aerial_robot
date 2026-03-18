@@ -123,7 +123,7 @@ def linearize(rtnmpc, x0, order):
         y0 = rtnmpc.neural_model(x0)
         J0 = rtnmpc.neural_model.compute_jacobian(x0, y0)
     elif order == 2:
-        H0, J0, y0 = batched_hessian(rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True, return_jacobian=True)
+        H0, J0, y0 = batched_hessian(rtnmpc.neural_model, x0, return_func_output=True, return_jacobian=True)
 
     # Flatten Jacobian and Hessian by appending all rows into one column
     # =============================
@@ -143,37 +143,46 @@ def linearize(rtnmpc, x0, order):
     # NOTE: PyTorch's reshape follows NumPy's convention
     # =============================
 
-    y0_np = y0.detach().cpu().numpy().reshape(-1, order='F')
-    J0_np = J0.detach().cpu().numpy().reshape(-1, order='F')
+    y0_np = y0.detach().cpu().numpy().reshape(x0.shape[0], -1, order='F')
+    J0_np = J0.detach().cpu().numpy().reshape(x0.shape[0], -1, order='F')
     if order == 2:
-        # Remove zero dimensions
-        H0 = H0.squeeze(0).squeeze(0).squeeze(1).squeeze(2)  # shape (output_size, input_size, input_size)
+        # Remove zero dimensions (clean-up)
+        H0 = H0.squeeze(1).squeeze(1).squeeze(3)  # shape (batch_size, output_size, input_size, input_size) NOTE: Don't call .squeeze() without specifying dimension since for sim we have batch_size=1
         # Flatten all inner input_size x input_size Hessian matrices H0_i into one column and concatenate all Hessian columns after each other
         H0_list = []
-        for i in range(H0.shape[0]):
-            H0_list.append(H0[i,:,:].cpu().numpy().reshape(-1, order='F'))
+        for i in range(H0.shape[1]):
+            H0_list.append(H0[:,i,:,:].cpu().numpy().reshape(x0.shape[0], -1, order='F'))
         
-        H0_np = np.concatenate([*H0_list])  # concatenate columns of all Hessian matrices into one column vector
+        H0_np = np.concatenate([*H0_list], axis=1)  # concatenate columns of all Hessian matrices into one column vector
     else:
-        H0_np = np.array([])
+        H0_np = np.empty((x0.shape[0], 0))
 
     return y0_np, J0_np, H0_np
 
 def set_linearization_params(rtnmpc, ocp_solver, order):
     # Set linearization point as parameters
-    for j in range(ocp_solver.N):
+    x0_np = np.zeros((ocp_solver.N+1, len(rtnmpc.state_feats) + len(rtnmpc.u_feats)))
+    for j in range(ocp_solver.N+1):
         state_j = ocp_solver.get(j, "x")
-        u_cmd_j = ocp_solver.get(j, "u")
-        x0_np = np.concatenate([state_j[rtnmpc.state_feats], u_cmd_j[rtnmpc.u_feats]])
-        x0 = torch.tensor(x0_np).float().to(rtnmpc.device).requires_grad_(True)
-        y0_np, J0_np, H0_np = linearize(rtnmpc, x0, order)
-        rtnmpc.acados_parameters[j, rtnmpc.linearize_start_idx : rtnmpc.linearize_end_idx] = \
-            np.concatenate([x0_np, y0_np, J0_np, H0_np])
+        if j < ocp_solver.N:
+            u_cmd_j = ocp_solver.get(j, "u")
+        else:
+            # NOTE: For the terminal node, we can only use the control input from the previous node since the control input for the terminal node is not available in the optimization scheme
+            # This is an approximation/assumption that the control input is not far from the previous node's control input!!
+            pass  # use u_cmd_j from previous node
+        x0_j_np = np.concatenate([state_j[rtnmpc.state_feats], u_cmd_j[rtnmpc.u_feats]])
+        x0_np[j, :] = x0_j_np
+
+    x0 = torch.tensor(x0_np).float().to(rtnmpc.device).requires_grad_(True)  # shape: (N, input_size)
+    y0_np, J0_np, H0_np = linearize(rtnmpc, x0, order)  # shape: y0: (N, output_size), J0: (N, output_size * input_size), H0: (N, output_size * input_size * input_size)
+    # NOTE: Since the control input u is not available for the terminal node, we can only linearize up to N-1 and ignore/zero-out the linearization for node N (initialization value)
+    rtnmpc.acados_parameters[:, rtnmpc.linearize_start_idx : rtnmpc.linearize_end_idx] = \
+        np.concatenate([x0_np, y0_np, J0_np, H0_np], axis=1)
 
 def set_linearization_params_sim(sim_rtnmpc, state_curr_sim, u_cmd, order):
     # Set linearization point as parameters for one step in simulator
     x0_np = np.concatenate([state_curr_sim[sim_rtnmpc.state_feats], u_cmd[sim_rtnmpc.u_feats]])
-    x0 = torch.tensor(x0_np).float().to(sim_rtnmpc.device).requires_grad_(True)
+    x0 = torch.tensor(x0_np).unsqueeze(0).float().to(sim_rtnmpc.device).requires_grad_(True)
     # y0 = sim_rtnmpc.neural_model(x0)
     # J0 = sim_rtnmpc.neural_model.compute_jacobian(x0, y0)
 
@@ -193,6 +202,9 @@ def set_linearization_params_sim(sim_rtnmpc, state_curr_sim, u_cmd, order):
     #     np.concatenate([x0_np, y0_np, J0_np, H_np])
 
     y0_np, J0_np, H0_np = linearize(sim_rtnmpc, x0, order)
+    y0_np = y0_np.squeeze(0)
+    J0_np = J0_np.squeeze(0)
+    H0_np = H0_np.squeeze(0)
     sim_rtnmpc.acados_parameters[0, sim_rtnmpc.linearize_start_idx : sim_rtnmpc.linearize_end_idx] = \
         np.concatenate([x0_np, y0_np, J0_np, H0_np])
 

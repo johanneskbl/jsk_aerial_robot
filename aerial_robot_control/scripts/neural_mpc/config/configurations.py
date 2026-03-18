@@ -46,7 +46,7 @@ class EnvConfig:
             "plus_neural": True,
             "minus_neural": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
-            "neural_model_instance": "neuralmodel_186",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            "neural_model_instance": "neuralmodel_185",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
@@ -164,7 +164,7 @@ class EnvConfig:
             # 11 (same learning but DOESNT MAKE SENSE): Beta = 0.0
             "approximate_mlp": False,  # TODO implement!; Approximation using first or second order Taylor Expansion
             "approximate_order": 1,  # Order of Taylor Expansion (first or second)
-            "linearize_mlp": False,  # Linearize MLP at each control step in the MPC
+            "linearize_mlp": True,  # Linearize MLP at each control step in the MPC
             "linearize_order": 1,  # Order of linearization (first or second)
             "use_l4casadi": False,
             "use_gpu": False,
