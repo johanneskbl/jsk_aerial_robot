@@ -60,7 +60,7 @@
 
     ########### Control ###########
     <rosparam file="$(arg config_dir)/../dragon_ball_bi/PhysParamDragonBallBi.yaml" command="load"/>
-    <rosparam file="$(arg config_dir)/../dragon_ball_bi/TiltBiRotorNMPC.yaml" command="load" if="$(eval arg('nmpc_mode') == 0)"/>
+    <rosparam file="$(arg config_dir)/../dragon_ball_bi/TiltBiRotorNMPCDist.yaml" command="load" if="$(eval arg('nmpc_mode') == 0)"/>
     <rosparam file="$(arg config_dir)/../dragon_ball_bi/TiltBi2OrdRotorNMPC.yaml" command="load"
               if="$(eval arg('nmpc_mode') == 1)"/>
 

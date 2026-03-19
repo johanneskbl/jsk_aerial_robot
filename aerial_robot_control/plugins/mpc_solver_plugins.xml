@@ -21,13 +21,13 @@
         <description>Nonlinear Model Predictive Control with Tilt Qd Servo Thrust Disturbance Impedance Model.</description>
     </class>
 
-    <!-- tri qd -->
+    <!-- tilt tri -->
     <class type="aerial_robot_control::mpc_solver::TiltTriServoMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
         <description>Nonlinear Model Predictive Control with Tilt Tri Servo Model.</description>
     </class>
 
-    <!-- bi qd -->
-    <class type="aerial_robot_control::mpc_solver::TiltBiServoMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
+    <!-- tilt bi -->
+    <class type="aerial_robot_control::mpc_solver::TiltBiServoDistMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
         <description>Nonlinear Model Predictive Control with Tilt Bi Servo Model.</description>
     </class>
     <class type="aerial_robot_control::mpc_solver::TiltBi2OrdServoMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
