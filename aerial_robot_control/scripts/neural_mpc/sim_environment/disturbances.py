@@ -3,13 +3,13 @@ from acados_template import AcadosSimSolver
 from neural_controller import NeuralMPC
 
 
-def apply_cog_disturbance(sim_solver: AcadosSimSolver, rtnmpc: NeuralMPC, cog_dist_factor, u_cmd, state):
+def apply_cog_disturbance(sim_solver: AcadosSimSolver, neural_mpc: NeuralMPC, cog_dist_factor, u_cmd, state):
     """
     Function to generate a random disturbance force and torque on the center of gravity (CoG).
     This is a placeholder function that can be expanded with specific disturbance parameters.
     """
     # Get average of thrust command for smoother disturbance
-    # u_sequence = np.array([rtnmpc.ocp_solver.get(i, "u") for i in range(int(rtnmpc.N/5))])
+    # u_sequence = np.array([neural_mpc.ocp_solver.get(i, "u") for i in range(int(neural_mpc.N/5))])
     # max_thrust = np.average(u_sequence[:,:4])
     max_thrust = np.average(u_cmd[:4])
     # Ground effect increases lift the closer drone is to the ground
@@ -31,30 +31,30 @@ def apply_cog_disturbance(sim_solver: AcadosSimSolver, rtnmpc: NeuralMPC, cog_di
     mu = np.array([force_mu_x, force_mu_y, force_mu_z, torque_mu, torque_mu, torque_mu])
     std = np.array([force_std_x, force_std_y, force_std_z, torque_std, torque_std, torque_std])
     cog_dist = mu  # np.random.normal(loc=mu, scale=std)
-    start_idx = rtnmpc.cog_dist_start_idx
-    end_idx = rtnmpc.cog_dist_end_idx
+    start_idx = neural_mpc.cog_dist_start_idx
+    end_idx = neural_mpc.cog_dist_end_idx
     sim_solver.acados_sim.parameter_values[start_idx:end_idx] = cog_dist
 
 
-def apply_motor_noise(sim_solver: AcadosSimSolver, rtnmpc: NeuralMPC, u_cmd):
+def apply_motor_noise(sim_solver: AcadosSimSolver, neural_mpc: NeuralMPC, u_cmd):
     # Thrust noise
     if u_cmd is None:
         thrust_factor = np.ones((4,))
     else:
         # Use last thrust command for normalization
-        thrust_factor = u_cmd[:4] / rtnmpc.params["thrust_max"]
+        thrust_factor = u_cmd[:4] / neural_mpc.params["thrust_max"]
     amplitude_mu = 0.06 * thrust_factor**2
     amplitude_std = 0.08
     mu = np.random.uniform(-amplitude_mu, amplitude_mu)
     std = np.abs(thrust_factor) * amplitude_std ** (1 / 4)
     rotor_noise = np.random.normal(loc=mu, scale=std)
 
-    start_idx = rtnmpc.motor_noise_start_idx
-    end_idx = rtnmpc.motor_noise_end_idx
+    start_idx = neural_mpc.motor_noise_start_idx
+    end_idx = neural_mpc.motor_noise_end_idx
     sim_solver.acados_sim.parameter_values[start_idx : start_idx + 4] = rotor_noise
 
     # Servo angle noise
-    if rtnmpc.tilt:
+    if neural_mpc.tilt:
         mu = np.zeros((4,))
         std = 0.04  # Assume constant inaccuracy for servo angles since they have low frequency
         servo_noise = np.random.normal(loc=mu, scale=std)

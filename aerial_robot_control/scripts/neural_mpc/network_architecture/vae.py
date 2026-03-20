@@ -1,16 +1,9 @@
 import torch
-import torch.nn as nn
 import casadi as ca
-import os, sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ml_casadi.torch.modules import TorchMLCasadiModule
-from ml_casadi.torch.modules.nn import Linear as mcLinear
-from ml_casadi.torch.modules.nn import activation as mcActivations
-from ml_casadi.torch.modules.nn.batch_norm import BatchNorm1D as mcBatchNorm1d
-from ml_casadi.torch.modules.nn.dropout import Dropout as mcDropout
+from network_architecture.casadi_layers import caLinear, caBatchNorm1D, caDropout, caReLU, caLeakyReLU, caSigmoid, caTanh, caGELU
 
 
-class VAE(TorchMLCasadiModule):
+class VAE(torch.nn.Module):
     """
     Variational Autoencoder for residual dynamics modeling in MPC framework.
     
@@ -43,45 +36,45 @@ class VAE(TorchMLCasadiModule):
         encoder_layers = []
         prev_size = in_size
         if dropout_input:
-            encoder_layers.append(mcDropout(dropout_p))
+            encoder_layers.append(caDropout(dropout_p))
         for i in range(len(encoder_hidden_sizes) + 1):  # +1 to compensate for input layer
             if i < len(encoder_hidden_sizes):
                 next_size = encoder_hidden_sizes[i]
             else:
                 next_size = encoder_hidden_sizes[-1]  # Repeat last hidden layer size
             # Fully connected layer
-            encoder_layers.append(mcLinear(prev_size, next_size))
+            encoder_layers.append(caLinear(prev_size, next_size))
             # Batch normalization
             if use_batch_norm:
-                encoder_layers.append(mcBatchNorm1d(next_size))
+                encoder_layers.append(caBatchNorm1D(next_size))
             # Activation function
             if activation == "ReLU":
-                encoder_layers.append(mcActivations.ReLU())
+                encoder_layers.append(caReLU())
             elif activation == "Tanh":
-                encoder_layers.append(mcActivations.Tanh())
+                encoder_layers.append(caTanh())
             elif activation == "Sigmoid":
-                encoder_layers.append(mcActivations.Sigmoid())
+                encoder_layers.append(caSigmoid())
             elif activation == "LeakyReLU":
-                encoder_layers.append(mcActivations.LeakyReLU())
+                encoder_layers.append(caLeakyReLU())
             elif activation == "GELU":
-                encoder_layers.append(mcActivations.GELU())
+                encoder_layers.append(caGELU())
             elif activation is None:
                 pass  # Equal to lambda x: x
             else:
                 raise ValueError(f"Unsupported activation function: {activation}")
             # Dropout
             if dropout_p > 0.0:
-                encoder_layers.append(mcDropout(dropout_p))
+                encoder_layers.append(caDropout(dropout_p))
 
             prev_size = next_size
 
-        self.encoder = nn.ModuleList(encoder_layers)
+        self.encoder = torch.nn.ModuleList(encoder_layers)
         
         # =============== Latent space ===============
         # Simply one fully connected layer with mean and log-variance out sizes
         # Can be interpreted as last layer of encoder
-        self.fc_mu = mcLinear(prev_size, latent_dim)
-        self.fc_logvar = mcLinear(prev_size, latent_dim)
+        self.fc_mu = caLinear(prev_size, latent_dim)
+        self.fc_logvar = caLinear(prev_size, latent_dim)
         
         # =============== Decoder ===============
         decoder_layers = []
@@ -92,34 +85,34 @@ class VAE(TorchMLCasadiModule):
             else:
                 next_size = decoder_hidden_sizes[-1]  # Repeat last hidden layer size
             # Fully connected layer
-            decoder_layers.append(mcLinear(prev_size, next_size))
+            decoder_layers.append(caLinear(prev_size, next_size))
             # Batch normalization
             if use_batch_norm:
-                decoder_layers.append(mcBatchNorm1d(next_size))
+                decoder_layers.append(caBatchNorm1D(next_size))
             # Activation function
             if activation == "ReLU":
-                decoder_layers.append(mcActivations.ReLU())
+                decoder_layers.append(caReLU())
             elif activation == "Tanh":
-                decoder_layers.append(mcActivations.Tanh())
+                decoder_layers.append(caTanh())
             elif activation == "Sigmoid":
-                decoder_layers.append(mcActivations.Sigmoid())
+                decoder_layers.append(caSigmoid())
             elif activation == "LeakyReLU":
-                decoder_layers.append(mcActivations.LeakyReLU())
+                decoder_layers.append(caLeakyReLU())
             elif activation == "GELU":
-                decoder_layers.append(mcActivations.GELU())
+                decoder_layers.append(caGELU())
             elif activation is None:
                 pass  # Equal to lambda x: x
             else:
                 raise ValueError(f"Unsupported activation function: {activation}")
             # Dropout
             if dropout_p > 0.0:
-                decoder_layers.append(mcDropout(dropout_p))
+                decoder_layers.append(caDropout(dropout_p))
 
             prev_size = next_size
 
-        decoder_layers.append(mcLinear(prev_size, out_size))
+        decoder_layers.append(caLinear(prev_size, out_size))
 
-        self.decoder = nn.ModuleList(decoder_layers)
+        self.decoder = torch.nn.ModuleList(decoder_layers)
         
         # Input-Output Normalization
         self.register_buffer("x_mean", x_mean)
@@ -141,6 +134,17 @@ class VAE(TorchMLCasadiModule):
         logvar = self.fc_logvar(x)
         
         return mu, logvar
+    
+    def ca_encode(self, x):
+        """Encode input to latent distribution parameters."""
+        for layer in self.encoder:
+            x = layer.ca_forward(x)
+        
+        # Get mean and log-variance
+        mu = self.fc_mu.ca_forward(x)
+        logvar = self.fc_logvar.ca_forward(x)
+        
+        return mu, logvar
 
     def reparameterize(self, mu, logvar):
         """
@@ -156,6 +160,12 @@ class VAE(TorchMLCasadiModule):
         """Decode latent variable to output."""
         for layer in self.decoder:
             z = layer(z)
+        return z
+
+    def ca_decode(self, z):
+        """Decode latent variable to output."""
+        for layer in self.decoder:
+            z = layer.ca_forward(z)
         return z
 
     def forward(self, x):
@@ -187,17 +197,17 @@ class VAE(TorchMLCasadiModule):
         y_pred = (y_pred * self.y_std) + self.y_mean
         return y_pred, mu, logvar
 
-    def cs_forward(self, x):
+    def ca_forward(self, x):
         # Input normalization
         x = (x - self.x_mean.cpu().numpy()) / self.x_std.cpu().numpy()
         
         # Encoder
-        mu, logvar = self.encode(x)
+        mu, logvar = self.ca_encode(x)
         
         # Latent sampling: use mean for deterministic prediction
 
         # Decoder
-        y_pred = self.decode(mu)
+        y_pred = self.ca_decode(mu)
         
         # Output denormalization
         y_pred = (y_pred * self.y_std.cpu().numpy()) + self.y_mean.cpu().numpy()

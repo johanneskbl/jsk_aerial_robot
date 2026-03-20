@@ -22,7 +22,7 @@ matlab_green = "#77AC30"
 matlab_purple = "#7E2F8E"
 
 
-def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
+def plot_comparison(rec_dict, neural_mpc_ctrl):
     """
     Plot comparison between nominal and neural MPC simulation results.
 
@@ -361,22 +361,22 @@ def plot_comparison(rec_dict, rtnmpc_neural_ctrl):
             v_b_traj[t, :] = v_dot_q(v_w_traj[t, :], quaternion_inverse(q_traj[t, :]))
         return np.concatenate((p_traj, v_b_traj, q_traj, other_traj), axis=1)
 
-    if rtnmpc_neural_ctrl.mlp_metadata["ModelFitConfig"]["input_transform"]:
+    if neural_mpc_ctrl.mlp_metadata["ModelFitConfig"]["input_transform"]:
         state_in_mlp = velocity_mapping(state_in_nominal)
     else:
         # Don't transform input but let network learn in world frame directly
         state_in_mlp = state_in_nominal.copy()
 
-    state_feats = eval(rtnmpc_neural_ctrl.mlp_metadata["ModelFitConfig"]["state_feats"])
-    u_feats = eval(rtnmpc_neural_ctrl.mlp_metadata["ModelFitConfig"]["u_feats"])
-    state_in_mlp_tensor = torch.from_numpy(state_in_mlp).type(torch.float32).to(rtnmpc_neural_ctrl.device)
-    control_tensor = torch.from_numpy(control_neural).type(torch.float32).to(rtnmpc_neural_ctrl.device)
+    state_feats = eval(neural_mpc_ctrl.mlp_metadata["ModelFitConfig"]["state_feats"])
+    u_feats = eval(neural_mpc_ctrl.mlp_metadata["ModelFitConfig"]["u_feats"])
+    state_in_mlp_tensor = torch.from_numpy(state_in_mlp).type(torch.float32).to(neural_mpc_ctrl.device)
+    control_tensor = torch.from_numpy(control_neural).type(torch.float32).to(neural_mpc_ctrl.device)
     mlp_in = torch.cat((state_in_mlp_tensor[:, state_feats], control_tensor[:, u_feats]), axis=1)
 
-    mlp_out = rtnmpc_neural_ctrl.neural_model(mlp_in)
+    mlp_out = neural_mpc_ctrl.neural_model(mlp_in)
     mlp_out = mlp_out.detach().cpu().numpy()
 
-    if rtnmpc_neural_ctrl.mlp_metadata["ModelFitConfig"]["label_transform"]:
+    if neural_mpc_ctrl.mlp_metadata["ModelFitConfig"]["label_transform"]:
         for t in range(state_in_nominal.shape[0]):
             mlp_out[t, :] = v_dot_q(mlp_out[t, :], state_in_nominal[t, 6:10])
 
@@ -576,10 +576,10 @@ if __name__ == "__main__":
     # Plot
     model_options = EnvConfig.model_options
     model_options["only_use_nominal"] = False
-    rtnmpc_neural_ctrl = NeuralMPC(
+    neural_mpc_ctrl = NeuralMPC(
         model_options=model_options,
         solver_options=EnvConfig.solver_options,
         sim_options=EnvConfig.sim_options,
         run_options=EnvConfig.run_options,
     )
-    plot_comparison(rec_dict, rtnmpc_neural_ctrl)
+    plot_comparison(rec_dict, neural_mpc_ctrl)

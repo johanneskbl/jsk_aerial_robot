@@ -19,7 +19,7 @@ if "nominal" in controller_list:
     model_options["only_use_nominal"] = True
     solver_options = EnvConfig.solver_options
     solver_options["include_delta_u"] = False
-    rtnmpc = NeuralMPC(
+    neural_mpc = NeuralMPC(
         model_options=model_options,
         solver_options=solver_options,
         sim_options=EnvConfig.sim_options,
@@ -33,7 +33,7 @@ if "neural_plus" in controller_list:
     model_options["only_use_nominal"] = False
     model_options["plus_neural"] = True
     model_options["minus_neural"] = False
-    rtnmpc = NeuralMPC(
+    neural_mpc = NeuralMPC(
         model_options=model_options,
         solver_options=EnvConfig.solver_options,
         sim_options=EnvConfig.sim_options,
@@ -47,7 +47,7 @@ if "neural_minus" in controller_list:
     model_options["only_use_nominal"] = False
     model_options["plus_neural"] = False
     model_options["minus_neural"] = True
-    rtnmpc = NeuralMPC(
+    neural_mpc = NeuralMPC(
         model_options=model_options,
         solver_options=EnvConfig.solver_options,
         sim_options=EnvConfig.sim_options,

@@ -162,12 +162,10 @@ class EnvConfig:
             # 9 (better learning, but same generalization, NOT VERY GOOD OUT PLOTS): Beta = 1e-4, AdamW, GELU
             # 10 (better learning, but same generalization): Beta = 1e-5
             # 11 (same learning but DOESNT MAKE SENSE): Beta = 0.0
-            "approximate_mlp": False,  # TODO implement!; Approximation using first or second order Taylor Expansion
-            "approximate_order": 1,  # Order of Taylor Expansion (first or second)
-            "linearize_mlp": True,  # Linearize MLP at each control step in the MPC
-            "linearize_order": 1,  # Order of linearization (first or second)
-            "use_l4casadi": False,
-            "use_gpu": False,
+            "linearize_mlp": False,  # Linearize MLP at each control step in the MPC using first or second order Taylor Expansion
+            "linearize_order": 1,  # Order of Taylor Expansion (first or second)
+            "use_l4casadi": False,  # Set order with "linearize_order"
+            "use_gpu": False,  # Call neural model and its Jacobian & Hessian batched on GPU for MLP linearization (currently not set for L4casadi)
         }
     )
 
@@ -250,12 +248,12 @@ class EnvConfig:
 
     if model_options["minus_neural"] and model_options["plus_neural"]:
         raise ValueError("Conflict in options.")
-    if model_options["approximate_mlp"] and model_options["approx_order"] == 0:
+    if model_options["linearize_mlp"] and model_options["use_l4casadi"]:
         raise ValueError("Conflict in options.")
-    if model_options["linearize_mlp"] and model_options["approximate_mlp"]:
-        raise ValueError("Conflict in options.")
-    if not (model_options["linearize_mlp"] or model_options["approximate_mlp"]) and model_options["use_gpu"]:
-        raise ValueError("acados does not support GPU in optimization framework.")
+    if (model_options["linearize_mlp"] or model_options["use_l4casadi"]) and model_options["linearize_order"] not in [1, 2]:
+        raise ValueError("Only first and second order linearization supported.")
+    if not (model_options["linearize_mlp"] or model_options["use_l4casadi"]) and model_options["use_gpu"]:
+        raise ValueError("acados does not support GPU usage natively in optimization framework. GPU can only be used with linearization.")
     if sim_options["use_real_world_simulator"] and sim_options["use_nominal_simulator"]:
         raise ValueError("Conflict in options.")
     if sim_options["use_real_world_simulator"]:

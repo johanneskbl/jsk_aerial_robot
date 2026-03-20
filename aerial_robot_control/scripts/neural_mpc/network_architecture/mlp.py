@@ -1,14 +1,8 @@
 import torch
-import torch.nn as nn
-import casadi as ca
-from ml_casadi.torch.modules import TorchMLCasadiModule
-from ml_casadi.torch.modules.nn import Linear as mcLinear
-from ml_casadi.torch.modules.nn import activation as mcActivations
-from ml_casadi.torch.modules.nn.batch_norm import BatchNorm1D as mcBatchNorm1d
-from ml_casadi.torch.modules.nn.dropout import Dropout as mcDropout
+from network_architecture.casadi_layers import caLinear, caBatchNorm1D, caDropout, caReLU, caLeakyReLU, caSigmoid, caTanh, caGELU
 
 
-class MLP(TorchMLCasadiModule):
+class MLP(torch.nn.Module):
     def __init__(
         self,
         in_size,
@@ -29,41 +23,41 @@ class MLP(TorchMLCasadiModule):
         layers = []
         prev_size = in_size
         if dropout_input:
-            layers.append(mcDropout(dropout_p))
+            layers.append(caDropout(dropout_p))
         for i in range(len(hidden_sizes) + 1):  # +1 to compensate for input layer
             if i < len(hidden_sizes):
                 next_size = hidden_sizes[i]
             else:
                 next_size = hidden_sizes[-1]  # Repeat last hidden layer size
             # Fully connected layer
-            layers.append(mcLinear(prev_size, next_size))
+            layers.append(caLinear(prev_size, next_size))
             # Batch normalization
             if use_batch_norm:
-                layers.append(mcBatchNorm1d(next_size))
+                layers.append(caBatchNorm1D(next_size))
             # Activation function
             if activation == "ReLU":
-                layers.append(mcActivations.ReLU())
+                layers.append(caReLU())
             elif activation == "Tanh":
-                layers.append(mcActivations.Tanh())
+                layers.append(caTanh())
             elif activation == "Sigmoid":
-                layers.append(mcActivations.Sigmoid())
+                layers.append(caSigmoid())
             elif activation == "LeakyReLU":
-                layers.append(mcActivations.LeakyReLU())
+                layers.append(caLeakyReLU())
             elif activation == "GELU":
-                layers.append(mcActivations.GELU())
+                layers.append(caGELU())
             elif activation is None:
                 pass  # Equal to lambda x: x
             else:
                 raise ValueError(f"Unsupported activation function: {activation}")
             # Dropout
             if dropout_p > 0.0:
-                layers.append(mcDropout(dropout_p))
+                layers.append(caDropout(dropout_p))
 
             prev_size = next_size
 
-        layers.append(mcLinear(prev_size, out_size))
+        layers.append(caLinear(prev_size, out_size))
 
-        self.fully_connected_stack = nn.ModuleList(layers)
+        self.fully_connected_stack = torch.nn.ModuleList(layers)
 
         # Input-Output Normalization
         self.register_buffer("x_mean", x_mean)
@@ -84,102 +78,11 @@ class MLP(TorchMLCasadiModule):
         # Output denormalization
         return (x * self.y_std) + self.y_mean
 
-    def cs_forward(self, x):
+    def ca_forward(self, x):
         # Input normalization
         x = (x - self.x_mean.cpu().numpy()) / self.x_std.cpu().numpy()
         # Forward pass
         for layer in self.fully_connected_stack:
-            x = layer(x)
+            x = layer.ca_forward(x)
         # Output denormalization
         return (x * self.y_std.cpu().numpy()) + self.y_mean.cpu().numpy()
-
-    def compute_jacobian(self, x, y):
-        """
-        Compute the Jacobian of the network output with respect to the input at point x.
-        
-        Args:
-            x: Input tensor of shape (batch_size, input_size) or (input_size,)
-            ATTENTION: x must require gradients for autograd to work properly, e.g. "x.clone().detach().requires_grad_(True)"
-            y: Output tensor of shape (batch_size, output_size) or (output_size,), e.g. "y = neural_model(x)"
-
-        Returns:
-            Jacobian matrix of shape (batch_size, output_size, input_size) or (output_size, input_size)
-        """        
-        assert x.dim() == y.dim()
-        is_single = x.dim() == 1
-        batch_size = 1 if is_single else x.shape[0]
-        jacobian = torch.zeros(batch_size, self.output_size, self.input_size, device=x.device)
-        
-        for i in range(self.output_size):
-            # Compute gradient of output i with respect to input
-            grad_outputs = torch.zeros_like(y)
-            if is_single:
-                grad_outputs[i] = 1.0
-            else:
-                grad_outputs[:, i] = 1.0
-                
-            grads = torch.autograd.grad(
-                outputs=y,
-                inputs=x,
-                grad_outputs=grad_outputs,
-                create_graph=False,
-                retain_graph=True
-            )[0]
-            
-            jacobian[:, i, :] = grads
-        
-        if is_single:
-            jacobian = jacobian.squeeze(0)
-            
-        return jacobian
-
-    def linearize_at_point(self, x0):
-        """
-        Linearize the network around the working point x0.
-        Returns the linear approximation: y ≈ y0 + J @ (x - x0)
-        
-        Args:
-            x0: Working point tensor of shape (input_size,) or (batch_size, input_size)
-            
-        Returns:
-            dict with:
-                - 'y0': Output at the working point
-                - 'J': Jacobian matrix at the working point
-                - 'x0': The working point (for reference)
-        """
-        with torch.no_grad():
-            y0 = self.forward(x0)
-        
-        J = self.compute_jacobian(x0)
-        
-        return {
-            'y0': y0,
-            'J': J,
-            'x0': x0.clone()
-        }
-    
-    def evaluate_linearized(self, x, linearization):
-        """
-        Evaluate the linearized model at point x.
-        
-        Args:
-            x: Input point(s) where to evaluate
-            linearization: Dict returned by linearize_at_point()
-            
-        Returns:
-            Linearized output: y ≈ y0 + J @ (x - x0)
-        """
-        y0 = linearization['y0']
-        J = linearization['J']
-        x0 = linearization['x0']
-        
-        dx = x - x0
-        
-        # Handle both single sample and batch
-        if dx.dim() == 1:
-            dy = J @ dx
-        else:
-            # Batch matrix multiplication
-            dy = torch.einsum('bij,bj->bi', J, dx)
-        
-        return y0 + dy

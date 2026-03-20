@@ -650,7 +650,7 @@ def plot_dataset(
             )
 
 
-def plot_trajectory(model_options, sim_options, rec_dict, rtnmpc: NeuralMPC, dist_dict=None, save=False):
+def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC, dist_dict=None, save=False):
     figures = []
     state_in = rec_dict["state_in"]
     state_out = rec_dict["state_out"]
@@ -761,45 +761,45 @@ def plot_trajectory(model_options, sim_options, rec_dict, rtnmpc: NeuralMPC, dis
     figures.append(fig)
 
     # Plot regression of neural network
-    if rtnmpc.use_mlp:
+    if neural_mpc.use_mlp:
         # Transform velocity of state to Body frame
         state_b = state_in.copy()
-        if rtnmpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
+        if neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
             for t in range(state_in.shape[0]):
                 v_b = v_dot_q(state_in[t, 3:6], quaternion_inverse(state_in[t, 6:10]))
                 state_b[t, :] = np.concatenate((state_in[t, :3], v_b, state_in[t, 6:]), axis=0)
-        state_b_torch = torch.from_numpy(state_b[:, rtnmpc.state_feats]).type(torch.float32).to(rtnmpc.device)
+        state_b_torch = torch.from_numpy(state_b[:, neural_mpc.state_feats]).type(torch.float32).to(neural_mpc.device)
 
-        control_in = control[:, rtnmpc.u_feats]
-        control_torch = torch.from_numpy(control_in).type(torch.float32).to(rtnmpc.device)
+        control_in = control[:, neural_mpc.u_feats]
+        control_torch = torch.from_numpy(control_in).type(torch.float32).to(neural_mpc.device)
 
         mlp_in = torch.cat((state_b_torch, control_torch), dim=1)
         # Forward call MLP
-        rtnmpc.neural_model.eval()
-        if rtnmpc.mlp_metadata["NetworkConfig"]["model_type"] == "MLP":
-            mlp_out = rtnmpc.neural_model(mlp_in).cpu().detach().numpy()
-        elif rtnmpc.mlp_metadata["NetworkConfig"]["model_type"] == "VAE":
-            mlp_out, _, std = rtnmpc.neural_model(mlp_in)
+        neural_mpc.neural_model.eval()
+        if neural_mpc.mlp_metadata["NetworkConfig"]["model_type"] == "MLP":
+            mlp_out = neural_mpc.neural_model(mlp_in).cpu().detach().numpy()
+        elif neural_mpc.mlp_metadata["NetworkConfig"]["model_type"] == "VAE":
+            mlp_out, _, std = neural_mpc.neural_model(mlp_in)
             mlp_out = mlp_out.cpu().detach().numpy()
 
         # Transform velocity back to world frame
-        if rtnmpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
+        if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
             for t in range(state_in.shape[0]):
-                if set([3, 4, 5]).issubset(set(rtnmpc.y_reg_dims)):
-                    v_idx = np.where(rtnmpc.y_reg_dims == 3)[0][0]  # Assumed that v_x, v_y, v_z are consecutive
+                if set([3, 4, 5]).issubset(set(neural_mpc.y_reg_dims)):
+                    v_idx = np.where(neural_mpc.y_reg_dims == 3)[0][0]  # Assumed that v_x, v_y, v_z are consecutive
                     v_b = mlp_out[t, v_idx : v_idx + 3]
                     v_w = v_dot_q(v_b.T, state_in[t, 6:10]).T
                     mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 3 :]), axis=0)
-                elif set([4, 5]).issubset(set(rtnmpc.y_reg_dims)):
-                    v_idx = np.where(rtnmpc.y_reg_dims == 4)[0][0]  # Assumed that v_y, v_z are consecutive
+                elif set([4, 5]).issubset(set(neural_mpc.y_reg_dims)):
+                    v_idx = np.where(neural_mpc.y_reg_dims == 4)[0][0]  # Assumed that v_y, v_z are consecutive
                     v_b = np.append(0, mlp_out[t, v_idx : v_idx + 2])
                     v_w = v_dot_q(v_b.T, state_in[t, 6:10]).T
                     mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 2 :]), axis=0)
-                elif set([5]).issubset(set(rtnmpc.y_reg_dims)):
+                elif set([5]).issubset(set(neural_mpc.y_reg_dims)):
                     # Predict only v_z so set v_x and v_y to 0 in Body frame and then transform to World frame
                     # The predicted v_z therefore also has influence on the x and y velocities in World frame
                     # Adjust mapping later on
-                    v_idx = np.where(rtnmpc.y_reg_dims == 5)[0][0]
+                    v_idx = np.where(neural_mpc.y_reg_dims == 5)[0][0]
                     v_b = np.append(np.array([0, 0]), mlp_out[t, v_idx])
                     v_w = v_dot_q(v_b.T, state_in[t, 6:10])[:, np.newaxis]
                     mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 1 :]), axis=0)
@@ -807,7 +807,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, rtnmpc: NeuralMPC, dis
         # Plot true labels vs. actual regression
         y = mlp_out
         fig, axs = plt.subplots(y.shape[1], 1, sharex=True, figsize=(10, 5), squeeze=False)
-        for i, dim in enumerate(rtnmpc.y_reg_dims):
+        for i, dim in enumerate(neural_mpc.y_reg_dims):
             axs[i, 0].plot(timestamp, y[:, i])  # , label="y_regressed")
             # axs[i, 0].plot(timestamp, y[:, i] - y_true[:, dim], label="error", color="r", linestyle="--", alpha=0.5)
             # axs[i, 0].plot(timestamp, y_true[:, dim], label="y_true", color="orange")
@@ -822,9 +822,9 @@ def plot_trajectory(model_options, sim_options, rec_dict, rtnmpc: NeuralMPC, dis
         figures.append(fig)
 
         # Plot loss per dimension
-        loss = np.square(y_true[:, rtnmpc.y_reg_dims] - y)
+        loss = np.square(y_true[:, neural_mpc.y_reg_dims] - y)
         fig, axs = plt.subplots(y.shape[1], 1, sharex=True, figsize=(10, 5), squeeze=False)
-        for i, dim in enumerate(rtnmpc.y_reg_dims):
+        for i, dim in enumerate(neural_mpc.y_reg_dims):
             axs[i, 0].plot(timestamp, loss[:, i], color="red")
             axs[i, 0].plot(
                 [timestamp[0], timestamp[-1]],
@@ -875,17 +875,17 @@ def plot_trajectory(model_options, sim_options, rec_dict, rtnmpc: NeuralMPC, dis
         figures.append(fig)
 
         # Simulate intermediate acceleration vector before integration
-        dynamics = init_forward_prop(rtnmpc, return_continuous=True)
+        dynamics = init_forward_prop(neural_mpc, return_continuous=True)
         x_dot = np.empty(state_in.shape)
         for t in range(state_in.shape[0]):
             x_dot[t, :] = np.array(dynamics(x=state_in[t, :], u=control[t, :])["x_dot"]).squeeze()
         lin_acc = x_dot[:, 3:6]
         if sim_options["disturbances"]["cog_dist"]:
-            lin_acc_dist = lin_acc + dist_dict["cog_dist"][1::2, :3] / rtnmpc.phys.mass
+            lin_acc_dist = lin_acc + dist_dict["cog_dist"][1::2, :3] / neural_mpc.phys.mass
 
-        fig, axs = plt.subplots(len(rtnmpc.y_reg_dims), 1, sharex=True, figsize=(10, 5), squeeze=False)
+        fig, axs = plt.subplots(len(neural_mpc.y_reg_dims), 1, sharex=True, figsize=(10, 5), squeeze=False)
         axs[0, 0].set_title("Model Output")
-        for i, dim in enumerate(rtnmpc.y_reg_dims):
+        for i, dim in enumerate(neural_mpc.y_reg_dims):
             axs[i, 0].plot(timestamp, lin_acc[:, i], label="Acceleration by undisturbed model")
             if sim_options["disturbances"]["cog_dist"]:
                 axs[i, 0].plot(timestamp, lin_acc_dist[:, i], label="Acceleration by disturbed model", color="olive")

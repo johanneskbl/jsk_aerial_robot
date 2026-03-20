@@ -467,19 +467,19 @@ def main():
         # --- Initialize controller ---
         print("Start control comparison based on recorded state_in with MPC...")
         model_options["only_use_nominal"] = True
-        rtnmpc_nominal = NeuralMPC(model_options, solver_options, sim_options, run_options)
-        ocp_solver_nominal = rtnmpc_nominal.get_ocp_solver()
+        nominal_mpc = NeuralMPC(model_options, solver_options, sim_options, run_options)
+        ocp_solver_nominal = nominal_mpc.get_ocp_solver()
 
         model_options["only_use_nominal"] = False
         model_options["plus_neural"] = True
         model_options["minus_neural"] = False
-        rtnmpc_neural = NeuralMPC(model_options, solver_options, sim_options, run_options)
-        ocp_solver_neural = rtnmpc_neural.get_ocp_solver()
+        neural_mpc = NeuralMPC(model_options, solver_options, sim_options, run_options)
+        ocp_solver_neural = neural_mpc.get_ocp_solver()
 
-        reference_generator = rtnmpc_nominal.get_reference_generator()
+        reference_generator = nominal_mpc.get_reference_generator()
 
-        nx = rtnmpc_nominal.get_acados_model().x.shape[0]
-        nu = rtnmpc_nominal.get_acados_model().u.shape[0]
+        nx = nominal_mpc.get_acados_model().x.shape[0]
+        nu = nominal_mpc.get_acados_model().u.shape[0]
         rec_dict = {
             "timestamp": np.zeros((0, 1)),
             "comp_time_nominal": np.zeros((0, 1)),
@@ -503,13 +503,13 @@ def main():
                 target_xyz=list(pos_ref_curr), target_qwxyz=list(quat_ref_curr)
             )
 
-            rtnmpc_nominal.track(ocp_solver_nominal, state_ref, control_ref)
-            rtnmpc_neural.track(ocp_solver_neural, state_ref, control_ref)
+            nominal_mpc.track(ocp_solver_nominal, state_ref, control_ref)
+            neural_mpc.track(ocp_solver_neural, state_ref, control_ref)
 
             # Set parameters
             for j in range(ocp_solver_nominal.N + 1):
-                ocp_solver_nominal.set(j, "p", rtnmpc_nominal.acados_parameters[j, :])
-                ocp_solver_neural.set(j, "p", rtnmpc_neural.acados_parameters[j, :])
+                ocp_solver_nominal.set(j, "p", nominal_mpc.acados_parameters[j, :])
+                ocp_solver_neural.set(j, "p", neural_mpc.acados_parameters[j, :])
 
             # Solve OCP with neural model
             comp_time_nominal_start = time.time()

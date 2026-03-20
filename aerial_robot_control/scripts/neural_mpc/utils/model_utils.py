@@ -1,7 +1,9 @@
 import os, sys
 import json
+from typing import Union, List
 import numpy as np
 import torch
+from acados_template import AcadosOcpSolver
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.configurations import DirectoryConfig
@@ -9,13 +11,45 @@ from network_architecture.mlp import MLP
 from network_architecture.vae import VAE
 
 
-def set_approximation_params(rtnmpc, ocp_solver):
-    # a = 1
-    # mlp_params = rtnmpc.neural_model.approx_params(a, order=rtnmpc.mlp_conf['approx_order'], flat=True)
-    # mlp_params = np.vstack([mlp_params, mlp_params[[-1]]])
-    # for j in range(ocp_solver.N + 1):
-    #     rtnmpc.acados_parameters[j, rtnmpc.approx_start_idx : rtnmpc.approx_end_idx] = 1
-    pass
+def compute_jacobian(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the Jacobian of the network output with respect to the input at point x.
+        
+        Args:
+            x: Input tensor of shape (batch_size, input_size) or (input_size,)
+            ATTENTION: x must require gradients for autograd to work properly, e.g. "x.clone().detach().requires_grad_(True)"
+            y: Output tensor of shape (batch_size, output_size) or (output_size,), e.g. "y = neural_model(x)"
+
+        Returns:
+            Jacobian matrix of shape (batch_size, output_size, input_size) or (output_size, input_size)
+        """        
+        assert x.dim() == y.dim()
+        is_single = x.dim() == 1
+        batch_size = 1 if is_single else x.shape[0]
+        jacobian = torch.zeros(batch_size, y.shape[-1], x.shape[-1], device=x.device)
+        
+        for i in range(y.shape[-1]):
+            # Compute gradient of output i with respect to input
+            grad_outputs = torch.zeros_like(y)
+            if is_single:
+                grad_outputs[i] = 1.0
+            else:
+                grad_outputs[:, i] = 1.0
+                
+            grads = torch.autograd.grad(
+                outputs=y,
+                inputs=x,
+                grad_outputs=grad_outputs,
+                create_graph=False,
+                retain_graph=True
+            )[0]
+            
+            jacobian[:, i, :] = grads
+        
+        if is_single:
+            jacobian = jacobian.squeeze(0)
+            
+        return jacobian
 
 def aux_function(func):
     def inner_aux(inputs):
@@ -23,40 +57,6 @@ def aux_function(func):
         return out, out
 
     return inner_aux
-
-
-import torch.func as functorch
-def batched_jacobian(func, inputs: torch.Tensor, create_graph=False, return_func_output=False):
-    r"""Function that computes batches of the Jacobian of a given function and a batch of inputs.
-
-    Args:
-        func: a Python function that takes Tensor inputs and returns a tuple of Tensors or a Tensor.
-        inputs: inputs to the function ``func``. First dimension is treated as batch dimension
-        create_graph: If ``True``, the Jacobian will be computed in a differentiable manner.
-        return_func_output: If ``True``, the function output will be returned.
-
-    Returns:Jacobian
-
-    """
-
-    if inputs.shape[0] == 1:
-        vmap_randomness = 'same'
-    else:
-        # https://github.com/pytorch/functorch/issues/996
-        # Should be 'different'
-        vmap_randomness = 'same'
-
-    if not create_graph:
-        with torch.no_grad():
-            if not return_func_output:
-                return functorch.vmap(functorch.jacrev(func))(inputs)
-            return functorch.vmap(functorch.jacrev(aux_function(func), has_aux=True), randomness=vmap_randomness)(
-                inputs[:, None])
-    else:
-        if not return_func_output:
-            return functorch.vmap(functorch.jacrev(func))(inputs)
-        return functorch.vmap(functorch.jacrev(aux_function(func), has_aux=True), randomness=vmap_randomness)(
-            inputs[:, None])
     
 def aux_function_jac(func):
     def inner_aux(inputs):
@@ -65,6 +65,7 @@ def aux_function_jac(func):
 
     return inner_aux
 
+import torch.func as functorch
 def batched_hessian(func, inputs: torch.Tensor, create_graph=False,
                     return_jacobian=False, return_func_output=False):
     r"""
@@ -104,10 +105,10 @@ def batched_hessian(func, inputs: torch.Tensor, create_graph=False,
             return hessian, jacobian, value
 
 
-def linearize(rtnmpc, x0, order):
+def linearize(neural_mpc, x0: torch.Tensor, order: int) -> List[np.ndarray]:
     """
     Linearize the neural network around the working point x0.
-    Returns the linear approximation: y ≈ y0 + J @ (x - x0) + 0.5 * (x - x0)^T * H @ (x - x0)
+    Returns the linearization: y ≈ y0 + J @ (x - x0) + 0.5 * (x - x0)^T * H @ (x - x0)
     Args:
         x0: Working point tensor of shape (input_size,) or (batch_size, input_size)
         order: Order of linearization (1 for first-order Taylor expansion, 2 for second-order Taylor expansion)
@@ -119,11 +120,10 @@ def linearize(rtnmpc, x0, order):
 
     # Taylor expansion: y = y0 + J0 * (x - x0) + 0.5 * (x - x0)^T * H0 * (x - x0)
     if order == 1:
-        # J0, y0 = batched_jacobian(rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True)
-        y0 = rtnmpc.neural_model(x0)
-        J0 = rtnmpc.neural_model.compute_jacobian(x0, y0)
+        y0 = neural_mpc.neural_model(x0)
+        J0 = compute_jacobian(x0, y0)
     elif order == 2:
-        H0, J0, y0 = batched_hessian(rtnmpc.neural_model, x0, return_func_output=True, return_jacobian=True)
+        H0, J0, y0 = batched_hessian(neural_mpc.neural_model, x0, return_func_output=True, return_jacobian=True)
 
     # Flatten Jacobian and Hessian by appending all rows into one column
     # =============================
@@ -159,9 +159,9 @@ def linearize(rtnmpc, x0, order):
 
     return y0_np, J0_np, H0_np
 
-def set_linearization_params(rtnmpc, ocp_solver, order):
+def set_linearization_params(neural_mpc, ocp_solver: AcadosOcpSolver, order: int):
     # Set linearization point as parameters
-    x0_np = np.zeros((ocp_solver.N+1, len(rtnmpc.state_feats) + len(rtnmpc.u_feats)))
+    x0_np = np.zeros((ocp_solver.N+1, len(neural_mpc.state_feats) + len(neural_mpc.u_feats)))
     for j in range(ocp_solver.N+1):
         state_j = ocp_solver.get(j, "x")
         if j < ocp_solver.N:
@@ -170,76 +170,60 @@ def set_linearization_params(rtnmpc, ocp_solver, order):
             # NOTE: For the terminal node, we can only use the control input from the previous node since the control input for the terminal node is not available in the optimization scheme
             # This is an approximation/assumption that the control input is not far from the previous node's control input!!
             pass  # use u_cmd_j from previous node
-        x0_j_np = np.concatenate([state_j[rtnmpc.state_feats], u_cmd_j[rtnmpc.u_feats]])
+        x0_j_np = np.concatenate([state_j[neural_mpc.state_feats], u_cmd_j[neural_mpc.u_feats]])
         x0_np[j, :] = x0_j_np
 
-    x0 = torch.tensor(x0_np).float().to(rtnmpc.device).requires_grad_(True)  # shape: (N, input_size)
-    y0_np, J0_np, H0_np = linearize(rtnmpc, x0, order)  # shape: y0: (N, output_size), J0: (N, output_size * input_size), H0: (N, output_size * input_size * input_size)
+    x0 = torch.tensor(x0_np).float().to(neural_mpc.device).requires_grad_(True)  # shape: (N, input_size)
+    y0_np, J0_np, H0_np = linearize(neural_mpc, x0, order)  # shape: y0: (N, output_size), J0: (N, output_size * input_size), H0: (N, output_size * input_size * input_size)
     # NOTE: Since the control input u is not available for the terminal node, we can only linearize up to N-1 and ignore/zero-out the linearization for node N (initialization value)
-    rtnmpc.acados_parameters[:, rtnmpc.linearize_start_idx : rtnmpc.linearize_end_idx] = \
+    neural_mpc.acados_parameters[:, neural_mpc.linearize_start_idx : neural_mpc.linearize_end_idx] = \
         np.concatenate([x0_np, y0_np, J0_np, H0_np], axis=1)
 
-def set_linearization_params_sim(sim_rtnmpc, state_curr_sim, u_cmd, order):
+def set_linearization_params_sim(sim_neural_mpc, state_curr_sim: np.ndarray, u_cmd: np.ndarray, order: int):
     # Set linearization point as parameters for one step in simulator
-    x0_np = np.concatenate([state_curr_sim[sim_rtnmpc.state_feats], u_cmd[sim_rtnmpc.u_feats]])
-    x0 = torch.tensor(x0_np).unsqueeze(0).float().to(sim_rtnmpc.device).requires_grad_(True)
-    # y0 = sim_rtnmpc.neural_model(x0)
-    # J0 = sim_rtnmpc.neural_model.compute_jacobian(x0, y0)
-
-    # if order == 1:
-    #     J0, y0 = batched_jacobian(sim_rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True)
-    # elif order == 2:
-    #     H0, J0, y0 = batched_hessian(sim_rtnmpc.neural_model, x0.unsqueeze(0), return_func_output=True, return_jacobian=True)
-
-    # # Flatten Jacobian and Hessian by appending all rows into one column
-    # y0_np = y0.squeeze(0).cpu().numpy().flatten()
-    # J0_np = J0.transpose(-2, -1).squeeze(0).cpu().numpy().flatten()
-    # if order == 2:
-    #     H_np = np.array([H0[:, i].transpose(-2, -1).cpu().numpy() for i in range(H0.shape[1])]).flatten()
-    # else:
-    #     H_np = np.array([])
-    # sim_rtnmpc.acados_parameters[0, sim_rtnmpc.linearize_start_idx : sim_rtnmpc.linearize_end_idx] = \
-    #     np.concatenate([x0_np, y0_np, J0_np, H_np])
-
-    y0_np, J0_np, H0_np = linearize(sim_rtnmpc, x0, order)
+    x0_np = np.concatenate([state_curr_sim[sim_neural_mpc.state_feats], u_cmd[sim_neural_mpc.u_feats]])
+    x0 = torch.tensor(x0_np).unsqueeze(0).float().to(sim_neural_mpc.device).requires_grad_(True)
+    y0_np, J0_np, H0_np = linearize(sim_neural_mpc, x0, order)
     y0_np = y0_np.squeeze(0)
     J0_np = J0_np.squeeze(0)
     H0_np = H0_np.squeeze(0)
-    sim_rtnmpc.acados_parameters[0, sim_rtnmpc.linearize_start_idx : sim_rtnmpc.linearize_end_idx] = \
+
+    sim_neural_mpc.acados_parameters[0, sim_neural_mpc.linearize_start_idx : sim_neural_mpc.linearize_end_idx] = \
         np.concatenate([x0_np, y0_np, J0_np, H0_np])
 
 
-def set_l4casadi_params(rtnmpc, ocp_solver):
+def set_l4casadi_params(neural_mpc, ocp_solver: AcadosOcpSolver):
     # Set l4casadi parameters
-    state_over_horizon = np.zeros((0, rtnmpc.state.shape[0]))
-    u_cmd_over_horizon = np.zeros((0, rtnmpc.controls.shape[0]))
+    state_over_horizon = np.zeros((0, neural_mpc.state.shape[0]))
+    u_cmd_over_horizon = np.zeros((0, neural_mpc.controls.shape[0]))
     for j in range(ocp_solver.N + 1):
         state_over_horizon = np.append(state_over_horizon, ocp_solver.get(j, "x")[np.newaxis, :], axis=0)
         u_cmd_over_horizon = np.append(u_cmd_over_horizon, ocp_solver.get(j, "u")[np.newaxis, :] if j < ocp_solver.N else ocp_solver.get(ocp_solver.N - 1, "u")[np.newaxis, :], axis=0)
 
-    mlp_in_over_horizon = np.concatenate([state_over_horizon[:, rtnmpc.state_feats], u_cmd_over_horizon[:, rtnmpc.u_feats]], axis=1)
+    mlp_in_over_horizon = np.concatenate([state_over_horizon[:, neural_mpc.state_feats], u_cmd_over_horizon[:, neural_mpc.u_feats]], axis=1)
     
-    l4casadi_params = rtnmpc.learned_dyn_model.get_params(mlp_in_over_horizon)
+    l4casadi_params = neural_mpc.learned_dyn_model.get_params(mlp_in_over_horizon)
 
     for j in range(ocp_solver.N + 1):
-        rtnmpc.acados_parameters[j, rtnmpc.l4casadi_start_idx : rtnmpc.l4casadi_end_idx] = l4casadi_params[j].flatten()
+        neural_mpc.acados_parameters[j, neural_mpc.l4casadi_start_idx : neural_mpc.l4casadi_end_idx] = l4casadi_params[j].flatten()
 
-def set_l4casadi_params_sim(sim_rtnmpc, sim_solver, u_cmd):
+def set_l4casadi_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolver, u_cmd: np.ndarray):
     # Set l4casadi parameters
     state_over_horizon = sim_solver.get("x")[np.newaxis, :]
     u_cmd_over_horizon = u_cmd[np.newaxis, :]
 
-    mlp_in_over_horizon = np.concatenate([state_over_horizon[:, sim_rtnmpc.state_feats], u_cmd_over_horizon[:, sim_rtnmpc.u_feats]], axis=1)
+    mlp_in_over_horizon = np.concatenate([state_over_horizon[:, sim_neural_mpc.state_feats], u_cmd_over_horizon[:, sim_neural_mpc.u_feats]], axis=1)
     
-    l4casadi_params = sim_rtnmpc.learned_dyn_model.get_params(mlp_in_over_horizon)
+    l4casadi_params = sim_neural_mpc.learned_dyn_model.get_params(mlp_in_over_horizon)
 
-    sim_rtnmpc.acados_parameters[:, sim_rtnmpc.l4casadi_start_idx : sim_rtnmpc.l4casadi_end_idx] = l4casadi_params.flatten()
+    sim_neural_mpc.acados_parameters[:, sim_neural_mpc.l4casadi_start_idx : sim_neural_mpc.l4casadi_end_idx] = l4casadi_params.flatten()
 
-def set_temporal_states_as_params(rtnmpc, ocp_solver, history_y, u_cmd):
+
+def set_temporal_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
     # Set previous state and control as parameters
     if u_cmd is None:
         # Take init values for all nodes at t=0
-        rtnmpc.acados_parameters[:, rtnmpc.delay_start_idx : rtnmpc.delay_end_idx] = history_y.copy().flatten()
+        neural_mpc.acados_parameters[:, neural_mpc.delay_start_idx : neural_mpc.delay_end_idx] = history_y.copy().flatten()
     else:
         for j in range(ocp_solver.N + 1):
             if j == 0:
@@ -259,11 +243,11 @@ def set_temporal_states_as_params(rtnmpc, ocp_solver, history_y, u_cmd):
                     predicted_u = ocp_solver.get(j, "u")
                 else:
                     # Terminal node
-                    predicted_u = [None] * rtnmpc.nu
+                    predicted_u = [None] * neural_mpc.nu
                 running_y = np.append(np.append(predicted_x, predicted_u)[np.newaxis, :], running_y, axis=0)
 
             # Set acados parameters in OCP solver
-            rtnmpc.acados_parameters[j, rtnmpc.delay_start_idx : rtnmpc.delay_end_idx] = running_y.flatten()
+            neural_mpc.acados_parameters[j, neural_mpc.delay_start_idx : neural_mpc.delay_end_idx] = running_y.flatten()
 
 
 def get_output_mapping(state_dim, y_reg_dims, label_transform=False, only_vz=False):
@@ -299,7 +283,7 @@ def get_device():
     return torch.device(device)
 
 
-def load_model(model_options, sim_options, run_options, device):
+def load_model(model_options, sim_options, run_options, device) -> Union[MLP, VAE]:
     """
     Load a pre-trained neural network for the MPC controller.
     """
@@ -311,7 +295,8 @@ def load_model(model_options, sim_options, run_options, device):
         metadata = json.load(json_file)[neural_model_name][neural_model_instance]
 
     # Cross-check simulation environment options with metadata
-    cross_check_options(model_options, sim_options, run_options, metadata)
+    if sim_options is not None and run_options is not None:
+        cross_check_options(model_options, sim_options, run_options, metadata)
 
     # Define trained MLP model
     file_name = os.path.join(DirectoryConfig.SAVE_DIR, neural_model_name, f"{neural_model_instance}.pt")
