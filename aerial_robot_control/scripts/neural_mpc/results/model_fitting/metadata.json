@@ -48,7 +48,6 @@
             "NetworkConfig": {
                 "model_name": "residual_mlp",
                 "model_type": "MLP",
-                "approximated_mlp": false,
                 "hidden_sizes": [
                     64,
                     64,
@@ -16781,5 +16780,12 @@
                 "num_workers": 0
             }
         }
+    },
+    "runtime_options": {
+        "linearize_mlp": false,
+        "linearize_order": 1,
+        "linearize_start_idx": -1,
+        "linearize_end_idx": -1,
+        "use_gpu": false
     }
 }

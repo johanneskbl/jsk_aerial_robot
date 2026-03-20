@@ -4,7 +4,7 @@ import torch
 import casadi as ca
 from acados_template import AcadosModel, AcadosOcpSolver
 
-from utils.data_utils import delete_previous_solver_files
+from utils.data_utils import delete_previous_solver_files, store_additional_metadata
 from utils.geometry_utils import quaternion_inverse, v_dot_q
 from utils.model_utils import load_model, get_output_mapping, get_device
 from utils.model_utils import cross_check_params
@@ -94,9 +94,9 @@ class NeuralMPC(RecedingHorizonBase):
         # Load neural network model
         if not model_options["only_use_nominal"]:
             self.use_mlp = True
-            if (model_options["approximate_mlp"] or model_options["linearize_mlp"]) and model_options["use_gpu"]:
+            if model_options["linearize_mlp"] and model_options["use_gpu"]:
                 if not torch.cuda.is_available():
-                    print("[CUDA] GPU is not available. Using CPU instead.")
+                    print("[CUDA] GPU is not available!")
                 self.device = get_device()
             else:
                 self.device = torch.device("cpu")
@@ -467,15 +467,7 @@ class NeuralMPC(RecedingHorizonBase):
             # === MLP forward pass ===
             with torch.no_grad():
                 if self.mlp_metadata["NetworkConfig"]["model_type"] == "MLP":
-                    if self.model_options["approximate_mlp"]:
-                        # TODO investigate this function and parallel Flag!
-                        # Parallel flag only active for order == 2
-                        mlp_out = self.neural_model.approx(mlp_in, order=self.model_options["approximate_order"], parallel=False)
-                        approx_params = self.neural_model.sym_approx_params(order=self.model_options["approximate_order"], flat=True)
-                        self.approx_start_idx = parameters.size()[0]
-                        parameters = ca.vertcat(parameters, approx_params)
-                        self.approx_end_idx = parameters.size()[0]
-                    elif self.model_options["linearize_mlp"]:
+                    if self.model_options["linearize_mlp"]:
                         # Linearize MLP around current operating point
                         # x0, y0, J0 (and H0) need to be updated as acados parameters
                         x0 = ca.MX.sym("x0", mlp_in.size()[0])
@@ -511,10 +503,23 @@ class NeuralMPC(RecedingHorizonBase):
                         parameters = ca.vertcat(parameters, self.learned_dyn_model.get_sym_params())
                         self.l4casadi_end_idx = parameters.size()[0]
                     else:
-                        mlp_out = self.neural_model(mlp_in)
+                        mlp_out = self.neural_model.ca_forward(mlp_in)
                 elif self.mlp_metadata["NetworkConfig"]["model_type"] == "VAE":
                     # TODO regularize output by confidence (std)
                     mlp_out, std = self.neural_model(mlp_in)
+
+                                        
+                # Write model options into MLP metadata to be used in C++
+                # NOTE: The parameters are stored DURING BUILD TIME and read AT RUNTIME
+                store_additional_metadata(
+                    self.model_options["neural_model_name"],
+                    self.model_options["neural_model_instance"],
+                    self.model_options["linearize_mlp"],
+                    self.model_options["linearize_order"],
+                    self.linearize_start_idx if self.model_options["linearize_mlp"] else -1,
+                    self.linearize_end_idx if self.model_options["linearize_mlp"] else -1,
+                    self.model_options["use_gpu"],
+                )
 
             if label_transform:
                 # Network is trained to predict the velocity in Body frame

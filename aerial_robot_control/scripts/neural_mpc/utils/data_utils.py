@@ -344,6 +344,25 @@ def read_dataset(ds_name, ds_instance):
     return pd.read_csv(ds_file_name)
 
 
+def store_additional_metadata(model_name, model_instance, linearize_mlp, linearize_order, linearize_start_idx, linearize_end_idx, use_gpu):
+    """
+    AT BUILD TIME: Stores additional metadata related to the linearization of the MLP in the neural model's metadata file.
+    AT RUNTIME: This information is read from the metadata.json file in C++ and used to linearize during runtime.
+    """
+    json_file_name = os.path.join(DirectoryConfig.SAVE_DIR, "metadata.json")
+    with open(json_file_name, "r") as json_file:
+        metadata = json.load(json_file)
+    with open(json_file_name, "w") as json_file:
+        metadata["runtime_options"] = dict()
+        metadata["runtime_options"]["linearize_mlp"] = linearize_mlp
+        metadata["runtime_options"]["linearize_order"] = linearize_order
+        metadata["runtime_options"]["linearize_start_idx"] = linearize_start_idx
+        metadata["runtime_options"]["linearize_end_idx"] = linearize_end_idx
+        metadata["runtime_options"]["use_gpu"] = use_gpu
+
+        json.dump(metadata, json_file, indent=4)
+
+
 def log_metrics(total_losses, inference_times, learning_rates, save_file_path, save_file_name):
     metrics = {
         "total_losses": total_losses,
