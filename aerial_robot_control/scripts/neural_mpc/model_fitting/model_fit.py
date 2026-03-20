@@ -252,6 +252,11 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
                     "dropout_input": NetworkConfig.dropout_input,
                 }
             torch.save(save_dict, os.path.join(save_file_path, f"{save_file_name}.pt"))
+
+            # Save for C++ inference with LibTorch
+            # LibTorch requires the model to be saved as a scripted module with jit
+            scripted_model = torch.jit.script(model)
+            torch.jit.save(scripted_model, os.path.join(save_file_path, f"{save_file_name}_scripted.pt"))
     table.close()
     print("Training Finished!")
 
