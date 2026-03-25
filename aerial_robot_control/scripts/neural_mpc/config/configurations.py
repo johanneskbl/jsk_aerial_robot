@@ -288,8 +288,8 @@ class NetworkConfig:
     # Number of neurons in each hidden layer
     if model_type == "MLP":
         # hidden_sizes = [8, 8]
-        hidden_sizes = [32]
-        # hidden_sizes = [64]
+        # hidden_sizes = [32]
+        hidden_sizes = [64]
         # hidden_sizes = [32, 32]
         # hidden_sizes = [64, 64]
         # hidden_sizes = [128, 256, 128, 64]
@@ -338,11 +338,11 @@ class NetworkConfig:
     # Weight decay (L2 regularization)
     weight_decay = 1e-3  # Set to 0.0 to disable [1e-2 for AdamW, 1e-4 for Adam]
     # Zero-output regularization
-    zero_out_lambda = 1e-2  # Set to 0.0 to disable
+    zero_out_lambda = 0.0 # 1e-2  # Set to 0.0 to disable
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Energy regularization
-    energy_lambda = 0.0 # 1e-2  # Set to 0.0 to disable
+    energy_lambda = 1e1  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon
@@ -363,6 +363,10 @@ class NetworkConfig:
 
     if weight_decay != 0.0 and l1_lambda != 0.0:
         raise ValueError("Don't use both L1 and L2 regularization at the same time.")
+    if (zero_out_lambda != 0.0 and l1_lambda != 0.0) or \
+       (zero_out_lambda != 0.0 and energy_lambda != 0.0) or \
+       (energy_lambda != 0.0 and l1_lambda != 0.0):
+        raise ValueError("Only one type of regularization should be used at a time.")
 
 
 class ModelFitConfig:
@@ -433,7 +437,7 @@ class ModelFitConfig:
 
     # Control input features
     u_feats = [0, 1, 2, 3]  # [thrust_cmd_1, thrust_cmd_2, thrust_cmd_3, thrust_cmd_4]
-    u_feats.extend([4, 5, 6, 7])  # [servo_angle_cmd_1, servo_angle_cmd_2, servo_angle_cmd_3, servo_angle_cmd_4]
+    # u_feats.extend([4, 5, 6, 7])  # [servo_angle_cmd_1, servo_angle_cmd_2, servo_angle_cmd_3, servo_angle_cmd_4]
 
     # Variables to be regressed
     y_reg_dims = []

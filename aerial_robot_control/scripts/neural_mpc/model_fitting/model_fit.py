@@ -129,7 +129,7 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
     if NetworkConfig.model_type == "MLP":
         loss_function = l2_loss_function
     if NetworkConfig.energy_lambda > 0.0:
-        energy_reg = EnergyRegularization()
+        energy_reg = EnergyRegularization(state_feats, u_feats, device, torch.float32)
     else:
         energy_reg = None
 
@@ -297,7 +297,7 @@ def get_optimizer(model, learning_rate):
     return optimizer_class(model.parameters(), lr=learning_rate, weight_decay=NetworkConfig.weight_decay)
 
 
-def train(dataloader, model, loss_function, energy_reg, weight, optimizer, device, table):
+def train(dataloader, model, loss_function, energy_reg: EnergyRegularization, weight, optimizer, device, table):
     size = len(dataloader.dataset)
     model.train()
     loss_avg = 0.0
@@ -337,8 +337,7 @@ def train(dataloader, model, loss_function, energy_reg, weight, optimizer, devic
         # === Energy-based regularization ===
         if NetworkConfig.energy_lambda > 0.0:
             if NetworkConfig.model_type == "MLP":
-                # Assume the energy is represented by the first output dimension for demonstration purposes
-                E_delta = energy_reg.compute_residual_energy(x, y_pred, len(ModelFitConfig.state_feats))
+                E_delta = energy_reg.compute_residual_energy(x, y_pred)
                 loss_energy = NetworkConfig.energy_lambda * torch.mean(E_delta**2)
                 loss += loss_energy
             elif NetworkConfig.model_type == "VAE":

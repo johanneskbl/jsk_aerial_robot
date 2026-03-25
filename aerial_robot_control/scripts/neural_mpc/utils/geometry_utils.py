@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 import casadi as cs
 import pyquaternion
 
@@ -88,6 +89,20 @@ def q_to_rot_mat(q):
         )
 
     return rot_mat
+
+
+def q_to_rot_mat_torch(q_wxyz: torch.Tensor) -> torch.Tensor:
+    """Quaternion (wxyz) to rotation matrix R_wb.
+
+    Returns a tensor of shape (B, 3, 3).
+    """
+    qw, qx, qy, qz = q_wxyz[:, 0], q_wxyz[:, 1], q_wxyz[:, 2], q_wxyz[:, 3]
+
+    row_1 = torch.stack([1 - 2 * qy**2 - 2 * qz**2, 2 * qx * qy - 2 * qw * qz, 2 * qx * qz + 2 * qw * qy], dim=1)
+    row_2 = torch.stack([2 * qx * qy + 2 * qw * qz, 1 - 2 * qx**2 - 2 * qz**2, 2 * qy * qz - 2 * qw * qx], dim=1)
+    row_3 = torch.stack([2 * qx * qz - 2 * qw * qy, 2 * qy * qz + 2 * qw * qx, 1 - 2 * qx**2 - 2 * qy**2], dim=1)
+    
+    return torch.stack([row_1, row_2, row_3], dim=1)
 
 
 def q_dot_q(q, r):
