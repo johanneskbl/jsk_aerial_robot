@@ -16,6 +16,7 @@
   <arg name="spawn_z" default="0.0"/>
   <arg name="spawn_yaw" default="0.0"/>
   <arg name="config_dir" default="$(find beetle_omni)/config"/>
+  <arg name="phys_param" default="omni" />
   <arg name="robot_id" default="1" />
   <arg name="robot_ns" value="beetle$(arg robot_id)" />
 
@@ -49,7 +50,8 @@
    <rosparam file="$(arg config_dir)/Battery.yaml" command="load" />
 
    ###########  Control  ###########
-    <rosparam file="$(arg config_dir)/PhysParamBeetleOmni.yaml" command="load" />
+    <rosparam file="$(arg config_dir)/PhysParamBeetleOmni.yaml" command="load" if="$(eval arg('phys_param') == 'omni')"/>
+    <rosparam file="$(arg config_dir)/PhysParamBeetleOmniJetson.yaml" command="load" if="$(eval arg('phys_param') == 'jetson')"/>
     <rosparam file="$(arg config_dir)/BeetleNMPCFullDist.yaml" command="load" if="$(eval arg('nmpc_mode') == 0)"/>
     <rosparam file="$(arg config_dir)/BeetleNMPCFullServoThrustDist.yaml" command="load" if="$(eval arg('nmpc_mode') == 1)"/>
     <rosparam file="$(arg config_dir)/BeetleNMPCFullServoImp.yaml" command="load" if="$(eval arg('nmpc_mode') == 2)"/>
