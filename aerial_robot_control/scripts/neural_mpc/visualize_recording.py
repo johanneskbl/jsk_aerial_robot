@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from config.configurations import DirectoryConfig
+from config.configurations import DirectoryConfig, ModelFitConfig
 from utils.data_utils import undo_jsonify
 from utils.filter_utils import moving_average_filter
 
@@ -12,12 +12,12 @@ def plot_trajectory():
     ###################################################
     # Load recording
     recfile = (
+        "NMPCTiltQdServo_real_machine_dataset_TRAIN", "dataset_001.csv"
         # "NMPCTiltQdServo_residual_dataset_04", "dataset_001.csv"
         # "NMPCTiltQdServo_residual_dataset_06", "dataset_001.csv"
         # "NMPCTiltQdServo_real_machine_dataset_GROUND_EFFECT_ONLY", "dataset_002.csv"
         # "NMPCTiltQdServo_real_machine_dataset_TRAIN_FOR_PAPER", "dataset_001.csv"
-        "NMPCTiltQdServo_real_machine_dataset_FULL",
-        "dataset_001.csv"
+        # "NMPCTiltQdServo_real_machine_dataset_FULL", "dataset_001.csv"
         # "NMPCTiltQdServo_real_machine_dataset_VAL_FOR_PAPER", "dataset_003.csv"
         # "NMPCTiltQdServo_residual_dataset_neural_sim_nominal_control_07", "dataset_001.csv"
     )
@@ -26,12 +26,30 @@ def plot_trajectory():
 
     recfile = os.path.join(DirectoryConfig.DATA_DIR, *recfile)
     rec_dict = pd.read_csv(recfile)
-    state_in = undo_jsonify(rec_dict["state_in"].to_numpy())
-    state_out = undo_jsonify(rec_dict["state_out"].to_numpy())
-    state_prop = undo_jsonify(rec_dict["state_prop"].to_numpy())
+
+    state = undo_jsonify(rec_dict["state"].to_numpy())
+    state_prop = undo_jsonify(rec_dict["state_pred"].to_numpy())
+    # state_in = undo_jsonify(rec_dict["state_in"].to_numpy())
+    # state_out = undo_jsonify(rec_dict["state_out"].to_numpy())
+    # state_prop = undo_jsonify(rec_dict["state_prop"].to_numpy())
     control = undo_jsonify(rec_dict["control"].to_numpy())
     timestamp = rec_dict["timestamp"].to_numpy()
     dt = rec_dict["dt"].to_numpy()
+
+    if ModelFitConfig.prop_long_horizon:
+        state_out = state[10:, :]
+        state_in = state[:-10, :]
+        state_prop = state_prop[:-10, :]
+        control = control[:-10, :]
+        dt = dt[:-10]
+        timestamp = timestamp[:-10]
+    else:
+        state_out = state[1:, :]
+        state_in = state[:-1, :]
+        state_prop = state_prop[:-1, :]
+        control = control[:-1, :]
+        dt = dt[:-1]
+        timestamp = timestamp[:-1]
 
     # State features
     plt.subplots(figsize=(20, 5))
@@ -65,6 +83,26 @@ def plot_trajectory():
             ax = plt.gca()
             ax.axes.xaxis.set_ticklabels([])
 
+    # Zoom in on vx
+    plt.figure(figsize=(20, 5))
+    plt.title("Dim 3 zoom in")
+    plt.plot(timestamp, state_in[:, 3], label="state_in")
+    plt.plot(timestamp, state_out[:, 3], label="state_out")
+    plt.plot(timestamp, state_prop[:, 3], label="state_prop")
+    plt.xlim(timestamp[0], timestamp[-1])
+    plt.grid("on")
+    plt.legend(loc="upper right")
+
+    # Zoom in on vy
+    plt.figure(figsize=(20, 5))
+    plt.title("Dim 4 zoom in")
+    plt.plot(timestamp, state_in[:, 4], label="state_in")
+    plt.plot(timestamp, state_out[:, 4], label="state_out")
+    plt.plot(timestamp, state_prop[:, 4], label="state_prop")
+    plt.xlim(timestamp[0], timestamp[-1])
+    plt.grid("on")
+    plt.legend(loc="upper right")
+
     # Zoom in on vz
     plt.figure(figsize=(20, 5))
     plt.title("Dim 5 zoom in")
@@ -92,7 +130,7 @@ def plot_trajectory():
         plt.grid("on")
 
     # Labels
-    dt = np.expand_dims(rec_dict["dt"], 1)
+    dt = np.expand_dims(dt, 1)
     y_true = (state_out - state_prop) / dt
     a_idx = [3, 4, 5]
 
@@ -114,6 +152,24 @@ def plot_trajectory():
         if i != state_in.shape[1] - 1:
             ax = plt.gca()
             ax.axes.xaxis.set_ticklabels([])
+
+    # Labels zoom in on ax
+    plt.figure(figsize=(20, 5))
+    plt.title("Labels [(State Out - State Prop) / dt] - Dim 3 zoom in")
+    plt.plot(timestamp, y_true[:, 3], label="Raw")
+    # plt.plot(timestamp, y_true_filtered[:, 3], label="Filtered", color="red", linewidth=2)
+    plt.xlim(timestamp[0], timestamp[-1])
+    plt.legend(loc="upper right")
+    plt.grid("on")
+
+    # Labels zoom in on ay
+    plt.figure(figsize=(20, 5))
+    plt.title("Labels [(State Out - State Prop) / dt] - Dim 4 zoom in")
+    plt.plot(timestamp, y_true[:, 4], label="Raw")
+    # plt.plot(timestamp, y_true_filtered[:, 4], label="Filtered", color="red", linewidth=2)
+    plt.xlim(timestamp[0], timestamp[-1])
+    plt.legend(loc="upper right")
+    plt.grid("on")
 
     # Labels zoom in on az
     plt.figure(figsize=(20, 5))
