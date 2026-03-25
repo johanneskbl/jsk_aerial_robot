@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from nmpc.nmpc_tilt_mt.rh_base import RecedingHorizonBase
 from nmpc.nmpc_tilt_mt.tilt_qd.qd_reference_generator import QDNMPCReferenceGenerator
 import nmpc.nmpc_tilt_mt.tilt_qd.phys_param_beetle_omni as phys_omni
+import nmpc.nmpc_tilt_mt.tilt_qd.phys_param_beetle_jetson as phys_jetson
 
 
 class NeuralMPC(RecedingHorizonBase):
@@ -67,7 +68,7 @@ class NeuralMPC(RecedingHorizonBase):
         self.T_step = self.params["T_step"]  # Step size used in optimization loop in MPC controller
 
         # Store physical parameters
-        self.phys = phys_omni
+        self.phys = phys_jetson
 
         # Define model flags based on architecture type
         if self.arch_type == "tilt_qd":

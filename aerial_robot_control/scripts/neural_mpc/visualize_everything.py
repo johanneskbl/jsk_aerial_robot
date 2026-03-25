@@ -14,6 +14,7 @@ from neural_controller import NeuralMPC
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_omni as phys_omni
+from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_jetson as phys_jetson
 
 
 class struct(object):
@@ -271,7 +272,7 @@ def main():
     mpc.include_thrust_model = False
     mpc.include_servo_derivative = False
     mpc.include_cog_dist_parameter = True
-    mpc.phys = phys_omni
+    mpc.phys = phys_jetson
 
     # Define nominal model
     dynamics = init_forward_prop(mpc, return_continuous=True)
