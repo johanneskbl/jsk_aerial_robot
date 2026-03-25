@@ -156,7 +156,6 @@ protected:
   std::vector<int> u_feats_;
   std::vector<int> y_reg_dims_;
   bool input_transform_{false};
-  bool label_transform_{false};
   int64_t batch_size_{-1};
   int64_t N_in_{-1};
   int64_t N_out_{-1};

@@ -473,6 +473,8 @@ class NeuralMPC(RecedingHorizonBase):
                         x0 = ca.MX.sym("x0", mlp_in.size()[0])
                         y0 = ca.MX.sym("y0", self.y_reg_dims.shape[0])
                         J0 = ca.MX.sym("J0", self.y_reg_dims.shape[0], mlp_in.size()[0])
+                        # NOTE: If input_transform is used, x0 needs to be transformed too before being set as a parameter
+                        # NOTE: But y0 does NOT need to be label transformed since mlp_out is transformed here inside the MPC formulation
                         delta_x = mlp_in - x0
                         self.linearize_start_idx = parameters.size()[0]
                         if self.model_options["linearize_order"] == 1:

@@ -120,17 +120,11 @@ def linearize(neural_mpc, x0: torch.Tensor, order: int) -> List[np.ndarray]:
     """
 
     # Taylor expansion: y = y0 + J0 * (x - x0) + 0.5 * (x - x0)^T * H0 * (x - x0)
+    # NOTE: y0 does NOT need to be label transformed since mlp_out is transformed inside the MPC formulation
     if order == 1:
         y0 = neural_mpc.neural_model(x0)
-        if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
-            if (neural_mpc.mlp_metadata["ModelFitConfig"]["y_reg_dims"] != np.array([3, 4, 5])).all():
-                raise NotImplementedError("Only implemented for ax, ay, az output.")
-            for t in range(y0.shape[0]):
-                y0[t, :] = v_dot_q(y0[t, :], x0[t, 6:10])
         J0 = compute_jacobian(x0, y0)
     elif order == 2:
-        if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
-            raise NotImplementedError("Label transform is currently not implemented for second-order linearization.")
         H0, J0, y0 = batched_hessian(neural_mpc.neural_model, x0, return_func_output=True, return_jacobian=True)
 
     # Flatten Jacobian and Hessian by appending all rows into one column

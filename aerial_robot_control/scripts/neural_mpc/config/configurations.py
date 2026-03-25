@@ -381,8 +381,8 @@ class ModelFitConfig:
     window_size = 5 #33  # Must be odd
 
     # ------- Coordinate Transform -------
-    input_transform = True
-    label_transform = True
+    input_transform = False
+    label_transform = False
 
     # ------- Pruning -------
     prune = False

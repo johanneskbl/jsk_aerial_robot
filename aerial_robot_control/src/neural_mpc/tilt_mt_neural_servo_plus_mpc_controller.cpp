@@ -272,7 +272,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::initNeuralModel()
     u_feats_ = data_utils::parseIntArray(cfg_["u_feats"]);
     y_reg_dims_ = data_utils::parseIntArray(cfg_["y_reg_dims"]);
     input_transform_ = cfg_["input_transform"];
-    label_transform_ = cfg_["label_transform"];
     batch_size_ = static_cast<int64_t>(NN_ + 1);
     N_in_ = static_cast<int64_t>(state_feats_.size() + u_feats_.size());
     N_out_ = static_cast<int64_t>(y_reg_dims_.size());
@@ -345,10 +344,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::initNeuralModel()
         ROS_INFO("[NEURAL][MPC] Input transform is ENABLED.");
       else
         ROS_INFO("[NEURAL][MPC] Input transform is DISABLED.");
-      if (label_transform_)
-        ROS_INFO("[NEURAL][MPC] Label transform is ENABLED.");
-      else
-        ROS_INFO("[NEURAL][MPC] Label transform is DISABLED.");
     }
     catch (const std::exception& e)
     {
@@ -892,60 +887,10 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
     
     // 3) Forward pass
     // NOTE: We need to call forward() on the entire repeated input to ensure that the gradients are correctly tracked w.r.t. the entire repeated input
-    torch::Tensor y0_rep_raw = neural_module_->forward(inputs_rep).toTensor();
-    TORCH_CHECK(y0_rep_raw.dim() == 2 && y0_rep_raw.size(0) == batch_size_ * N_out_ && y0_rep_raw.size(1) == N_out_,
-          "Expected y0_rep shape (", batch_size_ * N_out_, ", ", N_out_, "), got ", y0_rep_raw.sizes());
-
-    // Transform prediction in Body frame to World frame
-    torch::Tensor y0_rep = y0_rep_raw;
-    if (label_transform_)
-    {
-      if (y_reg_dims_ != std::vector<int>{3,4,5})
-      {
-        ROS_ERROR_THROTTLE(1.0,
-          "[NEURAL][MPC] label_transform enabled but y_reg_dims is not [3,4,5]; skipping output rotation.");
-      }
-      else
-      {
-        int ax_idx = 0;
-        int ay_idx = 1;
-        int az_idx = 2;
-        // Build per-stage rotation matrices R (Body->World) from current predicted quaternion
-        std::vector<float> R_stage(static_cast<size_t>(batch_size_) * 9, 0.0f);
-        for (int j = 0; j < batch_size_; ++j)
-        {
-          const auto& state_j = mpc_solver_ptr_->xo_.at(j);
-          tf::Quaternion q(state_j[6], state_j[7], state_j[8], state_j[9]);
-          tf::Matrix3x3 R_j(q);
-          const size_t base = static_cast<size_t>(j) * 9;
-          for (int row = 0; row < 3; ++row)
-            for (int col = 0; col < 3; ++col)
-              R_stage[base + static_cast<size_t>(row) * 3 + static_cast<size_t>(col)] = static_cast<float>(R_j[row][col]);
-        }
-
-        torch::Tensor R_tensor = torch::from_blob(
-            R_stage.data(),
-            { batch_size_, 3, 3 },
-            torch::TensorOptions().dtype(torch::kFloat32))
-          .to(device_mlp_);
-
-        torch::Tensor R_rep = R_tensor.repeat_interleave(N_out_, /*dim=*/0);  // (B*N_out_, 3, 3)
-
-        torch::Tensor a_w = torch::bmm(R_rep, y0_rep_raw.unsqueeze(2)).squeeze(2);  // (B*N_out_, 3)
-
-        // Rebuild y0_rep without in-place ops to avoid destroying with autograd graph
-        std::vector<torch::Tensor> y_cols;
-        y_cols.reserve(static_cast<size_t>(N_out_));
-        for (int64_t col = 0; col < N_out_; ++col)
-        {
-          if      (col == ax_idx) y_cols.push_back(a_w.select(1, 0));
-          else if (col == ay_idx) y_cols.push_back(a_w.select(1, 1));
-          else if (col == az_idx) y_cols.push_back(a_w.select(1, 2));
-          else                  y_cols.push_back(y0_rep_raw.select(1, col));
-        }
-        y0_rep = torch::stack(y_cols, /*dim=*/1);
-      }
-    }
+    // NOTE: y0_rep does NOT need to be label transformed since mlp_out is transformed inside the MPC formulation
+    torch::Tensor y0_rep = neural_module_->forward(inputs_rep).toTensor();
+    TORCH_CHECK(y0_rep.dim() == 2 && y0_rep.size(0) == batch_size_ * N_out_ && y0_rep.size(1) == N_out_,
+          "Expected y0_rep shape (", batch_size_ * N_out_, ", ", N_out_, "), got ", y0_rep.sizes());
 
     // 4) Linearize
     auto [J0, H0] = linearize(x0_rep, y0_rep);
