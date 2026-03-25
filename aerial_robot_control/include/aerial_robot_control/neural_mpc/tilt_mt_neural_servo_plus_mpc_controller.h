@@ -38,6 +38,16 @@
 #include "aerial_robot_msgs/TrackTrajGoal.h"
 #include "aerial_robot_msgs/TrackTrajResult.h"
 
+/* LibTorch */
+#include <torch/torch.h>
+#include <torch/script.h>
+
+/* MLP metadata loading */
+#include <iostream>
+#include <fstream>
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
+
 using MPCControlDynamicConfig = dynamic_reconfigure::Server<aerial_robot_control::NMPCConfig>;
 
 namespace aerial_robot_control
@@ -114,6 +124,7 @@ protected:
   trajectory_msgs::MultiDOFJointTrajectory last_traj_msg_;
 
   aerial_robot_msgs::PredXU x_u_ref_;  // TODO: maybe we should remove x_u_ref_ and use xr_ & ur_ inside mpc_solver_ptr_
+  std::vector<double> bx0_;  // Current state from estimator
   spinal::FourAxisCommand flight_cmd_;
   sensor_msgs::JointState gimbal_ctrl_cmd_;
 
@@ -131,8 +142,43 @@ protected:
   bool has_restored_vel_ = false;  // whether the velocity is restored to set value when hovering
   double vel_max_, vel_min_, vel_limit_takeoff_;
 
+  // For neural model linearization
+  std::string neural_model_name_;
+  std::string neural_model_instance_;
+  std::string metadata_json_path_;
+  std::string results_dir_;
+  json metadata_;
+
+  std::shared_ptr<torch::jit::script::Module> neural_module_;
+  torch::Device device_mlp_{torch::Device(torch::kCPU)};
+
+  std::vector<int> state_feats_;
+  std::vector<int> u_feats_;
+  std::vector<int> y_reg_dims_;
+  bool input_transform_{false};
+  bool label_transform_{false};
+  int64_t batch_size_{-1};
+  int64_t N_in_{-1};
+  int64_t N_out_{-1};
+  
+  bool linearize_mlp_{false};
+  int linearize_order_{-1};
+  int linearize_start_idx_{-1};
+  int linearize_end_idx_{-1};
+  std::vector<int> lin_param_idx_;
+  std::vector<double> lin_params_;
+  int num_lin_params_{-1};
+  bool use_gpu_{false};
+  size_t off_x0_, off_y0_, off_J0_, off_H0_;
+  size_t stride_x0_, stride_y0_, stride_J0_, stride_H0_;
+  std::vector<float> x0_vec_f32_;
+  std::vector<double> x0_vec_, y0_vec_, J0_vec_, H0_vec_;
+
+  int delay_horizon_{-1};
+
   /* initialize() */
   virtual void initPlugins() {};
+  void initNeuralModel();
   virtual void initGeneralParams();
   virtual void initMPCCostW();
   virtual void initMPCConstraints();
@@ -161,6 +207,13 @@ protected:
   // controlCore()
   void prepareMPCRef();
   virtual void prepareMPCParams();
+  void updateLinearizationParams();
+  std::pair<torch::Tensor, torch::Tensor> linearize(const torch::Tensor& x0,
+                                                    const torch::Tensor& y0);
+  void flattenTensors(const torch::Tensor& J0,
+                      const torch::Tensor& H0);
+
+
   void setXrUrRef(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i, const tf::Vector3& ref_acc_i,
                   const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b, const tf::Vector3& ref_ang_acc_b,
                   const int& horizon_idx);

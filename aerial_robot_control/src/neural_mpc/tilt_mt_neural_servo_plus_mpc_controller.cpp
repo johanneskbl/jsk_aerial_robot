@@ -6,6 +6,22 @@
 
 using namespace aerial_robot_control;
 
+namespace data_utils
+{
+  std::vector<int> parseIntArray(const std::string& s) {
+    // Expected input:
+    // std::string "[1, 2, 3]"
+    std::vector<int> result;
+    std::string trimmed = s.substr(1, s.size() - 2); // strip [ and ]
+    std::stringstream ss(trimmed);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        result.push_back(std::stoi(token));
+    }
+    return result;
+  }
+}  // namespace data_utils
+
 void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
                                                 boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
                                                 boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
@@ -13,9 +29,12 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
                                                 double ctrl_loop_du)
 {
   BaseMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
-
+  
   /* init plugins */
   initPlugins();
+
+  /* init neural model and load its metadata */
+  initNeuralModel();
 
   /* init general parameters */
   initGeneralParams();
@@ -32,10 +51,10 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
   mpc_reconf_servers_.push_back(boost::make_shared<MPCControlDynamicConfig>(mpc_nh));
   mpc_reconf_servers_.back()->setCallback(boost::bind(&TiltMtNeuralServoPlusMPC::cfgMPCCallback, this, _1, _2));
 
-  /* set some ROS parameters */
-  mpc_nh.setParam("NN", mpc_solver_ptr_->NN_);
-  mpc_nh.setParam("NX", mpc_solver_ptr_->NX_);
-  mpc_nh.setParam("NU", mpc_solver_ptr_->NU_);
+  /* set ROS parameters */
+  mpc_nh.setParam("NN", NN_);
+  mpc_nh.setParam("NX", NX_);
+  mpc_nh.setParam("NU", NU_);
 
   /* timers */
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoPlusMPC::callbackViz, this);
@@ -64,12 +83,12 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
   setControlMode();
 
   initActuatorStates();
-  initPredXU(x_u_ref_, mpc_solver_ptr_->NN_, mpc_solver_ptr_->NX_, mpc_solver_ptr_->NU_);
+  initPredXU(x_u_ref_);
 
   quat_prev_.setW(1.0);
 
   reset();
-  ROS_INFO("MPC Controller initialized!");
+  ROS_INFO("[CONTROL] MPC Controller initialized!");
 }
 
 void nmpc::TiltMtNeuralServoPlusMPC::activate()
@@ -106,11 +125,37 @@ bool nmpc::TiltMtNeuralServoPlusMPC::update()
   }
   else
   {
+    /* Runtime analysis
+    Nominal:
+        - controlCore: 1.2-2.0 ms
+    Neural (neuralmodel_185):
+        - controlCore: 10.0-10.8 ms
+    Neural (neuralmodel_185 & linearized order 1):
+        - controlCore: 2.0-3.0 ms
+            - construction: 0.00 ms
+            - convert: 0.03 ms
+            - forward pass: 0.13-0.2 ms (peak 0.7 ms)
+            - linearization: 0.11-0.2 ms
+            - flatten: 0.03-0.06 ms
+            - set params: 0.001 ms
+    Auxiliary:
+        - sendCmd: 0.01 ms
+        - recording: 0.02 ms
+    */
+    double start_time = ros::WallTime::now().toSec();
     controlCore();
+    double core_time = ros::WallTime::now().toSec();
     sendCmd();
+    double send_time = ros::WallTime::now().toSec();
+
     // *** RECORDING ***
     // Only needed to record dataset but else its computationally expensive, so we can comment it out when not needed.
-    // publishRecording();
+    publishRecording();
+    double rec_time = ros::WallTime::now().toSec();
+    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - controlCore: %.3f ms, sendCmd: %.3f ms, recording: %.3f ms", 
+                      (core_time - start_time) * 1000.0, 
+                      (send_time - core_time) * 1000.0,
+                      (rec_time - send_time) * 1000.0);
   }
 
   return true;
@@ -124,21 +169,20 @@ void nmpc::TiltMtNeuralServoPlusMPC::reset()
 
   // reset x_u_ref_
   std::vector<double> x_vec_ee = meas2VecX(true);
-  std::vector<double> u_vec(mpc_solver_ptr_->NU_, 0);
+  std::vector<double> u_vec(NU_, 0);
 
-  int &NX = mpc_solver_ptr_->NX_, &NU = mpc_solver_ptr_->NU_, &NN = mpc_solver_ptr_->NN_;
-  for (int i = 0; i < mpc_solver_ptr_->NN_; i++)
+  for (int i = 0; i < NN_; i++)
   {
-    std::copy(x_vec_ee.begin(), x_vec_ee.begin() + NX, x_u_ref_.x.data.begin() + NX * i);
-    std::copy(u_vec.begin(), u_vec.begin() + NU, x_u_ref_.u.data.begin() + NU * i);
+    std::copy(x_vec_ee.begin(), x_vec_ee.begin() + NX_, x_u_ref_.x.data.begin() + NX_ * i);
+    std::copy(u_vec.begin(), u_vec.begin() + NU_, x_u_ref_.u.data.begin() + NU_ * i);
   }
-  std::copy(x_vec_ee.begin(), x_vec_ee.begin() + NX, x_u_ref_.x.data.begin() + NX * NN);
+  std::copy(x_vec_ee.begin(), x_vec_ee.begin() + NX_, x_u_ref_.x.data.begin() + NX_ * NN_);
 
   mpc_solver_ptr_->resetXrUrByX0U0(x_vec_ee, u_vec);
   
   // reset solver & set initial guess to hovering
   std::vector<double> x_vec = meas2VecX();
-  std::vector<double> u_hover(mpc_solver_ptr_->NU_, 0.0);
+  std::vector<double> u_hover(NU_, 0.0);
   for (int i = 0; i < motor_num_ && i < static_cast<int>(u_hover.size()); ++i)
     u_hover[i] = 8.0;  // in [N]
   mpc_solver_ptr_->resetSolverByX0U0(x_vec, u_hover);
@@ -188,6 +232,159 @@ void nmpc::TiltMtNeuralServoPlusMPC::initGeneralParams()
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
 }
 
+void nmpc::TiltMtNeuralServoPlusMPC::initNeuralModel()
+{
+  ROS_INFO("==========================");
+  ros::NodeHandle control_nh(nh_, "controller");
+  ros::NodeHandle mpc_nh(control_nh, "nmpc");
+  results_dir_ = ros::package::getPath("aerial_robot_control") + "/scripts/neural_mpc/results/model_fitting/";
+  metadata_json_path_ = results_dir_ + "metadata.json";
+  
+  try
+  {
+    std::ifstream metadata_json_(metadata_json_path_);
+    metadata_ = json::parse(metadata_json_);
+  }
+  catch (const std::exception& e)
+  {
+    ROS_ERROR("[NEURAL][MPC] Failed to load neural model metadata from '%s'", metadata_json_path_.c_str());
+    linearize_mlp_ = false;
+    return;
+  }
+  
+  // Extract neural model metadata
+  // NOTE: At build time, the solver is rebuilt with options from scripts/neural_mpc/config/configurations.py
+  // These options are written AT BUILD TIME to metadata.json in Python, and we read them here AT RUNTIME in C++
+  try
+  {
+    // General
+    neural_model_name_ = metadata_["runtime_options"]["model_name"];
+    neural_model_instance_ = metadata_["runtime_options"]["model_instance"];
+    
+    linearize_mlp_ = metadata_["runtime_options"]["linearize_mlp"];
+    linearize_order_ = metadata_["runtime_options"]["linearize_order"];
+    linearize_start_idx_ = metadata_["runtime_options"]["linearize_start_idx"];
+    linearize_end_idx_ = metadata_["runtime_options"]["linearize_end_idx"];
+    use_gpu_ = metadata_["runtime_options"]["use_gpu"];
+
+    const auto& cfg_ = metadata_[neural_model_name_][neural_model_instance_]["ModelFitConfig"];
+    state_feats_ = data_utils::parseIntArray(cfg_["state_feats"]);
+    u_feats_ = data_utils::parseIntArray(cfg_["u_feats"]);
+    y_reg_dims_ = data_utils::parseIntArray(cfg_["y_reg_dims"]);
+    input_transform_ = cfg_["input_transform"];
+    label_transform_ = cfg_["label_transform"];
+    batch_size_ = static_cast<int64_t>(NN_ + 1);
+    N_in_ = static_cast<int64_t>(state_feats_.size() + u_feats_.size());
+    N_out_ = static_cast<int64_t>(y_reg_dims_.size());
+
+    // Linearization
+    if (linearize_mlp_)
+    {
+      num_lin_params_ = linearize_end_idx_ - linearize_start_idx_;
+      lin_param_idx_.resize(num_lin_params_);
+      lin_params_.resize(num_lin_params_, 0.0);
+      std::iota(lin_param_idx_.begin(), lin_param_idx_.end(), linearize_start_idx_);
+
+      x0_vec_f32_.resize(static_cast<size_t>(batch_size_) * N_in_,  0.0f);
+      x0_vec_.resize(static_cast<size_t>(batch_size_) * N_in_,  0.0);
+      y0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_, 0.0);
+      J0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_ * N_in_, 0.0);
+      H0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_ * N_in_ * N_in_, 0.0);
+      off_x0_ = 0;
+      off_y0_ = off_x0_ + static_cast<size_t>(N_in_);
+      off_J0_ = off_y0_ + static_cast<size_t>(N_out_);
+      off_H0_ = off_J0_ + static_cast<size_t>(N_out_) * N_in_;
+      stride_x0_ = static_cast<size_t>(N_in_);
+      stride_y0_ = static_cast<size_t>(N_out_);
+      stride_J0_ = static_cast<size_t>(N_out_) * static_cast<size_t>(N_in_);
+      stride_H0_ = static_cast<size_t>(N_out_) * static_cast<size_t>(N_in_) * static_cast<size_t>(N_in_);
+
+      if (off_H0_ + (linearize_order_ >= 2 ? stride_H0_ : 0) != static_cast<size_t>(num_lin_params_))
+      {
+        ROS_ERROR("[NEURAL][MPC] Mismatch of linearization parameters size. Expected %zu but got %zu. Disabling linearization.", 
+                  off_H0_ + (linearize_order_ >= 2 ? stride_H0_ : 0), static_cast<size_t>(num_lin_params_));
+        linearize_mlp_ = false;
+      }
+    }
+
+    // Temporal model
+    delay_horizon_ = metadata_[neural_model_name_][neural_model_instance_]["NetworkConfig"]["delay_horizon"];
+
+    ROS_INFO("[NEURAL][MPC] Using neural model %s/%s.", neural_model_name_.c_str(), neural_model_instance_.c_str());
+  }
+  catch (const std::exception& e)
+  {
+    ROS_ERROR("[NEURAL][MPC] Invalid/unsupported metadata format for %s/%s: %s", neural_model_name_.c_str(),
+              neural_model_instance_.c_str(), e.what());
+    linearize_mlp_ = false;
+  }
+
+  // Load neural model using LibTorch
+  if (linearize_mlp_)
+  {
+    try
+    {
+      if (use_gpu_)
+      {
+        if (torch::cuda::is_available())
+        {
+          device_mlp_ = torch::Device(torch::kCUDA);
+        }
+        else
+        {
+          ROS_WARN("[NEURAL][MPC] GPU requested but CUDA is not available. Falling back to CPU.");
+        }
+      }
+
+      torch::jit::script::Module neural_model_ = torch::jit::load(results_dir_ + neural_model_name_ + "/" + neural_model_instance_ + "_scripted.pt", device_mlp_);
+      neural_model_.eval();
+      neural_module_ = std::make_shared<torch::jit::script::Module>(std::move(neural_model_));
+      ROS_INFO("[NEURAL][MPC] Successfully loaded neural model!");
+      ROS_INFO("[NEURAL][MPC] Linearization is ENABLED with order %d", linearize_order_);
+      if (input_transform_)
+        ROS_INFO("[NEURAL][MPC] Input transform is ENABLED.");
+      else
+        ROS_INFO("[NEURAL][MPC] Input transform is DISABLED.");
+      if (label_transform_)
+        ROS_INFO("[NEURAL][MPC] Label transform is ENABLED.");
+      else
+        ROS_INFO("[NEURAL][MPC] Label transform is DISABLED.");
+    }
+    catch (const std::exception& e)
+    {
+      ROS_ERROR("[NEURAL][MPC] Error loading the neural model: %s. Disabling linearization. Exception: %s", neural_model_instance_.c_str(), e.what());
+      linearize_mlp_ = false;
+    }
+  }
+  else
+  {
+    ROS_INFO("[NEURAL][MPC] Linearization is DISABLED.");
+  }
+
+  // Temporal model
+  if (delay_horizon_ > 0)
+  {
+    ROS_INFO("[NEURAL][MPC] Loaded a temporal model (delay_horizon = %d).", delay_horizon_);
+  }
+
+  if (linearize_mlp_)
+  {
+    if (linearize_start_idx_ < 0 || linearize_end_idx_ < 0 || linearize_end_idx_ <= linearize_start_idx_ || linearize_end_idx_ > NP_)
+    {
+      ROS_ERROR("[NEURAL][MPC] Invalid linearization index range [%d,%d). Disabling linearization.", linearize_start_idx_,
+                linearize_end_idx_);
+      linearize_mlp_ = false;
+    }
+    if (linearize_order_ < 1 || linearize_order_ > 2)
+    {
+      ROS_ERROR("[NEURAL][MPC] Invalid linearization order %d. Only 1 (Jacobian) or 2 (Hessian) are supported. Disabling linearization.",
+                linearize_order_);
+      linearize_mlp_ = false;
+    }
+  }
+  ROS_INFO("==========================");
+}
+
 void nmpc::TiltMtNeuralServoPlusMPC::initMPCCostW()
 {
   ros::NodeHandle control_nh(nh_, "controller");
@@ -223,9 +420,9 @@ void nmpc::TiltMtNeuralServoPlusMPC::initMPCCostW()
   mpc_solver_ptr_->setCostWDiagElement(12, Qw_z);
   for (int i = 13; i < 13 + joint_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Qa);
-  for (int i = mpc_solver_ptr_->NX_; i < mpc_solver_ptr_->NX_ + motor_num_; ++i)
+  for (int i = NX_; i < NX_ + motor_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Rt, false);
-  for (int i = mpc_solver_ptr_->NX_ + motor_num_; i < mpc_solver_ptr_->NX_ + motor_num_ + joint_num_; ++i)
+  for (int i = NX_ + motor_num_; i < NX_ + motor_num_ + joint_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Rac_d, false);
 }
 
@@ -257,7 +454,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::initMPCConstraints()
   }
   if (idxbx.size() != idxbx_desired.size() || !std::equal(idxbx.begin(), idxbx.end(), idxbx_desired.begin()))
   {
-    ROS_ERROR("idxbx is not equal to idxbx_desired, we cannot set constraints lbx and ubx!");
+    ROS_ERROR("[MPC] idxbx is not equal to idxbx_desired, we cannot set constraints lbx and ubx!");
   }
 
   std::vector<double> lbx = { vel_min_, vel_min_, vel_min_, body_rate_min, body_rate_min, body_rate_min };
@@ -277,7 +474,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::initMPCConstraints()
   std::vector<int> idxbxe_desired = idxbx_desired;
   if (idxbxe.size() != idxbxe_desired.size() || !std::equal(idxbxe.begin(), idxbxe.end(), idxbxe_desired.begin()))
   {
-    ROS_ERROR("idxbx_end is not equal to idxbx_end_desired, we cannot set constraints lbxe and ubxe!");
+    ROS_ERROR("[MPC] idxbx_end is not equal to idxbx_end_desired, we cannot set constraints lbxe and ubxe!");
   }
   mpc_solver_ptr_->setConstraintsLbxe(lbx);
   mpc_solver_ptr_->setConstraintsUbxe(ubx);
@@ -295,7 +492,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::initMPCConstraints()
   }
   if (idxbu.size() != idxbu_desired.size() || !std::equal(idxbu.begin(), idxbu.end(), idxbu_desired.begin()))
   {
-    ROS_ERROR("idxbu is not equal to idxbu_desired, we cannot set constraints lbu and ubu!");
+    ROS_ERROR("[MPC] idxbu is not equal to idxbu_desired, we cannot set constraints lbu and ubu!");
   }
 
   std::vector<double> lbu(motor_num_ + joint_num_, 0.0);
@@ -319,7 +516,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::setControlMode()
   bool res = ros::service::waitForService("set_control_mode", ros::Duration(5));
   if (!res)
   {
-    ROS_ERROR("cannot find service named set_control_mode");
+    ROS_ERROR("[MPC] cannot find service named set_control_mode");
   }
   ros::Duration(2.0).sleep();
   spinal::SetControlMode set_control_mode_srv;
@@ -327,9 +524,9 @@ void nmpc::TiltMtNeuralServoPlusMPC::setControlMode()
   set_control_mode_srv.request.is_body_rate = is_body_rate_ctrl_;
   while (!srv_set_control_mode_.call(set_control_mode_srv))
     ROS_WARN_THROTTLE(1,
-                      "Waiting for set_control_mode service.... If you always see this message, the robot cannot fly.");
+                      "[MPC] Waiting for set_control_mode service.... If you always see this message, the robot cannot fly.");
 
-  ROS_INFO("Set control mode: attitude = %d and body rate = %d", set_control_mode_srv.request.is_attitude,
+  ROS_INFO("[MPC] Set control mode: attitude = %d and body rate = %d", set_control_mode_srv.request.is_attitude,
            set_control_mode_srv.request.is_body_rate);
 }
 
@@ -376,16 +573,16 @@ void nmpc::TiltMtNeuralServoPlusMPC::initAllocMat()
 void nmpc::TiltMtNeuralServoPlusMPC::initMPCParams()
 {
   /* construct acados parameters */
-  std::vector<double> acados_p(mpc_solver_ptr_->NP_, 0.0);
+  std::vector<double> acados_p(NP_, 0.0);
 
   acados_p[0] = 1.0;  // qw
   idx_p_quat_end_ = 3;
 
   int idx;
   // TODO: this condition is temporary for drones that don't pass in phys param (bi, tri, fix-qd)
-  if (mpc_solver_ptr_->NP_ > 4 + 6)
+  if (NP_ > 4 + 6)
   {
-    ROS_INFO("Set physical parameters for MPC solver");
+    ROS_INFO("[MPC] Set physical parameters for MPC solver");
 
     std::vector<double> phys_p = PhysToMPCParams();
     std::copy(phys_p.begin(), phys_p.end(), acados_p.begin() + idx_p_quat_end_ + 1);
@@ -442,7 +639,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::modifyVelConstraints(double vel_min, double
   ubxe[2] = vel_max;
   mpc_solver_ptr_->setConstraintsUbxe(ubxe);
 
-  ROS_INFO("Velocity constraints modified: [%f, %f, %f] for lbx and [%f, %f, %f] for ubx", lbx[0], lbx[1], lbx[2],
+  ROS_INFO("[MPC] Velocity constraints modified: [%f, %f, %f] for lbx and [%f, %f, %f] for ubx", lbx[0], lbx[1], lbx[2],
            ubx[0], ubx[1], ubx[2]);
 }
 
@@ -506,16 +703,16 @@ void nmpc::TiltMtNeuralServoPlusMPC::controlCore(bool is_warmup)
   prepareMPCParams();
 
   /* Get current state from estimator */
-  std::vector<double> bx0 = meas2VecX();
+  bx0_ = meas2VecX();
 
   /* Call solver to solve the optimization problem */
   try
   {
-    mpc_solver_ptr_->solve(bx0, is_debug_);
+    mpc_solver_ptr_->solve(bx0_, is_debug_);
   }
   catch (mpc_solver::AcadosSolveException& e)
   {
-    ROS_FATAL("MPC solver failed. Details: %s", e.what());
+    ROS_FATAL("[MPC] Solver failed. Details: %s", e.what());
   }
   // Note: The result is stored in mpc_solver_ptr_->uo_
 
@@ -554,7 +751,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::prepareMPCRef()
   {
     if (ros::Time::now() - x_u_ref_.header.stamp > ros::Duration(0.5))
     {
-      ROS_INFO("No traj msg for 0.5s. Trajectory tracking mode is off! Return to the hovering!");
+      ROS_INFO("[MPC] No traj msg for 0.5s. Trajectory tracking mode is off! Return to the hovering!");
       is_traj_tracking_ = false;
       tf::Vector3 current_pos = estimator_->getPos(Frame::COG, estimate_mode_);
       tf::Vector3 current_rpy = estimator_->getEuler(Frame::COG, estimate_mode_);
@@ -574,7 +771,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::prepareMPCRef()
     }
     else if (ros::Time::now() - x_u_ref_.header.stamp > ros::Duration(0.1))
     {
-      ROS_INFO_THROTTLE(1, "No traj msg for 0.1s. Try to track current pose.");
+      ROS_INFO_THROTTLE(1, "[MPC] No traj msg for 0.1s. Try to track current pose.");
       tf::Vector3 current_pos = estimator_->getPos(Frame::COG, estimate_mode_);
       tf::Vector3 current_rpy = estimator_->getEuler(Frame::COG, estimate_mode_);
 
@@ -626,7 +823,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::prepareMPCParams()
   updateInertialParams();
 
   // TODO: this condition is temporary for drones that don't pass in phys param (bi, tri, fix-qd)
-  if (mpc_solver_ptr_->NP_ > 4 + 6)
+  if (NP_ > 4 + 6)
   {
     std::vector<double> phys_p = PhysToMPCParams();
 
@@ -635,6 +832,357 @@ void nmpc::TiltMtNeuralServoPlusMPC::prepareMPCParams()
 
     mpc_solver_ptr_->setParamSparseAllStages(idx, phys_p);
   }
+
+  // Update linearization parameters
+  if (linearize_mlp_)
+  {
+    updateLinearizationParams();
+  }
+}
+
+void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
+{
+  try
+  {
+    // 1) Assemble batched neural network input x0
+    // NOTE: batch_size_ = NN_ + 1
+    for (int j = 0; j < batch_size_; ++j)
+    {
+      const auto& state_j_raw = mpc_solver_ptr_->xo_.at(j);
+
+      // For terminal node, use the control value from N-1
+      const auto& u_cmd_j = mpc_solver_ptr_->uo_.at(j < NN_ ? j : NN_ - 1);
+
+      // Input transform
+      std::vector<double> state_j = state_j_raw;
+      if (input_transform_)
+      {
+        tf::Quaternion q(state_j[6], state_j[7], state_j[8], state_j[9]);  // (w,x,y,z) order
+        tf::Vector3 v_w(state_j[3], state_j[4], state_j[5]);
+        tf::Vector3 v_b = tf::quatRotate(q.inverse(), v_w);
+        state_j[3] = v_b.x();
+        state_j[4] = v_b.y();
+        state_j[5] = v_b.z();
+      }
+
+      float* row_j = x0_vec_f32_.data() + j * N_in_;
+      int idx = 0;
+      for (int feat_idx : state_feats_) row_j[idx++] = static_cast<float>(state_j[feat_idx]);
+      for (int feat_idx : u_feats_)     row_j[idx++] = static_cast<float>(u_cmd_j[feat_idx]);
+    }
+
+    // 2) Create torch::Tensor
+    // NOTE: from_blob() does NOT copy; the buffer must remain valid for the lifetime of the tensor
+    torch::Tensor x0 = torch::from_blob(
+      x0_vec_f32_.data(),
+      { batch_size_, N_in_ },
+      torch::TensorOptions()
+        .dtype(torch::kFloat32))
+      .to(device_mlp_);  // First construct on CPU and then move to device to avoid issues with split memory-access
+
+    // Repeat x0 such that each "virtual batch element" corresponds to one (b, i) pair
+    // IDEA: A single extended forward call is cheaper than N_out_ grad() calls
+    // Basically we repeat every row of x0 N_out_ times. From the model forward call we receive corresponding N_out_ duplicate outputs for each set of N_out_ rows
+    torch::Tensor x0_rep = x0.repeat_interleave(N_out_, /*dim=*/0)  // (B*N_out_, N_in_)
+                             .requires_grad_(true);
+
+    // Wrap the Tensor in an IValue vector
+    std::vector<torch::jit::IValue> inputs_rep;
+    inputs_rep.push_back(x0_rep);
+    
+    // 3) Forward pass
+    // NOTE: We need to call forward() on the entire repeated input to ensure that the gradients are correctly tracked w.r.t. the entire repeated input
+    torch::Tensor y0_rep_raw = neural_module_->forward(inputs_rep).toTensor();
+    TORCH_CHECK(y0_rep_raw.dim() == 2 && y0_rep_raw.size(0) == batch_size_ * N_out_ && y0_rep_raw.size(1) == N_out_,
+          "Expected y0_rep shape (", batch_size_ * N_out_, ", ", N_out_, "), got ", y0_rep_raw.sizes());
+
+    // Transform prediction in Body frame to World frame
+    torch::Tensor y0_rep = y0_rep_raw;
+    if (label_transform_)
+    {
+      if (y_reg_dims_ != std::vector<int>{3,4,5})
+      {
+        ROS_ERROR_THROTTLE(1.0,
+          "[NEURAL][MPC] label_transform enabled but y_reg_dims is not [3,4,5]; skipping output rotation.");
+      }
+      else
+      {
+        int ax_idx = 0;
+        int ay_idx = 1;
+        int az_idx = 2;
+        // Build per-stage rotation matrices R (Body->World) from current predicted quaternion
+        std::vector<float> R_stage(static_cast<size_t>(batch_size_) * 9, 0.0f);
+        for (int j = 0; j < batch_size_; ++j)
+        {
+          const auto& state_j = mpc_solver_ptr_->xo_.at(j);
+          tf::Quaternion q(state_j[6], state_j[7], state_j[8], state_j[9]);
+          tf::Matrix3x3 R_j(q);
+          const size_t base = static_cast<size_t>(j) * 9;
+          for (int row = 0; row < 3; ++row)
+            for (int col = 0; col < 3; ++col)
+              R_stage[base + static_cast<size_t>(row) * 3 + static_cast<size_t>(col)] = static_cast<float>(R_j[row][col]);
+        }
+
+        torch::Tensor R_tensor = torch::from_blob(
+            R_stage.data(),
+            { batch_size_, 3, 3 },
+            torch::TensorOptions().dtype(torch::kFloat32))
+          .to(device_mlp_);
+
+        torch::Tensor R_rep = R_tensor.repeat_interleave(N_out_, /*dim=*/0);  // (B*N_out_, 3, 3)
+
+        torch::Tensor a_w = torch::bmm(R_rep, y0_rep_raw.unsqueeze(2)).squeeze(2);  // (B*N_out_, 3)
+
+        // Rebuild y0_rep without in-place ops to avoid destroying with autograd graph
+        std::vector<torch::Tensor> y_cols;
+        y_cols.reserve(static_cast<size_t>(N_out_));
+        for (int64_t col = 0; col < N_out_; ++col)
+        {
+          if      (col == ax_idx) y_cols.push_back(a_w.select(1, 0));
+          else if (col == ay_idx) y_cols.push_back(a_w.select(1, 1));
+          else if (col == az_idx) y_cols.push_back(a_w.select(1, 2));
+          else                  y_cols.push_back(y0_rep_raw.select(1, col));
+        }
+        y0_rep = torch::stack(y_cols, /*dim=*/1);
+      }
+    }
+
+    // 4) Linearize
+    auto [J0, H0] = linearize(x0_rep, y0_rep);
+
+    // 5) Cast and Flatten Input, Output, Jacobian and Hessian to 1-D std::vector<double> in Fortran order to send to acados
+    // NOTE: acados expects double
+    x0_vec_.assign(x0_vec_f32_.begin(), x0_vec_f32_.end());  // move to std::vector<double>
+    torch::Tensor y0 = y0_rep.view({batch_size_, N_out_, N_out_}).select(1, 0);  // extract (B, N_out_)
+    auto y0_f64 = y0.detach().cpu().to(torch::kFloat64).contiguous();  // cast to double
+    std::memcpy(y0_vec_.data(),  // move to std::vector<double>
+                y0_f64.data_ptr<double>(),
+                y0_vec_.size() * sizeof(double));
+    flattenTensors(J0, H0);
+
+    // 6) Set per-stage parameters from the batched linearization
+    for (int j = 0; j <= NN_; ++j)
+    {
+      std::memcpy(lin_params_.data() + off_x0_,
+                  x0_vec_.data() + j * stride_x0_,
+                  stride_x0_ * sizeof(double));
+
+      std::memcpy(lin_params_.data() + off_y0_,
+                  y0_vec_.data() + j * stride_y0_,
+                  stride_y0_ * sizeof(double));
+
+      std::memcpy(lin_params_.data() + off_J0_,
+                  J0_vec_.data() + j * stride_J0_,
+                  stride_J0_ * sizeof(double));
+
+      if (linearize_order_ >= 2)
+        std::memcpy(lin_params_.data() + off_H0_,
+                    H0_vec_.data() + j * stride_H0_,
+                    stride_H0_ * sizeof(double));
+
+      mpc_solver_ptr_->setParamSparseOneStage(j, lin_param_idx_, lin_params_);
+    }
+  }
+  catch (const std::exception& e)
+  {
+    ROS_ERROR_THROTTLE(1.0, "[NEURAL][MPC] Torch error during batched linearization: %s", e.what());
+    return;
+  }
+  return;
+}
+
+std::pair<torch::Tensor, torch::Tensor> nmpc::TiltMtNeuralServoPlusMPC::linearize(const torch::Tensor& x0_rep,
+                                                                                  const torch::Tensor& y0_rep)
+{
+  TORCH_CHECK(x0_rep.requires_grad(), "[TORCH] Input tensor must have requires_grad=true");
+  TORCH_CHECK(y0_rep.requires_grad(), "[TORCH] Output tensor must have requires_grad=true");
+
+  bool compute_graph = (linearize_order_ >= 2);
+
+  // ── Jacobian ──────────────────────────────────────────────
+  // Compute full batched Jacobian in a single backward pass.
+  //
+  // Build a (B*N_out_, N_out_) identity with batch_size_ one-hot
+  // vectors as columns so a single grad() returns all rows at once.
+  //
+  // With this the "repeated-input" work-around we avoid retain_graph
+  // completely and only call grad() once.
+  // ──────────────────────────────────────────────────────────
+
+  // grad_outputs: select output i for virtual-batch element (b*N_out_+i).
+  // Shape: (B*N_out_, N_out_) - block-diagonal identity tiled B times.
+  torch::Tensor eye_block = torch::eye(N_out_,
+      torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_))
+      .repeat({batch_size_, 1});  // (B*N_out_, N_out_)
+
+  auto J_flat = torch::autograd::grad(  // (B*N_out_, N_in_)
+      { y0_rep },
+      { x0_rep },
+      { eye_block },
+      /*retain_graph=*/compute_graph,  // keep only if Hessian needed
+      /*create_graph=*/compute_graph)[0];
+
+  torch::Tensor J0 = J_flat.view({batch_size_, N_out_, N_in_});
+
+  // ── Hessian ───────────────────────────────────────────────
+  // We need H[b,i,j,k] = d^2 y[b,i] / dx[b,j]dx[b,k].
+  // J_flat already contains dJ[b,i] / dx which is treated as a scalar
+  // function of x0_rep. We now differentiate each column k of
+  // J_flat w.r.t. x0_rep using the same identity trick.
+  // ──────────────────────────────────────────────────────────
+  torch::Tensor H0;
+  if (linearize_order_ >= 2)
+  {
+    // eye_k: (B*N_out_, N_in_) - for each k, selects column k of J_flat
+    // We tile torch::eye(N_in_) for all B*N_out_ virtual elements:
+    //   shape: (N_in_, B*N_out_, N_in_)  -> iterate k in outer loop
+
+    std::vector<torch::Tensor> H_cols;
+    H_cols.reserve(N_in_);
+
+    torch::Tensor eye_in = torch::eye(N_in_,
+        torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
+
+    for (int k = 0; k < N_in_; ++k)
+    {
+      // grad_outputs selects column k of J_flat for every (b,i) element.
+      // Shape: (B*N_out_, N_in_) - k-th unit vector, tiled.
+      torch::Tensor grad_outputs_k = eye_in[k]
+          .unsqueeze(0)                              // (1, N_in_)
+          .expand({batch_size_ * N_out_, N_in_});    // (B*N_out_, N_in_)
+
+      bool last_k = (k == N_in_ - 1);
+      auto H_k = torch::autograd::grad(  // (B*N_out_, N_in_) 
+          { J_flat },
+          { x0_rep },
+          { grad_outputs_k },
+          /*retain_graph=*/!last_k,
+          /*create_graph=*/false)[0];
+
+      H_cols.push_back(H_k.view({batch_size_, N_out_, N_in_}));
+    }
+    H0 = torch::stack(H_cols, /*dim=*/3);
+  }
+  else
+  {
+    H0 = torch::zeros({batch_size_, N_out_, N_in_, N_in_},
+         torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
+  }
+
+  return {J0, H0};
+}
+
+// =========== NAIVE APPROACH (loop over N_out_ dim) =============
+//   std::vector<torch::Tensor> J_cols;
+//   J_cols.reserve(N_out_);
+  
+//   for (int i = 0; i < N_out_; ++i)
+//   {
+//     torch::Tensor jac_grad_outputs = torch::zeros_like(y0); // (B, N_out_)
+//     jac_grad_outputs.select(1, i).fill_(1.0f);
+
+//     bool last_i = (i == N_out_ - 1);
+//     auto grads = torch::autograd::grad(
+//         { y0 },
+//         { x0 },
+//         { jac_grad_outputs },
+//         /*retain_graph=*/(!last_i || compute_graph),
+//         /*create_graph=*/compute_graph);
+
+//     J_cols.push_back(grads[0]);  // (B, N_in_)
+//   }
+//   // J0 shape: (B, N_out_, N_in_)
+//   torch::Tensor J0 = torch::stack(J_cols, /*dim=*/1);
+
+//   torch::Tensor H0;
+//   if (linearize_order_ >= 2)
+//   {
+//     std::vector<torch::Tensor> H_out_cols;
+//     H_out_cols.reserve(N_out_);
+
+//     torch::Tensor hess_grad_outputs = torch::ones({batch_size_}, 
+//         torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
+
+//     for (int i = 0; i < N_out_; ++i)
+//     {
+//       std::vector<torch::Tensor> H_in_cols;
+//       H_in_cols.reserve(N_in_);
+      
+//       for (int k = 0; k < N_in_; ++k)
+//       {
+//         bool last_grad = (i == N_out_ - 1) && (k == N_in_ - 1);
+        
+//         // Differentiate J0[:, i, k] wrt x0
+//         // J0.select(1, i) gives (B, N_in_), then .select(1, k) gives (B)
+//         auto H_k = torch::autograd::grad(  // (B, N_in_)
+//             { J0.select(1, i).select(1, k) }, 
+//             { x0 },
+//             { hess_grad_outputs },
+//             /*retain_graph=*/!last_grad,
+//             /*create_graph=*/false)[0];
+//         H_in_cols.push_back(H_k);
+//       }
+//       // Stack along dim=1 to get (B, N_in_, N_in_)
+//       H_out_cols.push_back(torch::stack(H_in_cols, 1));
+//     }
+//     // Stack along dim=1 to get (B, N_out_, N_in_, N_in_)
+//     H0 = torch::stack(H_out_cols, 1);
+//   }
+
+/**
+ * Flatten J0 and H0 to 1-D std::vector<float> using CasADi / Fortran
+ * (column-major) order.
+ *
+ * J0 shape: (B, N_out, N_in)
+ *   CasADi sees a (N_out x N_in) matrix -> column-major -> i (output) varies
+ *   fastest.
+ *   Flat index: i + N_out_ * j
+ *   Equivalent torch op: J0[b].t().contiguous().flatten()
+ *
+ * H0 shape: (B, N_out, N_in, N_in)
+ *   CasADi sees a (N_out*N_in x N_in) matrix -> column-major.
+ *   The "row" axis is the composite (i, j) pair, with i varying fastest.
+ *   Flat index: i + N_out_*j + N_out_*N_in_*k
+ *   Equivalent torch op: H0[b].permute({2,1,0}).contiguous().flatten()
+ *     (permute k->dim0, j->dim1, i->dim2, then flatten with i varying fastest)
+ */
+void nmpc::TiltMtNeuralServoPlusMPC::flattenTensors(const torch::Tensor& J0,
+                                                    const torch::Tensor& H0)
+{
+    // ---- Jacobian: (B, N_out, N_in) -> B × (N_out*N_in,) Fortran-flat ----
+    // Transpose last two dims so memory order is [j, i] -> flatten gives
+    // column-major [i0, i1, …, iN | next col …]
+    torch::Tensor J0_flat = J0
+        .transpose(1, 2)           // (B, N_in, N_out) - i varies fastest
+        .contiguous()              // force contiguous before data_ptr
+        .reshape({batch_size_, N_out_ * N_in_});  // (B, N_out*N_in)
+
+    // ---- Hessian: (B, N_out, N_in, N_in) -> B × (N_out*N_in*N_in,) Fortran-flat ----
+    // CasADi matrix shape: rows = N_out*N_in  (i fast, j slow)
+    //                      cols = N_in        (k)
+    // Column-major: i varies fastest, then j, then k.
+    // Achieve with permute [b, i, j, k] -> [b, i, k, j] then flatten.
+    // keep the N_out axis (i) in place as dim-1 so each output block stays contiguous,
+    // and only swap the two N_in axes so j varies fastest within each block.
+    torch::Tensor H0_flat = H0
+        .permute({0, 1, 3, 2})    // (B, N_out_i, N_in_k, N_in_j) 
+        .contiguous()
+        .reshape({batch_size_, N_out_ * N_in_ * N_in_});  // (B, N_out*N_in*N_in)
+
+    const int64_t j_numel = J0_flat.numel();
+    const int64_t h_numel = H0_flat.numel();
+
+    if (j_numel != J0_vec_.size() || h_numel != H0_vec_.size())
+    {
+        ROS_ERROR("[NEURAL][MPC] Size mismatch when flattening Jacobian/Hessian: J0 numel = %ld, "
+                  "H0 numel = %ld, but J0_vec_ size = %zu, H0_vec_ size = %zu",
+                  j_numel, h_numel, J0_vec_.size(), H0_vec_.size());
+        return;
+    }
+
+    std::memcpy(J0_vec_.data(), J0_flat.cpu().to(torch::kFloat64).data_ptr<double>(), j_numel * sizeof(double));
+    std::memcpy(H0_vec_.data(), H0_flat.cpu().to(torch::kFloat64).data_ptr<double>(), h_numel * sizeof(double));
+    return;
 }
 
 /**
@@ -653,10 +1201,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::setXrUrRef(const tf::Vector3& ref_pos_i, co
                                                 const tf::Vector3& ref_omega_b, const tf::Vector3& ref_ang_acc_b,
                                                 const int& horizon_idx)
 {
-  int& NX = mpc_solver_ptr_->NX_;
-  int& NU = mpc_solver_ptr_->NU_;
-  int& NN = mpc_solver_ptr_->NN_;
-
   /* calculate the reference wrench in the body frame */
   Eigen::VectorXd acc_with_g_i(3);
   acc_with_g_i(0) = ref_acc_i.x();
@@ -678,31 +1222,31 @@ void nmpc::TiltMtNeuralServoPlusMPC::setXrUrRef(const tf::Vector3& ref_pos_i, co
   ref_wrench_b(5) = ref_ang_acc_b.z() * inertia_.at(2);
 
   /* calculate X U from ref, aka. control allocation */
-  std::vector<double> x(NX);
-  std::vector<double> u(NU);
+  std::vector<double> x(NX_);
+  std::vector<double> u(NU_);
   allocateToXU(ref_pos_i, ref_vel_i, ref_quat_ib, ref_omega_b, ref_wrench_b, x, u);
 
   /* set values */
   if (horizon_idx == -1)
   {
-    for (int i = 0; i <= NN; i++)
+    for (int i = 0; i <= NN_; i++)
     {
-      std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * i);
-      if (i < NN)
-        std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * i);
+      std::copy(x.begin(), x.begin() + NX_, x_u_ref_.x.data.begin() + NX_ * i);
+      if (i < NN_)
+        std::copy(u.begin(), u.begin() + NU_, x_u_ref_.u.data.begin() + NU_ * i);
     }
     return;
   }
 
-  if (horizon_idx < 0 || horizon_idx > NN)
+  if (horizon_idx < 0 || horizon_idx > NN_)
   {
-    ROS_WARN("horizon_idx is out of range! CalXrUrRef failed!");
+    ROS_WARN("[MPC] horizon_idx is out of range! CalXrUrRef failed!");
     return;
   }
 
-  std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * horizon_idx);
-  if (horizon_idx < NN)
-    std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * horizon_idx);
+  std::copy(x.begin(), x.begin() + NX_, x_u_ref_.x.data.begin() + NX_ * horizon_idx);
+  if (horizon_idx < NN_)
+    std::copy(u.begin(), u.begin() + NU_, x_u_ref_.u.data.begin() + NU_ * horizon_idx);
 }
 
 void nmpc::TiltMtNeuralServoPlusMPC::allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
@@ -728,7 +1272,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::allocateToXU(const tf::Vector3& ref_pos_i, 
   {
     if (ros::Time::now() - fix_rotor_msg_.header.stamp > ros::Duration(0.1))
     {
-      ROS_INFO_THROTTLE(1, "No FixRotor msg for 0.1s. Recover to the normal allocation state.");
+      ROS_INFO_THROTTLE(1, "[MPC] No FixRotor msg for 0.1s. Recover to the normal allocation state.");
       is_set_fix_rotor_ = false;
     }
 
@@ -745,8 +1289,8 @@ void nmpc::TiltMtNeuralServoPlusMPC::allocateToXU(const tf::Vector3& ref_pos_i, 
 
   if (motor_num_ != joint_num_)
   {
-    ROS_ERROR("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
-    throw std::runtime_error("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
+    ROS_FATAL("[MPC] motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
+    throw std::runtime_error("[MPC] motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
   }
   for (int i = 0; i < motor_num_; i++)
   {
@@ -792,7 +1336,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::allocateToXU(const tf::Vector3& ref_pos_i, 
     rotor_idx = max_rotor_idx;
 
     ROS_WARN(
-        "More than one rotor is below threshold and flip backwards! Select rotor %d with thrust %.2f as the "
+        "[MPC] More than one rotor is below threshold and flip backwards! Select rotor %d with thrust %.2f as the "
         "fixed rotor.",
         rotor_idx, max_ft);
   }
@@ -854,8 +1398,8 @@ void nmpc::TiltMtNeuralServoPlusMPC::allocateToXUwOneFixedRotor(int fix_rotor_id
   // check motor_num_ == joint_num_ before this function is called
   if (motor_num_ != joint_num_)
   {
-    ROS_ERROR("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
-    throw std::runtime_error("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
+    ROS_FATAL("[MPC] motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
+    throw std::runtime_error("[MPC] motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
   }
   for (int i = 0; i < motor_num_; i++)
   {
@@ -874,7 +1418,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::allocateToXUwOneFixedRotor(int fix_rotor_id
  */
 void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
 {
-  int& NN = mpc_solver_ptr_->NN_;
   stamp = ros::Time::now();
 
   // Current state (input to MPC at this timestep)
@@ -882,33 +1425,32 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
   curr_mpc_state.header.frame_id = "world";
   curr_mpc_state.header.stamp = stamp;
   
-  std::vector<double> curr_state = meas2VecX();
   // Position
-  curr_mpc_state.position.x = curr_state[0];
-  curr_mpc_state.position.y = curr_state[1];
-  curr_mpc_state.position.z = curr_state[2];
+  curr_mpc_state.position.x = bx0_[0];
+  curr_mpc_state.position.y = bx0_[1];
+  curr_mpc_state.position.z = bx0_[2];
   
   // Linear velocity
-  curr_mpc_state.linear_velocity.x = curr_state[3];
-  curr_mpc_state.linear_velocity.y = curr_state[4];
-  curr_mpc_state.linear_velocity.z = curr_state[5];
+  curr_mpc_state.linear_velocity.x = bx0_[3];
+  curr_mpc_state.linear_velocity.y = bx0_[4];
+  curr_mpc_state.linear_velocity.z = bx0_[5];
   
   // Quaternion
-  curr_mpc_state.orientation.w = curr_state[6];
-  curr_mpc_state.orientation.x = curr_state[7];
-  curr_mpc_state.orientation.y = curr_state[8];
-  curr_mpc_state.orientation.z = curr_state[9];
+  curr_mpc_state.orientation.w = bx0_[6];
+  curr_mpc_state.orientation.x = bx0_[7];
+  curr_mpc_state.orientation.y = bx0_[8];
+  curr_mpc_state.orientation.z = bx0_[9];
   
   // Angular velocity
-  curr_mpc_state.angular_velocity.x = curr_state[10];
-  curr_mpc_state.angular_velocity.y = curr_state[11];
-  curr_mpc_state.angular_velocity.z = curr_state[12];
+  curr_mpc_state.angular_velocity.x = bx0_[10];
+  curr_mpc_state.angular_velocity.y = bx0_[11];
+  curr_mpc_state.angular_velocity.z = bx0_[12];
   
   // Servo angle state
   curr_mpc_state.servo_angles.resize(joint_num_);
   for (int i = 0; i < joint_num_; ++i)
   {
-    curr_mpc_state.servo_angles[i] = curr_state[13 + i];
+    curr_mpc_state.servo_angles[i] = bx0_[13 + i];
   }
   
   pub_record_curr_.publish(curr_mpc_state);
@@ -917,10 +1459,10 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
   aerial_robot_msgs::MPCTrajectory ref_msg;
   ref_msg.header.frame_id = "world";
   ref_msg.header.stamp = stamp;
-  ref_msg.states.resize(NN + 1);
-  ref_msg.controls.resize(NN);
+  ref_msg.states.resize(NN_ + 1);
+  ref_msg.controls.resize(NN_);
 
-  for (int i = 0; i <= NN; ++i)
+  for (int i = 0; i <= NN_; ++i)
   {
     // Position
     ref_msg.states[i].position.x = mpc_solver_ptr_->xr_[i][0];
@@ -951,7 +1493,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
     }
   }
 
-  for (int i = 0; i < NN; ++i)
+  for (int i = 0; i < NN_; ++i)
   {
     // Thrust commands
     ref_msg.controls[i].thrust_commands.resize(motor_num_);
@@ -973,10 +1515,10 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
   aerial_robot_msgs::MPCTrajectory pred_msg;
   pred_msg.header.frame_id = "world";
   pred_msg.header.stamp = stamp;
-  pred_msg.states.resize(NN + 1);
-  pred_msg.controls.resize(NN);
+  pred_msg.states.resize(NN_ + 1);
+  pred_msg.controls.resize(NN_);
 
-  for (int i = 0; i <= NN; ++i)
+  for (int i = 0; i <= NN_; ++i)
   {
     // Position
     pred_msg.states[i].position.x = mpc_solver_ptr_->xo_[i][0];
@@ -1007,7 +1549,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
     }
   }
   
-  for (int i = 0; i < NN; ++i)
+  for (int i = 0; i < NN_; ++i)
   {
     // Thrust commands
     pred_msg.controls[i].thrust_commands.resize(motor_num_);
@@ -1036,10 +1578,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackViz(const ros::TimerEvent& event)
   geometry_msgs::PoseArray pred_poses;
   geometry_msgs::PoseArray ref_poses;
 
-  int& NN = mpc_solver_ptr_->NN_;
-  int& NX = mpc_solver_ptr_->NX_;
-
-  for (int i = 0; i < NN; ++i)
+  for (int i = 0; i < NN_; ++i)
   {
     geometry_msgs::Pose pred_pose;
     pred_pose.position.x = mpc_solver_ptr_->xo_[i][0];
@@ -1084,7 +1623,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackSetRPY(const spinal::DesireCoordCon
   if (msg->pitch == M_PI / 2.0 or msg->pitch == -M_PI / 2.0)
   {
     ROS_WARN(
-        "The pitch angle is set to PI/2 or -PI/2, which is a singular point for euler angle."
+        "[MPC] The pitch angle is set to PI/2 or -PI/2, which is a singular point for euler angle."
         " Please set other values for the pitch angle.");
     return;
   }
@@ -1100,14 +1639,14 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackSetRefXU(const aerial_robot_msgs::P
   /* failsafe check */
   if (navigator_->getNaviState() != aerial_robot_navigation::HOVER_STATE)
   {
-    ROS_WARN_THROTTLE(1, "The robot has not hovered, so the reference trajectory will be ignored!");
+    ROS_WARN_THROTTLE(1, "[MPC] The robot has not hovered, so the reference trajectory will be ignored!");
     return;
   }
 
   /* switch tracking mode */
   if (!is_traj_tracking_)
   {
-    ROS_INFO("Trajectory tracking mode is on!");
+    ROS_INFO("[MPC] Trajectory tracking mode is on!");
     is_traj_tracking_ = true;
   }
 
@@ -1121,12 +1660,12 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackSetRefXU(const aerial_robot_msgs::P
 
 void nmpc::TiltMtNeuralServoPlusMPC::callbackSetRefTraj(const trajectory_msgs::MultiDOFJointTrajectoryConstPtr& msg)
 {
-  if (msg->points.size() != mpc_solver_ptr_->NN_ + 1)
-    ROS_WARN("The length of the trajectory is not equal to the prediction horizon! Cannot use the trajectory!");
+  if (msg->points.size() != NN_ + 1)
+    ROS_WARN("[MPC] The length of the trajectory is not equal to the prediction horizon! Cannot use the trajectory!");
 
   if (navigator_->getNaviState() != aerial_robot_navigation::HOVER_STATE)
   {
-    ROS_WARN_THROTTLE(1, "The robot has not hovered, so the reference trajectory will be ignored!");
+    ROS_WARN_THROTTLE(1, "[MPC] The robot has not hovered, so the reference trajectory will be ignored!");
     return;
   }
 
@@ -1146,7 +1685,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackSetRefTraj(const trajectory_msgs::M
 
   if (max_same_idx != msg->points.size() - 1 || is_set_fix_rotor_ == true)
   {
-    for (int i = 0; i < mpc_solver_ptr_->NN_ + 1; i++)
+    for (int i = 0; i < NN_ + 1; i++)
     {
       const trajectory_msgs::MultiDOFJointTrajectoryPoint& point = msg->points[i];
       geometry_msgs::Vector3 pos = point.transforms[0].translation;
@@ -1172,21 +1711,21 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackSetFixedRotor(const aerial_robot_ms
   // failsafe
   if (msg->rotor_id < 0 || msg->rotor_id >= motor_num_)
   {
-    ROS_WARN_STREAM("The rotor_id " << static_cast<int>(msg->rotor_id)
+    ROS_WARN_STREAM("[MPC] The rotor_id " << static_cast<int>(msg->rotor_id)
                                     << " is incorrect. Note that the id starts from 0.");
     return;
   }
 
   if (msg->fix_ft < thrust_ctrl_min_ || msg->fix_ft > thrust_ctrl_max_)
   {
-    ROS_WARN_STREAM("The fix_ft value " << msg->fix_ft << " is out of range. It should be between " << thrust_ctrl_min_
+    ROS_WARN_STREAM("[MPC] The fix_ft value " << msg->fix_ft << " is out of range. It should be between " << thrust_ctrl_min_
                                         << " and " << thrust_ctrl_max_ << ".");
     return;
   }
 
   if (msg->fix_alpha < servo_angle_min_ || msg->fix_alpha > servo_angle_max_)
   {
-    ROS_WARN_STREAM("The fix_alpha value " << msg->fix_alpha << " is out of range. It should be between "
+    ROS_WARN_STREAM("[MPC] The fix_alpha value " << msg->fix_alpha << " is out of range. It should be between "
                                            << servo_angle_min_ << " and " << servo_angle_max_ << ".");
     return;
   }
@@ -1209,74 +1748,74 @@ void nmpc::TiltMtNeuralServoPlusMPC::cfgMPCCallback(NMPCConfig& config, uint32_t
           mpc_solver_ptr_->setCostWDiagElement(0, config.Qp_xy);
           mpc_solver_ptr_->setCostWDiagElement(1, config.Qp_xy);
 
-          ROS_INFO_STREAM("change Qp_xy for NMPC '" << config.Qp_xy << "'");
+          ROS_INFO_STREAM("[MPC] Change Qp_xy for NMPC '" << config.Qp_xy << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_P_Z: {
           mpc_solver_ptr_->setCostWDiagElement(2, config.Qp_z);
-          ROS_INFO_STREAM("change Qp_z for NMPC '" << config.Qp_z << "'");
+          ROS_INFO_STREAM("[MPC] Change Qp_z for NMPC '" << config.Qp_z << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_V_XY: {
           mpc_solver_ptr_->setCostWDiagElement(3, config.Qv_xy);
           mpc_solver_ptr_->setCostWDiagElement(4, config.Qv_xy);
-          ROS_INFO_STREAM("change Qv_xy for NMPC '" << config.Qv_xy << "'");
+          ROS_INFO_STREAM("[MPC] Change Qv_xy for NMPC '" << config.Qv_xy << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_V_Z: {
           mpc_solver_ptr_->setCostWDiagElement(5, config.Qv_z);
-          ROS_INFO_STREAM("change Qv_z for NMPC '" << config.Qv_z << "'");
+          ROS_INFO_STREAM("[MPC] Change Qv_z for NMPC '" << config.Qv_z << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_Q_XY: {
           mpc_solver_ptr_->setCostWDiagElement(7, config.Qq_xy);
           mpc_solver_ptr_->setCostWDiagElement(8, config.Qq_xy);
-          ROS_INFO_STREAM("change Qq_xy for NMPC '" << config.Qq_xy << "'");
+          ROS_INFO_STREAM("[MPC] Change Qq_xy for NMPC '" << config.Qq_xy << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_Q_Z: {
           mpc_solver_ptr_->setCostWDiagElement(9, config.Qq_z);
-          ROS_INFO_STREAM("change Qq_z for NMPC '" << config.Qq_z << "'");
+          ROS_INFO_STREAM("[MPC] Change Qq_z for NMPC '" << config.Qq_z << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_W_XY: {
           mpc_solver_ptr_->setCostWDiagElement(10, config.Qw_xy);
           mpc_solver_ptr_->setCostWDiagElement(11, config.Qw_xy);
-          ROS_INFO_STREAM("change Qw_xy for NMPC '" << config.Qw_xy << "'");
+          ROS_INFO_STREAM("[MPC] Change Qw_xy for NMPC '" << config.Qw_xy << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_W_Z: {
           mpc_solver_ptr_->setCostWDiagElement(12, config.Qw_z);
-          ROS_INFO_STREAM("change Qw_z for NMPC '" << config.Qw_z << "'");
+          ROS_INFO_STREAM("[MPC] Change Qw_z for NMPC '" << config.Qw_z << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_A: {
           for (int i = 13; i < 13 + joint_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Qa);
-          ROS_INFO_STREAM("change Qa for NMPC '" << config.Qa << "'");
+          ROS_INFO_STREAM("[MPC] Change Qa for NMPC '" << config.Qa << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_R_T: {
-          for (int i = mpc_solver_ptr_->NX_; i < mpc_solver_ptr_->NX_ + motor_num_; ++i)
+          for (int i = NX_; i < NX_ + motor_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Rt, false);
-          ROS_INFO_STREAM("change Rt for NMPC '" << config.Rt << "'");
+          ROS_INFO_STREAM("[MPC] Change Rt for NMPC '" << config.Rt << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_R_AC_D: {
-          for (int i = mpc_solver_ptr_->NX_ + motor_num_; i < mpc_solver_ptr_->NX_ + motor_num_ + joint_num_; ++i)
+          for (int i = NX_ + motor_num_; i < NX_ + motor_num_ + joint_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Rac_d, false);
-          ROS_INFO_STREAM("change Rac_d for NMPC '" << config.Rac_d << "'");
+          ROS_INFO_STREAM("[MPC] Change Rac_d for NMPC '" << config.Rac_d << "'");
           break;
         }
         default: {
-          ROS_INFO_STREAM("The setting variable is not in the list!");
+          ROS_INFO_STREAM("[MPC] The setting variable is not in the list!");
           break;
         }
       }
     }
     catch (std::invalid_argument& e)
     {
-      ROS_ERROR_STREAM("NMPC config failed: " << e.what());
+      ROS_ERROR_STREAM("[MPC] Config failed: " << e.what());
     }
   }
 }

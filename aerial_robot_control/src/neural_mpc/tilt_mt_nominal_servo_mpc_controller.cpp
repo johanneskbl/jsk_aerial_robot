@@ -64,7 +64,7 @@ void nmpc::TiltMtNominalServoMPC::initialize(ros::NodeHandle nh, ros::NodeHandle
   setControlMode();
 
   initActuatorStates();
-  initPredXU(x_u_ref_, mpc_solver_ptr_->NN_, mpc_solver_ptr_->NX_, mpc_solver_ptr_->NU_);
+  initPredXU(x_u_ref_);
 
   quat_prev_.setW(1.0);
 
@@ -110,7 +110,7 @@ bool nmpc::TiltMtNominalServoMPC::update()
     sendCmd();
     // *** RECORDING ***
     // Only needed to record dataset but else its computationally expensive, so we can comment it out when not needed.
-    // publishRecording();
+    publishRecording();
   }
 
   return true;
@@ -506,12 +506,12 @@ void nmpc::TiltMtNominalServoMPC::controlCore(bool is_warmup)
   prepareMPCParams();
 
   /* Get current state from estimator */
-  std::vector<double> bx0 = meas2VecX();
+  bx0_ = meas2VecX();
 
   /* Call solver to solve the optimization problem */
   try
   {
-    mpc_solver_ptr_->solve(bx0, is_debug_);
+    mpc_solver_ptr_->solve(bx0_, is_debug_);
   }
   catch (mpc_solver::AcadosSolveException& e)
   {
@@ -881,34 +881,33 @@ void nmpc::TiltMtNominalServoMPC::publishRecording()
   aerial_robot_msgs::MPCState curr_mpc_state;
   curr_mpc_state.header.frame_id = "world";
   curr_mpc_state.header.stamp = stamp;
-  
-  std::vector<double> curr_state = meas2VecX();
+
   // Position
-  curr_mpc_state.position.x = curr_state[0];
-  curr_mpc_state.position.y = curr_state[1];
-  curr_mpc_state.position.z = curr_state[2];
+  curr_mpc_state.position.x = bx0_[0];
+  curr_mpc_state.position.y = bx0_[1];
+  curr_mpc_state.position.z = bx0_[2];
   
   // Linear velocity
-  curr_mpc_state.linear_velocity.x = curr_state[3];
-  curr_mpc_state.linear_velocity.y = curr_state[4];
-  curr_mpc_state.linear_velocity.z = curr_state[5];
+  curr_mpc_state.linear_velocity.x = bx0_[3];
+  curr_mpc_state.linear_velocity.y = bx0_[4];
+  curr_mpc_state.linear_velocity.z = bx0_[5];
   
   // Quaternion
-  curr_mpc_state.orientation.w = curr_state[6];
-  curr_mpc_state.orientation.x = curr_state[7];
-  curr_mpc_state.orientation.y = curr_state[8];
-  curr_mpc_state.orientation.z = curr_state[9];
+  curr_mpc_state.orientation.w = bx0_[6];
+  curr_mpc_state.orientation.x = bx0_[7];
+  curr_mpc_state.orientation.y = bx0_[8];
+  curr_mpc_state.orientation.z = bx0_[9];
   
   // Angular velocity
-  curr_mpc_state.angular_velocity.x = curr_state[10];
-  curr_mpc_state.angular_velocity.y = curr_state[11];
-  curr_mpc_state.angular_velocity.z = curr_state[12];
+  curr_mpc_state.angular_velocity.x = bx0_[10];
+  curr_mpc_state.angular_velocity.y = bx0_[11];
+  curr_mpc_state.angular_velocity.z = bx0_[12];
   
   // Servo angle state
   curr_mpc_state.servo_angles.resize(joint_num_);
   for (int i = 0; i < joint_num_; ++i)
   {
-    curr_mpc_state.servo_angles[i] = curr_state[13 + i];
+    curr_mpc_state.servo_angles[i] = bx0_[13 + i];
   }
   
   pub_record_curr_.publish(curr_mpc_state);

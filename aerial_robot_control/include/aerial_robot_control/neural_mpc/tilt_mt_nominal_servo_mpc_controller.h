@@ -114,6 +114,7 @@ protected:
   trajectory_msgs::MultiDOFJointTrajectory last_traj_msg_;
 
   aerial_robot_msgs::PredXU x_u_ref_;  // TODO: maybe we should remove x_u_ref_ and use xr_ & ur_ inside mpc_solver_ptr_
+  std::vector<double> bx0_;  // Current state from estimator
   spinal::FourAxisCommand flight_cmd_;
   sensor_msgs::JointState gimbal_ctrl_cmd_;
 

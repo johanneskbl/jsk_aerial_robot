@@ -354,6 +354,8 @@ def store_additional_metadata(model_name, model_instance, linearize_mlp, lineari
         metadata = json.load(json_file)
     with open(json_file_name, "w") as json_file:
         metadata["runtime_options"] = dict()
+        metadata["runtime_options"]["model_name"] = model_name
+        metadata["runtime_options"]["model_instance"] = model_instance
         metadata["runtime_options"]["linearize_mlp"] = linearize_mlp
         metadata["runtime_options"]["linearize_order"] = linearize_order
         metadata["runtime_options"]["linearize_start_idx"] = linearize_start_idx

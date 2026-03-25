@@ -64,7 +64,7 @@ void nmpc::TiltMtNeuralServoMinusMPC::initialize(ros::NodeHandle nh, ros::NodeHa
   setControlMode();
 
   initActuatorStates();
-  initPredXU(x_u_ref_, mpc_solver_ptr_->NN_, mpc_solver_ptr_->NX_, mpc_solver_ptr_->NU_);
+  initPredXU(x_u_ref_);
 
   quat_prev_.setW(1.0);
 

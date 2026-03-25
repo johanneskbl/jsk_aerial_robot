@@ -16,6 +16,21 @@ find_package(catkin REQUIRED COMPONENTS
 
 find_package(Eigen3 REQUIRED)
 
+# PyTorch library for C++: Necessary for linearization of the neural model
+set(CMAKE_PREFIX_PATH "/opt/libtorch" ${CMAKE_PREFIX_PATH})
+find_package(Torch REQUIRED)
+
+# Torch publishes the required C++ std::string ABI via TORCH_CXX_FLAGS.
+# If libtorch is built with the *old* libstdc++ ABI ("_GLIBCXX_USE_CXX11_ABI=0"),
+# it becomes ABI-incompatible with ROS binaries built with the default (cxx11) ABI.
+# In that case pluginlib/class_loader will fail to dlopen controllers at runtime with
+# a symbol lookup error.
+if(DEFINED TORCH_CXX_FLAGS AND TORCH_CXX_FLAGS MATCHES "_GLIBCXX_USE_CXX11_ABI=0")
+  message(FATAL_ERROR
+    "Detected old-ABI libtorch (TORCH_CXX_FLAGS='${TORCH_CXX_FLAGS}').\n"
+    "This is incompatible with ROS C++ binaries built with the cxx11 ABI and will crash at runtime when loading plugins.\n"
+    "Fix: install the *cxx11-abi* libtorch build (so TORCH_CXX_FLAGS does not force _GLIBCXX_USE_CXX11_ABI=0) and rebuild this workspace.")
+endif()
 
 #list(APPEND CMAKE_PREFIX_PATH "~/acados/install/cmake")
 find_package(acados) # if we use REQUIED, then will cause OpenBLAS and FortranLib Find_Package error
@@ -26,7 +41,7 @@ generate_dynamic_reconfigure_options(
   cfg/LQI.cfg
   cfg/NMPC.cfg
   cfg/ITerm.cfg
-  )
+)
 
 ### Temporary soulition because of https://github.com/ros/ros_comm/issues/1404
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(armhf)" AND $ENV{ROS_DISTRO} MATCHES "melodic")
@@ -51,6 +66,7 @@ catkin_package(
 
 include_directories(
  include
+ ${PROJECT_SOURCE_DIR}/../3rdparty  # for json include
  ${catkin_INCLUDE_DIRS}
  ${EIGEN3_INCLUDE_DIRS}
 )
@@ -129,7 +145,7 @@ add_library(flight_control_pluginlib
   src/neural_mpc/tilt_mt_neural_servo_plus_mpc_controller.cpp
   src/neural_mpc/tilt_mt_neural_servo_minus_mpc_controller.cpp
   )
-target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils mpc_solver_plugins wrench_est_plugins)
+target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} ${TORCH_LIBRARIES} control_utils mpc_solver_plugins wrench_est_plugins)
 add_dependencies(flight_control_pluginlib  ${PROJECT_NAME}_gencfg mpc_solver_plugins wrench_est_plugins)
 
 ### flight navigation

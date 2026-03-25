@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.configurations import DirectoryConfig
 from network_architecture.mlp import MLP
 from network_architecture.vae import VAE
+from utils.geometry_utils import v_dot_q, quaternion_inverse
 
 
 def compute_jacobian(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -121,8 +122,15 @@ def linearize(neural_mpc, x0: torch.Tensor, order: int) -> List[np.ndarray]:
     # Taylor expansion: y = y0 + J0 * (x - x0) + 0.5 * (x - x0)^T * H0 * (x - x0)
     if order == 1:
         y0 = neural_mpc.neural_model(x0)
+        if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
+            if (neural_mpc.mlp_metadata["ModelFitConfig"]["y_reg_dims"] != np.array([3, 4, 5])).all():
+                raise NotImplementedError("Only implemented for ax, ay, az output.")
+            for t in range(y0.shape[0]):
+                y0[t, :] = v_dot_q(y0[t, :], x0[t, 6:10])
         J0 = compute_jacobian(x0, y0)
     elif order == 2:
+        if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
+            raise NotImplementedError("Label transform is currently not implemented for second-order linearization.")
         H0, J0, y0 = batched_hessian(neural_mpc.neural_model, x0, return_func_output=True, return_jacobian=True)
 
     # Flatten Jacobian and Hessian by appending all rows into one column
@@ -170,6 +178,11 @@ def set_linearization_params(neural_mpc, ocp_solver: AcadosOcpSolver, order: int
             # NOTE: For the terminal node, we can only use the control input from the previous node since the control input for the terminal node is not available in the optimization scheme
             # This is an approximation/assumption that the control input is not far from the previous node's control input!!
             pass  # use u_cmd_j from previous node
+        # Input transform
+        if neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
+            v_b = v_dot_q(state_j[3:6], quaternion_inverse(state_j[6:10]))
+            state_j = np.concatenate(state_j[:3], v_b, state_j[6:])
+        
         x0_j_np = np.concatenate([state_j[neural_mpc.state_feats], u_cmd_j[neural_mpc.u_feats]])
         x0_np[j, :] = x0_j_np
 
@@ -180,6 +193,10 @@ def set_linearization_params(neural_mpc, ocp_solver: AcadosOcpSolver, order: int
         np.concatenate([x0_np, y0_np, J0_np, H0_np], axis=1)
 
 def set_linearization_params_sim(sim_neural_mpc, state_curr_sim: np.ndarray, u_cmd: np.ndarray, order: int):
+    # Input transform
+    if sim_neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
+        v_b = v_dot_q(state_curr_sim[3:6], quaternion_inverse(state_curr_sim[6:10]))
+        state_curr_sim = np.concatenate(state_curr_sim[:3], v_b, state_curr_sim[6:])
     # Set linearization point as parameters for one step in simulator
     x0_np = np.concatenate([state_curr_sim[sim_neural_mpc.state_feats], u_cmd[sim_neural_mpc.u_feats]])
     x0 = torch.tensor(x0_np).unsqueeze(0).float().to(sim_neural_mpc.device).requires_grad_(True)

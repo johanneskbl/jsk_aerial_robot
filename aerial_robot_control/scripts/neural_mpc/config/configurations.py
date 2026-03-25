@@ -162,7 +162,7 @@ class EnvConfig:
             # 9 (better learning, but same generalization, NOT VERY GOOD OUT PLOTS): Beta = 1e-4, AdamW, GELU
             # 10 (better learning, but same generalization): Beta = 1e-5
             # 11 (same learning but DOESNT MAKE SENSE): Beta = 0.0
-            "linearize_mlp": False,  # Linearize MLP at each control step in the MPC using first or second order Taylor Expansion
+            "linearize_mlp": True,  # Linearize MLP at each control step in the MPC using first or second order Taylor Expansion
             "linearize_order": 1,  # Order of Taylor Expansion (first or second)
             "use_l4casadi": False,  # Set order with "linearize_order"
             "use_gpu": False,  # Call neural model and its Jacobian & Hessian batched on GPU for MLP linearization (currently not set for L4casadi)
