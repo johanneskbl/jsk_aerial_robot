@@ -145,17 +145,13 @@ bool nmpc::TiltMtNeuralServoPlusMPC::update()
     double start_time = ros::WallTime::now().toSec();
     controlCore();
     double core_time = ros::WallTime::now().toSec();
+    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - controlCore(): %.3f ms", (core_time - start_time) * 1000.0);
+    
     sendCmd();
-    double send_time = ros::WallTime::now().toSec();
 
     // *** RECORDING ***
     // Only needed to record dataset but else its computationally expensive, so we can comment it out when not needed.
     publishRecording();
-    double rec_time = ros::WallTime::now().toSec();
-    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - controlCore: %.3f ms, sendCmd: %.3f ms, recording: %.3f ms", 
-                      (core_time - start_time) * 1000.0, 
-                      (send_time - core_time) * 1000.0,
-                      (rec_time - send_time) * 1000.0);
   }
 
   return true;
