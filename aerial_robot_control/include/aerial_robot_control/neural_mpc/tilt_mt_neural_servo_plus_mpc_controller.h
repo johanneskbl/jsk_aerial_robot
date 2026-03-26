@@ -39,8 +39,8 @@
 #include "aerial_robot_msgs/TrackTrajResult.h"
 
 /* LibTorch */
-#include <torch/torch.h>
-#include <torch/script.h>
+// #include <torch/torch.h>
+// #include <torch/script.h>
 
 /* MLP metadata loading */
 #include <iostream>
@@ -149,8 +149,8 @@ protected:
   std::string results_dir_;
   json metadata_;
 
-  std::shared_ptr<torch::jit::script::Module> neural_module_;
-  torch::Device device_mlp_{torch::Device(torch::kCPU)};
+  // std::shared_ptr<torch::jit::script::Module> neural_module_;
+  // torch::Device device_mlp_{torch::Device(torch::kCPU)};
 
   std::vector<int> state_feats_;
   std::vector<int> u_feats_;
@@ -207,10 +207,10 @@ protected:
   void prepareMPCRef();
   virtual void prepareMPCParams();
   void updateLinearizationParams();
-  std::pair<torch::Tensor, torch::Tensor> linearize(const torch::Tensor& x0,
-                                                    const torch::Tensor& y0);
-  void flattenTensors(const torch::Tensor& J0,
-                      const torch::Tensor& H0);
+  // std::pair<torch::Tensor, torch::Tensor> linearize(const torch::Tensor& x0,
+  //                                                   const torch::Tensor& y0);
+  // void flattenTensors(const torch::Tensor& J0,
+  //                     const torch::Tensor& H0);
 
 
   void setXrUrRef(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i, const tf::Vector3& ref_acc_i,

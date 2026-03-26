@@ -973,199 +973,199 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
   // return;
 }
 
-std::pair<torch::Tensor, torch::Tensor> nmpc::TiltMtNeuralServoPlusMPC::linearize(const torch::Tensor& x0_rep,
-                                                                                  const torch::Tensor& y0_rep)
-{
-  TORCH_CHECK(x0_rep.requires_grad(), "[TORCH] Input tensor must have requires_grad=true");
-  TORCH_CHECK(y0_rep.requires_grad(), "[TORCH] Output tensor must have requires_grad=true");
+// std::pair<torch::Tensor, torch::Tensor> nmpc::TiltMtNeuralServoPlusMPC::linearize(const torch::Tensor& x0_rep,
+//                                                                                   const torch::Tensor& y0_rep)
+// {
+//   TORCH_CHECK(x0_rep.requires_grad(), "[TORCH] Input tensor must have requires_grad=true");
+//   TORCH_CHECK(y0_rep.requires_grad(), "[TORCH] Output tensor must have requires_grad=true");
 
-  bool compute_graph = (linearize_order_ >= 2);
+//   bool compute_graph = (linearize_order_ >= 2);
 
-  // ── Jacobian ──────────────────────────────────────────────
-  // Compute full batched Jacobian in a single backward pass.
-  //
-  // Build a (B*N_out_, N_out_) identity with batch_size_ one-hot
-  // vectors as columns so a single grad() returns all rows at once.
-  //
-  // With this the "repeated-input" work-around we avoid retain_graph
-  // completely and only call grad() once.
-  // ──────────────────────────────────────────────────────────
+//   // ── Jacobian ──────────────────────────────────────────────
+//   // Compute full batched Jacobian in a single backward pass.
+//   //
+//   // Build a (B*N_out_, N_out_) identity with batch_size_ one-hot
+//   // vectors as columns so a single grad() returns all rows at once.
+//   //
+//   // With this the "repeated-input" work-around we avoid retain_graph
+//   // completely and only call grad() once.
+//   // ──────────────────────────────────────────────────────────
 
-  // grad_outputs: select output i for virtual-batch element (b*N_out_+i).
-  // Shape: (B*N_out_, N_out_) - block-diagonal identity tiled B times.
-  torch::Tensor eye_block = torch::eye(N_out_,
-      torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_))
-      .repeat({batch_size_, 1});  // (B*N_out_, N_out_)
+//   // grad_outputs: select output i for virtual-batch element (b*N_out_+i).
+//   // Shape: (B*N_out_, N_out_) - block-diagonal identity tiled B times.
+//   torch::Tensor eye_block = torch::eye(N_out_,
+//       torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_))
+//       .repeat({batch_size_, 1});  // (B*N_out_, N_out_)
 
-  auto J_flat = torch::autograd::grad(  // (B*N_out_, N_in_)
-      { y0_rep },
-      { x0_rep },
-      { eye_block },
-      /*retain_graph=*/compute_graph,  // keep only if Hessian needed
-      /*create_graph=*/compute_graph)[0];
+//   auto J_flat = torch::autograd::grad(  // (B*N_out_, N_in_)
+//       { y0_rep },
+//       { x0_rep },
+//       { eye_block },
+//       /*retain_graph=*/compute_graph,  // keep only if Hessian needed
+//       /*create_graph=*/compute_graph)[0];
 
-  torch::Tensor J0 = J_flat.view({batch_size_, N_out_, N_in_});
+//   torch::Tensor J0 = J_flat.view({batch_size_, N_out_, N_in_});
 
-  // ── Hessian ───────────────────────────────────────────────
-  // We need H[b,i,j,k] = d^2 y[b,i] / dx[b,j]dx[b,k].
-  // J_flat already contains dJ[b,i] / dx which is treated as a scalar
-  // function of x0_rep. We now differentiate each column k of
-  // J_flat w.r.t. x0_rep using the same identity trick.
-  // ──────────────────────────────────────────────────────────
-  torch::Tensor H0;
-  if (linearize_order_ >= 2)
-  {
-    // eye_k: (B*N_out_, N_in_) - for each k, selects column k of J_flat
-    // We tile torch::eye(N_in_) for all B*N_out_ virtual elements:
-    //   shape: (N_in_, B*N_out_, N_in_)  -> iterate k in outer loop
-
-    std::vector<torch::Tensor> H_cols;
-    H_cols.reserve(N_in_);
-
-    torch::Tensor eye_in = torch::eye(N_in_,
-        torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
-
-    for (int k = 0; k < N_in_; ++k)
-    {
-      // grad_outputs selects column k of J_flat for every (b,i) element.
-      // Shape: (B*N_out_, N_in_) - k-th unit vector, tiled.
-      torch::Tensor grad_outputs_k = eye_in[k]
-          .unsqueeze(0)                              // (1, N_in_)
-          .expand({batch_size_ * N_out_, N_in_});    // (B*N_out_, N_in_)
-
-      bool last_k = (k == N_in_ - 1);
-      auto H_k = torch::autograd::grad(  // (B*N_out_, N_in_) 
-          { J_flat },
-          { x0_rep },
-          { grad_outputs_k },
-          /*retain_graph=*/!last_k,
-          /*create_graph=*/false)[0];
-
-      H_cols.push_back(H_k.view({batch_size_, N_out_, N_in_}));
-    }
-    H0 = torch::stack(H_cols, /*dim=*/3);
-  }
-  else
-  {
-    H0 = torch::zeros({batch_size_, N_out_, N_in_, N_in_},
-         torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
-  }
-
-  return {J0, H0};
-}
-
-// =========== NAIVE APPROACH (loop over N_out_ dim) =============
-//   std::vector<torch::Tensor> J_cols;
-//   J_cols.reserve(N_out_);
-  
-//   for (int i = 0; i < N_out_; ++i)
-//   {
-//     torch::Tensor jac_grad_outputs = torch::zeros_like(y0); // (B, N_out_)
-//     jac_grad_outputs.select(1, i).fill_(1.0f);
-
-//     bool last_i = (i == N_out_ - 1);
-//     auto grads = torch::autograd::grad(
-//         { y0 },
-//         { x0 },
-//         { jac_grad_outputs },
-//         /*retain_graph=*/(!last_i || compute_graph),
-//         /*create_graph=*/compute_graph);
-
-//     J_cols.push_back(grads[0]);  // (B, N_in_)
-//   }
-//   // J0 shape: (B, N_out_, N_in_)
-//   torch::Tensor J0 = torch::stack(J_cols, /*dim=*/1);
-
+//   // ── Hessian ───────────────────────────────────────────────
+//   // We need H[b,i,j,k] = d^2 y[b,i] / dx[b,j]dx[b,k].
+//   // J_flat already contains dJ[b,i] / dx which is treated as a scalar
+//   // function of x0_rep. We now differentiate each column k of
+//   // J_flat w.r.t. x0_rep using the same identity trick.
+//   // ──────────────────────────────────────────────────────────
 //   torch::Tensor H0;
 //   if (linearize_order_ >= 2)
 //   {
-//     std::vector<torch::Tensor> H_out_cols;
-//     H_out_cols.reserve(N_out_);
+//     // eye_k: (B*N_out_, N_in_) - for each k, selects column k of J_flat
+//     // We tile torch::eye(N_in_) for all B*N_out_ virtual elements:
+//     //   shape: (N_in_, B*N_out_, N_in_)  -> iterate k in outer loop
 
-//     torch::Tensor hess_grad_outputs = torch::ones({batch_size_}, 
+//     std::vector<torch::Tensor> H_cols;
+//     H_cols.reserve(N_in_);
+
+//     torch::Tensor eye_in = torch::eye(N_in_,
 //         torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
 
-//     for (int i = 0; i < N_out_; ++i)
+//     for (int k = 0; k < N_in_; ++k)
 //     {
-//       std::vector<torch::Tensor> H_in_cols;
-//       H_in_cols.reserve(N_in_);
-      
-//       for (int k = 0; k < N_in_; ++k)
-//       {
-//         bool last_grad = (i == N_out_ - 1) && (k == N_in_ - 1);
-        
-//         // Differentiate J0[:, i, k] wrt x0
-//         // J0.select(1, i) gives (B, N_in_), then .select(1, k) gives (B)
-//         auto H_k = torch::autograd::grad(  // (B, N_in_)
-//             { J0.select(1, i).select(1, k) }, 
-//             { x0 },
-//             { hess_grad_outputs },
-//             /*retain_graph=*/!last_grad,
-//             /*create_graph=*/false)[0];
-//         H_in_cols.push_back(H_k);
-//       }
-//       // Stack along dim=1 to get (B, N_in_, N_in_)
-//       H_out_cols.push_back(torch::stack(H_in_cols, 1));
+//       // grad_outputs selects column k of J_flat for every (b,i) element.
+//       // Shape: (B*N_out_, N_in_) - k-th unit vector, tiled.
+//       torch::Tensor grad_outputs_k = eye_in[k]
+//           .unsqueeze(0)                              // (1, N_in_)
+//           .expand({batch_size_ * N_out_, N_in_});    // (B*N_out_, N_in_)
+
+//       bool last_k = (k == N_in_ - 1);
+//       auto H_k = torch::autograd::grad(  // (B*N_out_, N_in_) 
+//           { J_flat },
+//           { x0_rep },
+//           { grad_outputs_k },
+//           /*retain_graph=*/!last_k,
+//           /*create_graph=*/false)[0];
+
+//       H_cols.push_back(H_k.view({batch_size_, N_out_, N_in_}));
 //     }
-//     // Stack along dim=1 to get (B, N_out_, N_in_, N_in_)
-//     H0 = torch::stack(H_out_cols, 1);
+//     H0 = torch::stack(H_cols, /*dim=*/3);
+//   }
+//   else
+//   {
+//     H0 = torch::zeros({batch_size_, N_out_, N_in_, N_in_},
+//          torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
 //   }
 
-/**
- * Flatten J0 and H0 to 1-D std::vector<float> using CasADi / Fortran
- * (column-major) order.
- *
- * J0 shape: (B, N_out, N_in)
- *   CasADi sees a (N_out x N_in) matrix -> column-major -> i (output) varies
- *   fastest.
- *   Flat index: i + N_out_ * j
- *   Equivalent torch op: J0[b].t().contiguous().flatten()
- *
- * H0 shape: (B, N_out, N_in, N_in)
- *   CasADi sees a (N_out*N_in x N_in) matrix -> column-major.
- *   The "row" axis is the composite (i, j) pair, with i varying fastest.
- *   Flat index: i + N_out_*j + N_out_*N_in_*k
- *   Equivalent torch op: H0[b].permute({2,1,0}).contiguous().flatten()
- *     (permute k->dim0, j->dim1, i->dim2, then flatten with i varying fastest)
- */
-void nmpc::TiltMtNeuralServoPlusMPC::flattenTensors(const torch::Tensor& J0,
-                                                    const torch::Tensor& H0)
-{
-    // ---- Jacobian: (B, N_out, N_in) -> B × (N_out*N_in,) Fortran-flat ----
-    // Transpose last two dims so memory order is [j, i] -> flatten gives
-    // column-major [i0, i1, …, iN | next col …]
-    torch::Tensor J0_flat = J0
-        .transpose(1, 2)           // (B, N_in, N_out) - i varies fastest
-        .contiguous()              // force contiguous before data_ptr
-        .reshape({batch_size_, N_out_ * N_in_});  // (B, N_out*N_in)
+//   return {J0, H0};
+// }
 
-    // ---- Hessian: (B, N_out, N_in, N_in) -> B × (N_out*N_in*N_in,) Fortran-flat ----
-    // CasADi matrix shape: rows = N_out*N_in  (i fast, j slow)
-    //                      cols = N_in        (k)
-    // Column-major: i varies fastest, then j, then k.
-    // Achieve with permute [b, i, j, k] -> [b, i, k, j] then flatten.
-    // keep the N_out axis (i) in place as dim-1 so each output block stays contiguous,
-    // and only swap the two N_in axes so j varies fastest within each block.
-    torch::Tensor H0_flat = H0
-        .permute({0, 1, 3, 2})    // (B, N_out_i, N_in_k, N_in_j) 
-        .contiguous()
-        .reshape({batch_size_, N_out_ * N_in_ * N_in_});  // (B, N_out*N_in*N_in)
+// // =========== NAIVE APPROACH (loop over N_out_ dim) =============
+// //   std::vector<torch::Tensor> J_cols;
+// //   J_cols.reserve(N_out_);
+  
+// //   for (int i = 0; i < N_out_; ++i)
+// //   {
+// //     torch::Tensor jac_grad_outputs = torch::zeros_like(y0); // (B, N_out_)
+// //     jac_grad_outputs.select(1, i).fill_(1.0f);
 
-    const int64_t j_numel = J0_flat.numel();
-    const int64_t h_numel = H0_flat.numel();
+// //     bool last_i = (i == N_out_ - 1);
+// //     auto grads = torch::autograd::grad(
+// //         { y0 },
+// //         { x0 },
+// //         { jac_grad_outputs },
+// //         /*retain_graph=*/(!last_i || compute_graph),
+// //         /*create_graph=*/compute_graph);
 
-    if (j_numel != J0_vec_.size() || h_numel != H0_vec_.size())
-    {
-        ROS_ERROR("[NEURAL][MPC] Size mismatch when flattening Jacobian/Hessian: J0 numel = %ld, "
-                  "H0 numel = %ld, but J0_vec_ size = %zu, H0_vec_ size = %zu",
-                  j_numel, h_numel, J0_vec_.size(), H0_vec_.size());
-        return;
-    }
+// //     J_cols.push_back(grads[0]);  // (B, N_in_)
+// //   }
+// //   // J0 shape: (B, N_out_, N_in_)
+// //   torch::Tensor J0 = torch::stack(J_cols, /*dim=*/1);
 
-    std::memcpy(J0_vec_.data(), J0_flat.cpu().to(torch::kFloat64).data_ptr<double>(), j_numel * sizeof(double));
-    std::memcpy(H0_vec_.data(), H0_flat.cpu().to(torch::kFloat64).data_ptr<double>(), h_numel * sizeof(double));
-    return;
-}
+// //   torch::Tensor H0;
+// //   if (linearize_order_ >= 2)
+// //   {
+// //     std::vector<torch::Tensor> H_out_cols;
+// //     H_out_cols.reserve(N_out_);
+
+// //     torch::Tensor hess_grad_outputs = torch::ones({batch_size_}, 
+// //         torch::TensorOptions().dtype(torch::kFloat32).device(device_mlp_));
+
+// //     for (int i = 0; i < N_out_; ++i)
+// //     {
+// //       std::vector<torch::Tensor> H_in_cols;
+// //       H_in_cols.reserve(N_in_);
+      
+// //       for (int k = 0; k < N_in_; ++k)
+// //       {
+// //         bool last_grad = (i == N_out_ - 1) && (k == N_in_ - 1);
+        
+// //         // Differentiate J0[:, i, k] wrt x0
+// //         // J0.select(1, i) gives (B, N_in_), then .select(1, k) gives (B)
+// //         auto H_k = torch::autograd::grad(  // (B, N_in_)
+// //             { J0.select(1, i).select(1, k) }, 
+// //             { x0 },
+// //             { hess_grad_outputs },
+// //             /*retain_graph=*/!last_grad,
+// //             /*create_graph=*/false)[0];
+// //         H_in_cols.push_back(H_k);
+// //       }
+// //       // Stack along dim=1 to get (B, N_in_, N_in_)
+// //       H_out_cols.push_back(torch::stack(H_in_cols, 1));
+// //     }
+// //     // Stack along dim=1 to get (B, N_out_, N_in_, N_in_)
+// //     H0 = torch::stack(H_out_cols, 1);
+// //   }
+
+// /**
+//  * Flatten J0 and H0 to 1-D std::vector<float> using CasADi / Fortran
+//  * (column-major) order.
+//  *
+//  * J0 shape: (B, N_out, N_in)
+//  *   CasADi sees a (N_out x N_in) matrix -> column-major -> i (output) varies
+//  *   fastest.
+//  *   Flat index: i + N_out_ * j
+//  *   Equivalent torch op: J0[b].t().contiguous().flatten()
+//  *
+//  * H0 shape: (B, N_out, N_in, N_in)
+//  *   CasADi sees a (N_out*N_in x N_in) matrix -> column-major.
+//  *   The "row" axis is the composite (i, j) pair, with i varying fastest.
+//  *   Flat index: i + N_out_*j + N_out_*N_in_*k
+//  *   Equivalent torch op: H0[b].permute({2,1,0}).contiguous().flatten()
+//  *     (permute k->dim0, j->dim1, i->dim2, then flatten with i varying fastest)
+//  */
+// void nmpc::TiltMtNeuralServoPlusMPC::flattenTensors(const torch::Tensor& J0,
+//                                                     const torch::Tensor& H0)
+// {
+//     // ---- Jacobian: (B, N_out, N_in) -> B × (N_out*N_in,) Fortran-flat ----
+//     // Transpose last two dims so memory order is [j, i] -> flatten gives
+//     // column-major [i0, i1, …, iN | next col …]
+//     torch::Tensor J0_flat = J0
+//         .transpose(1, 2)           // (B, N_in, N_out) - i varies fastest
+//         .contiguous()              // force contiguous before data_ptr
+//         .reshape({batch_size_, N_out_ * N_in_});  // (B, N_out*N_in)
+
+//     // ---- Hessian: (B, N_out, N_in, N_in) -> B × (N_out*N_in*N_in,) Fortran-flat ----
+//     // CasADi matrix shape: rows = N_out*N_in  (i fast, j slow)
+//     //                      cols = N_in        (k)
+//     // Column-major: i varies fastest, then j, then k.
+//     // Achieve with permute [b, i, j, k] -> [b, i, k, j] then flatten.
+//     // keep the N_out axis (i) in place as dim-1 so each output block stays contiguous,
+//     // and only swap the two N_in axes so j varies fastest within each block.
+//     torch::Tensor H0_flat = H0
+//         .permute({0, 1, 3, 2})    // (B, N_out_i, N_in_k, N_in_j) 
+//         .contiguous()
+//         .reshape({batch_size_, N_out_ * N_in_ * N_in_});  // (B, N_out*N_in*N_in)
+
+//     const int64_t j_numel = J0_flat.numel();
+//     const int64_t h_numel = H0_flat.numel();
+
+//     if (j_numel != J0_vec_.size() || h_numel != H0_vec_.size())
+//     {
+//         ROS_ERROR("[NEURAL][MPC] Size mismatch when flattening Jacobian/Hessian: J0 numel = %ld, "
+//                   "H0 numel = %ld, but J0_vec_ size = %zu, H0_vec_ size = %zu",
+//                   j_numel, h_numel, J0_vec_.size(), H0_vec_.size());
+//         return;
+//     }
+
+//     std::memcpy(J0_vec_.data(), J0_flat.cpu().to(torch::kFloat64).data_ptr<double>(), j_numel * sizeof(double));
+//     std::memcpy(H0_vec_.data(), H0_flat.cpu().to(torch::kFloat64).data_ptr<double>(), h_numel * sizeof(double));
+//     return;
+// }
 
 /**
  * @brief calXrUrRef: calculate the reference state and control input
