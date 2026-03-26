@@ -363,43 +363,19 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
     return;
   }
 
-  /* force landing && halt */
-  if (joy_cmd.buttons[PS3_BUTTON_SELECT] == 1)
+  /* Halt */
+  if (joy_cmd.buttons[PS3_BUTTON_SELECT] == 1 && getNaviState() > START_STATE)
   {
-    /* Force Landing in inflight mode: TAKEOFF_STATE/LAND_STATE/HOVER_STATE */
-    if (!force_landing_flag_ &&
-        (getNaviState() == TAKEOFF_STATE || getNaviState() == LAND_STATE || getNaviState() == HOVER_STATE))
-    {
-      ROS_WARN("Joy Control: force landing state");
-      spinal::FlightConfigCmd flight_config_cmd;
-      flight_config_cmd.cmd = spinal::FlightConfigCmd::FORCE_LANDING_CMD;
-      flight_config_pub_.publish(flight_config_cmd);
-      force_landing_flag_ = true;
+    // if(!teleop_flag_) return; /* can not do the process if other processs are running */
 
-      /* update the force landing stamp for the halt process*/
-      force_landing_start_time_ = joy_cmd.header.stamp;
-    }
+    ROS_ERROR("Joy Control: Halt!");
 
-    /* Halt mode */
-    if (joy_cmd.header.stamp.toSec() - force_landing_start_time_.toSec() > force_landing_to_halt_du_ &&
-        getNaviState() > START_STATE)
-    {
-      // if(!teleop_flag_) return; /* can not do the process if other processs are running */
+    setNaviState(STOP_STATE);
 
-      ROS_ERROR("Joy Control: Halt!");
-
-      setNaviState(STOP_STATE);
-
-      /* update the target pos(maybe not necessary) */
-      setTargetXyFromCurrentState();
-      setTargetYawFromCurrentState();
-    }
+    /* update the target pos(maybe not necessary) */
+    setTargetXyFromCurrentState();
+    setTargetYawFromCurrentState();
     return;
-  }
-  else
-  {
-    /* update the halt process */
-    force_landing_start_time_ = joy_cmd.header.stamp;
   }
 
   /* takeoff */
@@ -408,26 +384,45 @@ void BaseNavigator::joyStickControl(const sensor_msgs::JoyConstPtr& joy_msg)
     startTakeoff();
     return;
   }
-
-  /* landing */
+  
+  /* landing & force landing */
   if (joy_cmd.buttons[PS3_BUTTON_CROSS_RIGHT] == 1 && joy_cmd.buttons[PS3_BUTTON_ACTION_SQUARE] == 1)
   {
+    /* Force Landing in inflight mode: TAKEOFF_STATE/LAND_STATE/HOVER_STATE */
+    if (joy_cmd.header.stamp.toSec() - force_landing_start_time_.toSec() > force_landing_to_halt_du_)
+    {
+      if (!force_landing_flag_ &&
+          (getNaviState() == TAKEOFF_STATE || getNaviState() == LAND_STATE || getNaviState() == HOVER_STATE))
+      {
+        ROS_WARN("Joy Control: force landing state");
+        spinal::FlightConfigCmd flight_config_cmd;
+        flight_config_cmd.cmd = spinal::FlightConfigCmd::FORCE_LANDING_CMD;
+        flight_config_pub_.publish(flight_config_cmd);
+        force_landing_flag_ = true;
+      }
+      return;
+    }
+
     if (force_att_control_flag_)
-      return;
-
+    return;
+    
     if (getNaviState() == LAND_STATE)
-      return;
+    return;
     if (!teleop_flag_)
-      return; /* can not do the process if other processs are running */
-
+    return; /* can not do the process if other processs are running */
+    
     setNaviState(LAND_STATE);
     // update
     setTargetXyFromCurrentState();
     setTargetYawFromCurrentState();
     setTargetPosZ(estimator_->getLandingHeight());
     ROS_INFO("Joy Control: Land state");
-
     return;
+  }
+  else
+  {
+    /* update the force landing process */
+    force_landing_start_time_ = joy_cmd.header.stamp;
   }
 
   /* Motion: Up/Down */
