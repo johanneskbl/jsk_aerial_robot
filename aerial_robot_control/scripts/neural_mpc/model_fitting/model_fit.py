@@ -154,11 +154,6 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
 
     # === Logging ===
     total_losses = {"train": [], "val": []}
-    if NetworkConfig.model_type == "VAE":
-        total_losses["train_recon"] = []
-        total_losses["train_kl"] = []
-        total_losses["val_recon"] = []
-        total_losses["val_kl"] = []
     inference_times = []
     table = ProgressTable(
         pbar_embedded=False,
@@ -171,17 +166,31 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
     table.add_column("Step", color="DIM", width=13)
     table.add_column("Train Loss", color="BRIGHT red", width=19)
     if NetworkConfig.model_type == "VAE":
+        total_losses["train_recon"] = []
+        total_losses["train_kl"] = []
+        total_losses["val_recon"] = []
+        total_losses["val_kl"] = []
         table.add_column("Recon Loss", color="yellow", width=15)
         table.add_column("KL Loss", color="LIGHTYELLOW_EX", width=15)
     if NetworkConfig.zero_out_lambda > 0.0:
+        total_losses["train_zero_out"] = []
+        total_losses["val_zero_out"] = []
         table.add_column("Zero-Out Reg", color="blue", width=15)
     if NetworkConfig.l1_lambda > 0.0:
+        total_losses["train_l1"] = []
+        total_losses["val_l1"] = []
         table.add_column("L1 Reg", color="green", width=15)
     if NetworkConfig.energy_lambda > 0.0:
+        total_losses["train_energy"] = []
+        total_losses["val_energy"] = []
         table.add_column("Energy Reg", color="LIGHTBLUE_EX", width=15)
     if NetworkConfig.gradient_lambda > 0.0:
+        total_losses["train_gradient"] = []
+        total_losses["val_gradient"] = []
         table.add_column("Gradient", color="magenta", width=15)
     if NetworkConfig.consistency_lambda > 0.0:
+        total_losses["train_consistency"] = []
+        total_losses["val_consistency"] = []
         table.add_column("Consistency", color="cyan", width=15)
     table.add_column("Val Loss", color="BRIGHT green", width=19)
     table.add_column("Inference Time", width=17)
@@ -205,12 +214,26 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
         # === Train Step ===
         train_losses = train(train_dataloader, model, loss_function, energy_reg, weight, optimizer, device, table)
         total_losses["train"].append(train_losses)
+        if NetworkConfig.model_type == "VAE": total_losses["train_recon"].append(table["Reconstruction Loss"])
+        if NetworkConfig.model_type == "VAE": total_losses["train_kl"].append(table["KL Divergence"])
+        if NetworkConfig.zero_out_lambda > 0.0: total_losses["train_zero_out"].append(table["Zero Out Loss"])
+        if NetworkConfig.l1_lambda > 0.0: total_losses["train_l1"].append(table["L1 Reg"])
+        if NetworkConfig.energy_lambda > 0.0: total_losses["train_energy"].append(table["Energy Reg"])
+        if NetworkConfig.gradient_lambda > 0.0: total_losses["train_gradient"].append(table["Gradient"])
+        if NetworkConfig.consistency_lambda > 0.0: total_losses["train_consistency"].append(table["Consistency"])
 
         # === Validation ===
-        val_losses, inference_time = inference(val_dataloader, model, loss_function, weight, device)
-        table["Val Loss"] = val_losses
+        val_losses, inference_time = inference(val_dataloader, model, loss_function, energy_reg, weight, device)
+        table["Val Loss"] = val_losses["loss"]
+        total_losses["val"].append(val_losses["loss"])
+        if NetworkConfig.model_type == "VAE": total_losses["val_recon"].append(val_losses["recon_loss"])
+        if NetworkConfig.model_type == "VAE": total_losses["val_kl"].append(val_losses["kl_loss"])
+        if NetworkConfig.zero_out_lambda > 0.0: total_losses["val_zero_out"].append(val_losses["zero_out_loss"])
+        if NetworkConfig.l1_lambda > 0.0: total_losses["val_l1"].append(val_losses["l1_loss"])
+        if NetworkConfig.energy_lambda > 0.0: total_losses["val_energy"].append(val_losses["energy_loss"])
+        if NetworkConfig.gradient_lambda > 0.0: total_losses["val_gradient"].append(val_losses["gradient_loss"])
+        if NetworkConfig.consistency_lambda > 0.0: total_losses["val_consistency"].append(val_losses["consistency_loss"])
         table["Inference Time"] = f"{inference_time:.2f} ms"
-        total_losses["val"].append(val_losses)
         inference_times.append(inference_time)
 
         # === Schedule learning rate ===
@@ -262,8 +285,8 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
 
     # === Testing ===
     if test:
-        test_losses, _ = inference(test_dataloader, model, loss_function, weight, device)
-        total_losses["test"] = test_losses
+        test_losses, _ = inference(test_dataloader, model, loss_function, energy_reg, weight, device)
+        total_losses["test"] = test_losses["loss"]
         print(f"Test avg loss: {test_losses:>8f}")
 
     # === Store metrics ===
@@ -301,6 +324,19 @@ def train(dataloader, model, loss_function, energy_reg: EnergyRegularization, we
     size = len(dataloader.dataset)
     model.train()
     loss_avg = 0.0
+    if NetworkConfig.model_type == "VAE":
+        recon_loss_avg = 0.0
+        kl_loss_avg = 0.0
+    if NetworkConfig.zero_out_lambda > 0.0:
+        loss_reg_avg = 0.0
+    if NetworkConfig.l1_lambda > 0.0:
+        loss_l1_avg = 0.0
+    if NetworkConfig.energy_lambda > 0.0:
+        loss_energy_avg = 0.0
+    if NetworkConfig.gradient_lambda > 0.0:
+        loss_gradient_avg = 0.0
+    if NetworkConfig.consistency_lambda > 0.0:
+        loss_consistency_avg = 0.0
     mov_size = 0
     for x, y in dataloader:
         x, y = x.to(device), y.to(device)
@@ -376,36 +412,59 @@ def train(dataloader, model, loss_function, energy_reg: EnergyRegularization, we
         curr_batch_size = x.shape[0]
         prev_mov_size = mov_size
         mov_size += curr_batch_size
-        loss_avg = (loss_avg * prev_mov_size + loss.item() * curr_batch_size) / mov_size
+        loss_avg = running_average(loss_avg, loss.item(), prev_mov_size, mov_size, curr_batch_size)
         table["Step"] = f"{mov_size}/{size}"
         table["Train Loss"] = loss_avg
         if NetworkConfig.model_type == "VAE":
-            table["Recon Loss"] = recon_loss
-            table["KL Loss"] = kl_loss
+            recon_loss_avg = running_average(recon_loss_avg, recon_loss.item(), prev_mov_size, mov_size, curr_batch_size)
+            kl_loss_avg = running_average(kl_loss_avg, kl_loss.item(), prev_mov_size, mov_size, curr_batch_size)
+            table["Recon Loss"] = recon_loss_avg
+            table["KL Loss"] = kl_loss_avg
         if NetworkConfig.zero_out_lambda > 0.0:
-            table["Zero-Out Reg"] = loss_reg
+            loss_reg_avg = running_average(loss_reg_avg, loss_reg.item(), prev_mov_size, mov_size, curr_batch_size)
+            table["Zero-Out Reg"] = loss_reg_avg
         if NetworkConfig.l1_lambda > 0.0:
-            table["L1 Reg"] = loss_l1
+            loss_l1_avg = running_average(loss_l1_avg, loss_l1.item(), prev_mov_size, mov_size, curr_batch_size)
+            table["L1 Reg"] = loss_l1_avg
         if NetworkConfig.energy_lambda > 0.0:
-            table["Energy Reg"] = loss_energy
+            loss_energy_avg = running_average(loss_energy_avg, loss_energy.item(), prev_mov_size, mov_size, curr_batch_size)
+            table["Energy Reg"] = loss_energy_avg
         if NetworkConfig.gradient_lambda > 0.0:
-            table["Gradient"] = loss_gradient
+            loss_gradient_avg = running_average(loss_gradient_avg, loss_gradient.item(), prev_mov_size, mov_size, curr_batch_size)
+            table["Gradient"] = loss_gradient_avg
         if NetworkConfig.consistency_lambda > 0.0:
-            table["Consistency"] = loss_consistency
+            loss_consistency_avg = running_average(loss_consistency_avg, loss_consistency.item(), prev_mov_size, mov_size, curr_batch_size)
+            table["Consistency"] = loss_consistency_avg
     return loss_avg
 
 
-def inference(dataloader, model, loss_function, weight, device):
+def inference(dataloader, model, loss_function, energy_reg, weight, device):
     """
     Combined inference function for validation and testing.
     """
     model.eval()
+    losses = {}
     loss_avg = 0.0
+    if NetworkConfig.model_type == "VAE":
+        recon_loss_avg = 0.0
+        kl_loss_avg = 0.0
+    if NetworkConfig.zero_out_lambda > 0.0:
+        loss_reg_avg = 0.0
+    if NetworkConfig.l1_lambda > 0.0:
+        loss_l1_avg = 0.0
+    if NetworkConfig.energy_lambda > 0.0:
+        loss_energy_avg = 0.0
+    if NetworkConfig.gradient_lambda > 0.0:
+        loss_gradient_avg = 0.0
+    if NetworkConfig.consistency_lambda > 0.0:
+        loss_consistency_avg = 0.0
     mov_size = 0
     inference_times = []
     with torch.no_grad():
         for x, y in dataloader:
             x, y = x.to(device), y.to(device)
+            if NetworkConfig.gradient_lambda > 0.0:
+                x.requires_grad = True
 
             # === Forward pass ===
             timer = time.time()
@@ -416,18 +475,95 @@ def inference(dataloader, model, loss_function, weight, device):
             elif NetworkConfig.model_type == "VAE":
                 y_pred, mu, logvar = model(x)
                 inference_times.append(time.time() - timer)
-                loss, _, _ = loss_function(y_pred, mu, logvar, y)
+                loss, recon_loss, kl_loss = loss_function(y_pred, mu, logvar, y)
                 loss = loss.cpu().numpy()
+                recon_loss = recon_loss.cpu().numpy()
+                kl_loss = kl_loss.cpu().numpy()
+
+            # === Regularizations ===
+            # Zero-output regularization
+            if NetworkConfig.zero_out_lambda > 0.0:
+                if NetworkConfig.model_type == "MLP":
+                    loss_reg = NetworkConfig.zero_out_lambda * loss_function(torch.zeros_like(y_pred), y_pred, weight).cpu().numpy()
+                elif NetworkConfig.model_type == "VAE":
+                    raise NotImplementedError("Zero-out regularization not implemented for VAE yet.")
+                    # y_zero, _, _ = model(torch.zeros_like(x))
+                    # loss_reg = NetworkConfig.zero_out_lambda * loss_function(
+                    #     y_zero, torch.zeros_like(y_zero), weight
+                    # )
+                loss += loss_reg
+            # L1 regularization
+            if NetworkConfig.l1_lambda > 0.0:
+                loss_l1 = NetworkConfig.l1_lambda * sum(p.abs().sum() for p in model.parameters()).cpu().numpy()
+                loss += loss_l1
+            # L2 regularization (weight decay) is handled by the optimizer
+
+            # === Energy-based regularization ===
+            if NetworkConfig.energy_lambda > 0.0:
+                if NetworkConfig.model_type == "MLP":
+                    E_delta = energy_reg.compute_residual_energy(x, y_pred)
+                    loss_energy = NetworkConfig.energy_lambda * torch.mean(E_delta**2).cpu().numpy()
+                    loss += loss_energy
+                elif NetworkConfig.model_type == "VAE":
+                    raise NotImplementedError("Energy-based regularization not implemented for VAE yet.")
+
+            # === Gradient penalty ===
+            if NetworkConfig.gradient_lambda > 0.0:
+                gradients = torch.autograd.grad(
+                    outputs=y_pred, inputs=x, grad_outputs=torch.ones_like(y_pred), create_graph=True
+                )[0]
+                gradient_penalty = torch.mean(torch.square(gradients)).cpu().numpy()
+                loss_gradient = NetworkConfig.gradient_lambda * gradient_penalty
+                loss += loss_gradient
+
+            # === Output consistency ===
+            if NetworkConfig.consistency_lambda > 0.0:
+                # Add relative noise based on input magnitude with standard normal distribution
+                loss_consistency = 0.0
+                for _ in range(NetworkConfig.consistency_num_samples):
+                    noise = torch.rand_like(x) * 2.0 - 1.0  # Uniform noise in [-1, 1]
+                    noisy_input = x + NetworkConfig.consistency_epsilon * model.x_std * noise  # element-wise noise scaling by standard variation
+                    if NetworkConfig.model_type == "MLP":
+                        y_pred_noise = model(noisy_input)
+                    elif NetworkConfig.model_type == "VAE":
+                        y_pred_noise, _, _ = model(noisy_input)
+                    loss_consistency += NetworkConfig.consistency_lambda * torch.mean(torch.square(y_pred - y_pred_noise) * weight).cpu().numpy()
+                loss_consistency /= NetworkConfig.consistency_num_samples
+                loss += loss_consistency
 
             # === Logging ===
             # Weighted moving average
             batch_size = x.shape[0]
             prev_mov_size = mov_size
             mov_size += batch_size
-            loss_avg = (loss_avg * prev_mov_size + loss * batch_size) / mov_size
+            loss_avg = running_average(loss_avg, loss, prev_mov_size, mov_size, batch_size)
+            losses["loss"] = loss_avg
+            if NetworkConfig.model_type == "VAE":
+                recon_loss_avg = running_average(recon_loss_avg, recon_loss.item(), prev_mov_size, mov_size, batch_size)
+                kl_loss_avg = running_average(kl_loss_avg, kl_loss.item(), prev_mov_size, mov_size, batch_size)
+                losses["recon_loss"] = recon_loss_avg
+                losses["kl_loss"] = kl_loss_avg
+            if NetworkConfig.zero_out_lambda > 0.0:
+                loss_reg_avg = running_average(loss_reg_avg, loss_reg.item(), prev_mov_size, mov_size, batch_size)
+                losses["zero_out_loss"] = loss_reg_avg
+            if NetworkConfig.l1_lambda > 0.0:
+                loss_l1_avg = running_average(loss_l1_avg, loss_l1.item(), prev_mov_size, mov_size, batch_size)
+                losses["l1_loss"] = loss_l1_avg
+            if NetworkConfig.energy_lambda > 0.0:
+                loss_energy_avg = running_average(loss_energy_avg, loss_energy.item(), prev_mov_size, mov_size, batch_size)
+                losses["energy_loss"] = loss_energy_avg
+            if NetworkConfig.gradient_lambda > 0.0:
+                loss_gradient_avg = running_average(loss_gradient_avg, loss_gradient.item(), prev_mov_size, mov_size, batch_size)
+                losses["gradient_loss"] = loss_gradient_avg
+            if NetworkConfig.consistency_lambda > 0.0:
+                loss_consistency_avg = running_average(loss_consistency_avg, loss_consistency.item(), prev_mov_size, mov_size, batch_size)
+                losses["consistency_loss"] = loss_consistency_avg
             # TODO implement some form of accuracy metric
     time_avg = np.mean(inference_times) * 1000  # in ms
-    return loss_avg, time_avg
+    return losses, time_avg
+
+def running_average(loss_mov, loss_curr, prev_mov_size, mov_size, curr_batch_size):
+    return (loss_mov * prev_mov_size + loss_curr * curr_batch_size) / mov_size
 
 
 if __name__ == "__main__":

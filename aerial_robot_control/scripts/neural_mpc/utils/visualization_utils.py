@@ -914,30 +914,97 @@ def plot_fitting(total_losses, inference_times, learning_rates, save_file_path=N
     """
     Plot the training and validation losses.
     """
-    os.makedirs(os.path.join(save_file_path, "plot"), exist_ok=True)
+    if save_file_path is not None:
+        os.makedirs(os.path.join(save_file_path, "plot"), exist_ok=True)
 
     fig, axs = plt.subplots(1, 2, figsize=(14, 6))
 
     ax1 = axs[0]
-    ax1.loglog(total_losses["train"], label=f"Train Loss (final = {total_losses['train'][-1]:.4f})", color="blue")
-    ax1.loglog(total_losses["val"], label=f"Validation Loss (final = {total_losses['val'][-1]:.4f})", color="orange")
+
+    if "train" not in total_losses or "val" not in total_losses:
+        raise KeyError("total_losses must at least contain 'train' and 'val' series")
+
+    n_epochs = len(total_losses["train"])
+    epochs = np.arange(1, n_epochs + 1)
+
+    def _as_float_series(series):
+        return np.asarray(series, dtype=float)
+
+    def _plot_components(prefix: str, base_color: str):
+        total_key = prefix.rstrip("_")
+        if total_key not in total_losses:
+            return
+        n_epochs_local = len(total_losses[total_key])
+        epochs_local = np.arange(1, n_epochs_local + 1)
+        linestyles = ["--", ":", "-."]
+        component_keys = sorted(
+            [k for k in total_losses.keys() if k.startswith(prefix) and k != total_key]
+        )
+        for i, key in enumerate(component_keys):
+            series = total_losses.get(key)
+            if series is None:
+                continue
+            if np.isscalar(series):
+                continue
+            if len(series) != n_epochs_local:
+                continue
+            series_arr = _as_float_series(series)
+            pretty_name = key.replace(prefix, "").replace("_", " ")
+            ax1.semilogx(
+                epochs_local,
+                series_arr,
+                label=f"{pretty_name} (final = {series_arr[-1]:.4f})",
+                color=base_color,
+                alpha=0.35,
+                linestyle=linestyles[i % len(linestyles)],
+                linewidth=1.2,
+                zorder=1,
+            )
+
+    # Plot component losses (transparent) underneath the main losses
+    _plot_components("train_", base_color="blue")
+    _plot_components("val_", base_color="orange")
+
+    # Plot main losses on top
+    train_series = _as_float_series(total_losses["train"])
+    val_series = _as_float_series(total_losses["val"])
+    ax1.semilogx(
+        epochs,
+        train_series,
+        label=f"Train Loss (final = {train_series[-1]:.4f})",
+        color="blue",
+        linewidth=2.0,
+        zorder=3,
+    )
+    ax1.semilogx(
+        epochs,
+        val_series,
+        label=f"Validation Loss (final = {val_series[-1]:.4f})",
+        color="orange",
+        linewidth=2.0,
+        zorder=3,
+    )
     if "test" in total_losses.keys():
-        ax1.loglog(
-            [0, len(total_losses["train"])],
-            [total_losses["test"], total_losses["test"]],
-            label=f"Test Loss = {total_losses['test']:.4f}",
+        test_val = float(total_losses["test"])
+        ax1.semilogx(
+            [1, max(1, n_epochs)],
+            [test_val, test_val],
+            label=f"Test Loss = {test_val:.4f}",
             color="green",
         )
     # ax1.set_xlim([0, len(total_losses["train"])])
     ax1.set_xlabel("Epochs")
     ax1.set_ylabel("Loss")
     ax1.set_title(f"Losses")
-    ax1.grid()
-    ax1.legend(loc="upper left")
+    ax1.set_xlim([1, n_epochs])
+    ax1.grid(True, which="both")
     ax1_right = ax1.twinx()
-    ax1_right.plot(learning_rates, label="Learning Rate", color="red", alpha=0.7)
+    if learning_rates is not None and len(learning_rates) > 0:
+        lr_epochs = np.arange(1, len(learning_rates) + 1)
+        ax1_right.plot(lr_epochs, learning_rates, label="Learning Rate", color="red", alpha=0.7)
     ax1_right.set_ylabel("Learning Rate")
     ax1_right.legend(loc="upper right")
+    ax1.legend(loc="upper left")
 
     ax2 = axs[1]
     ax2.plot(inference_times)
