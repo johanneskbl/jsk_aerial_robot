@@ -22,6 +22,7 @@ RUN apt-get update && \
     python3-pip \
     git \
     curl \
+    wget \
     nano \
     && rm -rf /var/lib/apt/lists/*
 
