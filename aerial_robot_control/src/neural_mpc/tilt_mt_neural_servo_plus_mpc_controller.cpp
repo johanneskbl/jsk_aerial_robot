@@ -248,150 +248,151 @@ void nmpc::TiltMtNeuralServoPlusMPC::initGeneralParams()
 
 void nmpc::TiltMtNeuralServoPlusMPC::initNeuralModel()
 {
-  ROS_INFO("==========================");
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle mpc_nh(control_nh, "nmpc");
-  results_dir_ = ros::package::getPath("aerial_robot_control") + "/scripts/neural_mpc/results/model_fitting/";
-  metadata_json_path_ = results_dir_ + "metadata.json";
+  return;
+  // ROS_INFO("==========================");
+  // ros::NodeHandle control_nh(nh_, "controller");
+  // ros::NodeHandle mpc_nh(control_nh, "nmpc");
+  // results_dir_ = ros::package::getPath("aerial_robot_control") + "/scripts/neural_mpc/results/model_fitting/";
+  // metadata_json_path_ = results_dir_ + "metadata.json";
   
-  try
-  {
-    std::ifstream metadata_json_(metadata_json_path_);
-    metadata_ = json::parse(metadata_json_);
-  }
-  catch (const std::exception& e)
-  {
-    ROS_ERROR("[NEURAL][MPC] Failed to load neural model metadata from '%s'", metadata_json_path_.c_str());
-    linearize_mlp_ = false;
-    return;
-  }
+  // try
+  // {
+  //   std::ifstream metadata_json_(metadata_json_path_);
+  //   metadata_ = json::parse(metadata_json_);
+  // }
+  // catch (const std::exception& e)
+  // {
+  //   ROS_ERROR("[NEURAL][MPC] Failed to load neural model metadata from '%s'", metadata_json_path_.c_str());
+  //   linearize_mlp_ = false;
+  //   return;
+  // }
   
-  // Extract neural model metadata
-  // NOTE: At build time, the solver is rebuilt with options from scripts/neural_mpc/config/configurations.py
-  // These options are written AT BUILD TIME to metadata.json in Python, and we read them here AT RUNTIME in C++
-  try
-  {
-    // General
-    neural_model_name_ = metadata_["runtime_options"]["model_name"];
-    neural_model_instance_ = metadata_["runtime_options"]["model_instance"];
+  // // Extract neural model metadata
+  // // NOTE: At build time, the solver is rebuilt with options from scripts/neural_mpc/config/configurations.py
+  // // These options are written AT BUILD TIME to metadata.json in Python, and we read them here AT RUNTIME in C++
+  // try
+  // {
+  //   // General
+  //   neural_model_name_ = metadata_["runtime_options"]["model_name"];
+  //   neural_model_instance_ = metadata_["runtime_options"]["model_instance"];
     
-    linearize_mlp_ = metadata_["runtime_options"]["linearize_mlp"];
-    linearize_order_ = metadata_["runtime_options"]["linearize_order"];
-    linearize_start_idx_ = metadata_["runtime_options"]["linearize_start_idx"];
-    linearize_end_idx_ = metadata_["runtime_options"]["linearize_end_idx"];
-    use_gpu_ = metadata_["runtime_options"]["use_gpu"];
+  //   linearize_mlp_ = metadata_["runtime_options"]["linearize_mlp"];
+  //   linearize_order_ = metadata_["runtime_options"]["linearize_order"];
+  //   linearize_start_idx_ = metadata_["runtime_options"]["linearize_start_idx"];
+  //   linearize_end_idx_ = metadata_["runtime_options"]["linearize_end_idx"];
+  //   use_gpu_ = metadata_["runtime_options"]["use_gpu"];
 
-    const auto& cfg_ = metadata_[neural_model_name_][neural_model_instance_]["ModelFitConfig"];
-    state_feats_ = data_utils::parseIntArray(cfg_["state_feats"]);
-    u_feats_ = data_utils::parseIntArray(cfg_["u_feats"]);
-    y_reg_dims_ = data_utils::parseIntArray(cfg_["y_reg_dims"]);
-    input_transform_ = cfg_["input_transform"];
-    batch_size_ = static_cast<int64_t>(NN_ + 1);
-    N_in_ = static_cast<int64_t>(state_feats_.size() + u_feats_.size());
-    N_out_ = static_cast<int64_t>(y_reg_dims_.size());
+  //   const auto& cfg_ = metadata_[neural_model_name_][neural_model_instance_]["ModelFitConfig"];
+  //   state_feats_ = data_utils::parseIntArray(cfg_["state_feats"]);
+  //   u_feats_ = data_utils::parseIntArray(cfg_["u_feats"]);
+  //   y_reg_dims_ = data_utils::parseIntArray(cfg_["y_reg_dims"]);
+  //   input_transform_ = cfg_["input_transform"];
+  //   batch_size_ = static_cast<int64_t>(NN_ + 1);
+  //   N_in_ = static_cast<int64_t>(state_feats_.size() + u_feats_.size());
+  //   N_out_ = static_cast<int64_t>(y_reg_dims_.size());
 
-    // Linearization
-    if (linearize_mlp_)
-    {
-      num_lin_params_ = linearize_end_idx_ - linearize_start_idx_;
-      lin_param_idx_.resize(num_lin_params_);
-      lin_params_.resize(num_lin_params_, 0.0);
-      std::iota(lin_param_idx_.begin(), lin_param_idx_.end(), linearize_start_idx_);
+  //   // Linearization
+  //   if (linearize_mlp_)
+  //   {
+  //     num_lin_params_ = linearize_end_idx_ - linearize_start_idx_;
+  //     lin_param_idx_.resize(num_lin_params_);
+  //     lin_params_.resize(num_lin_params_, 0.0);
+  //     std::iota(lin_param_idx_.begin(), lin_param_idx_.end(), linearize_start_idx_);
 
-      x0_vec_f32_.resize(static_cast<size_t>(batch_size_) * N_in_,  0.0f);
-      x0_vec_.resize(static_cast<size_t>(batch_size_) * N_in_,  0.0);
-      y0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_, 0.0);
-      J0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_ * N_in_, 0.0);
-      H0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_ * N_in_ * N_in_, 0.0);
-      off_x0_ = 0;
-      off_y0_ = off_x0_ + static_cast<size_t>(N_in_);
-      off_J0_ = off_y0_ + static_cast<size_t>(N_out_);
-      off_H0_ = off_J0_ + static_cast<size_t>(N_out_) * N_in_;
-      stride_x0_ = static_cast<size_t>(N_in_);
-      stride_y0_ = static_cast<size_t>(N_out_);
-      stride_J0_ = static_cast<size_t>(N_out_) * static_cast<size_t>(N_in_);
-      stride_H0_ = static_cast<size_t>(N_out_) * static_cast<size_t>(N_in_) * static_cast<size_t>(N_in_);
+  //     x0_vec_f32_.resize(static_cast<size_t>(batch_size_) * N_in_,  0.0f);
+  //     x0_vec_.resize(static_cast<size_t>(batch_size_) * N_in_,  0.0);
+  //     y0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_, 0.0);
+  //     J0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_ * N_in_, 0.0);
+  //     H0_vec_.resize(static_cast<size_t>(batch_size_) * N_out_ * N_in_ * N_in_, 0.0);
+  //     off_x0_ = 0;
+  //     off_y0_ = off_x0_ + static_cast<size_t>(N_in_);
+  //     off_J0_ = off_y0_ + static_cast<size_t>(N_out_);
+  //     off_H0_ = off_J0_ + static_cast<size_t>(N_out_) * N_in_;
+  //     stride_x0_ = static_cast<size_t>(N_in_);
+  //     stride_y0_ = static_cast<size_t>(N_out_);
+  //     stride_J0_ = static_cast<size_t>(N_out_) * static_cast<size_t>(N_in_);
+  //     stride_H0_ = static_cast<size_t>(N_out_) * static_cast<size_t>(N_in_) * static_cast<size_t>(N_in_);
 
-      if (off_H0_ + (linearize_order_ >= 2 ? stride_H0_ : 0) != static_cast<size_t>(num_lin_params_))
-      {
-        ROS_ERROR("[NEURAL][MPC] Mismatch of linearization parameters size. Expected %zu but got %zu. Disabling linearization.", 
-                  off_H0_ + (linearize_order_ >= 2 ? stride_H0_ : 0), static_cast<size_t>(num_lin_params_));
-        linearize_mlp_ = false;
-      }
-    }
+  //     if (off_H0_ + (linearize_order_ >= 2 ? stride_H0_ : 0) != static_cast<size_t>(num_lin_params_))
+  //     {
+  //       ROS_ERROR("[NEURAL][MPC] Mismatch of linearization parameters size. Expected %zu but got %zu. Disabling linearization.", 
+  //                 off_H0_ + (linearize_order_ >= 2 ? stride_H0_ : 0), static_cast<size_t>(num_lin_params_));
+  //       linearize_mlp_ = false;
+  //     }
+  //   }
 
-    // Temporal model
-    delay_horizon_ = metadata_[neural_model_name_][neural_model_instance_]["NetworkConfig"]["delay_horizon"];
+  //   // Temporal model
+  //   delay_horizon_ = metadata_[neural_model_name_][neural_model_instance_]["NetworkConfig"]["delay_horizon"];
 
-    ROS_INFO("[NEURAL][MPC] Using neural model %s/%s.", neural_model_name_.c_str(), neural_model_instance_.c_str());
-  }
-  catch (const std::exception& e)
-  {
-    ROS_ERROR("[NEURAL][MPC] Invalid/unsupported metadata format for %s/%s: %s", neural_model_name_.c_str(),
-              neural_model_instance_.c_str(), e.what());
-    linearize_mlp_ = false;
-  }
+  //   ROS_INFO("[NEURAL][MPC] Using neural model %s/%s.", neural_model_name_.c_str(), neural_model_instance_.c_str());
+  // }
+  // catch (const std::exception& e)
+  // {
+  //   ROS_ERROR("[NEURAL][MPC] Invalid/unsupported metadata format for %s/%s: %s", neural_model_name_.c_str(),
+  //             neural_model_instance_.c_str(), e.what());
+  //   linearize_mlp_ = false;
+  // }
 
   // Load neural model using LibTorch
-  if (linearize_mlp_)
-  {
-    try
-    {
-      if (use_gpu_)
-      {
-        if (torch::cuda::is_available())
-        {
-          device_mlp_ = torch::Device(torch::kCUDA);
-        }
-        else
-        {
-          ROS_WARN("[NEURAL][MPC] GPU requested but CUDA is not available. Falling back to CPU.");
-        }
-      }
+  // if (linearize_mlp_)
+  // {
+  //   try
+  //   {
+  //     if (use_gpu_)
+  //     {
+  //       if (torch::cuda::is_available())
+  //       {
+  //         device_mlp_ = torch::Device(torch::kCUDA);
+  //       }
+  //       else
+  //       {
+  //         ROS_WARN("[NEURAL][MPC] GPU requested but CUDA is not available. Falling back to CPU.");
+  //       }
+  //     }
 
-      torch::jit::script::Module neural_model_ = torch::jit::load(results_dir_ + neural_model_name_ + "/" + neural_model_instance_ + "_scripted.pt", device_mlp_);
-      neural_model_.eval();
-      neural_module_ = std::make_shared<torch::jit::script::Module>(std::move(neural_model_));
-      ROS_INFO("[NEURAL][MPC] Successfully loaded neural model!");
-      ROS_INFO("[NEURAL][MPC] Linearization is ENABLED with order %d", linearize_order_);
-      if (input_transform_)
-        ROS_INFO("[NEURAL][MPC] Input transform is ENABLED.");
-      else
-        ROS_INFO("[NEURAL][MPC] Input transform is DISABLED.");
-    }
-    catch (const std::exception& e)
-    {
-      ROS_ERROR("[NEURAL][MPC] Error loading the neural model: %s. Disabling linearization. Exception: %s", neural_model_instance_.c_str(), e.what());
-      linearize_mlp_ = false;
-    }
-  }
-  else
-  {
-    ROS_INFO("[NEURAL][MPC] Linearization is DISABLED.");
-  }
+  //     torch::jit::script::Module neural_model_ = torch::jit::load(results_dir_ + neural_model_name_ + "/" + neural_model_instance_ + "_scripted.pt", device_mlp_);
+  //     neural_model_.eval();
+  //     neural_module_ = std::make_shared<torch::jit::script::Module>(std::move(neural_model_));
+  //     ROS_INFO("[NEURAL][MPC] Successfully loaded neural model!");
+  //     ROS_INFO("[NEURAL][MPC] Linearization is ENABLED with order %d", linearize_order_);
+  //     if (input_transform_)
+  //       ROS_INFO("[NEURAL][MPC] Input transform is ENABLED.");
+  //     else
+  //       ROS_INFO("[NEURAL][MPC] Input transform is DISABLED.");
+  //   }
+  //   catch (const std::exception& e)
+  //   {
+  //     ROS_ERROR("[NEURAL][MPC] Error loading the neural model: %s. Disabling linearization. Exception: %s", neural_model_instance_.c_str(), e.what());
+  //     linearize_mlp_ = false;
+  //   }
+  // }
+  // else
+  // {
+  //   ROS_INFO("[NEURAL][MPC] Linearization is DISABLED.");
+  // }
 
-  // Temporal model
-  if (delay_horizon_ > 0)
-  {
-    ROS_INFO("[NEURAL][MPC] Loaded a temporal model (delay_horizon = %d).", delay_horizon_);
-  }
+  // // Temporal model
+  // if (delay_horizon_ > 0)
+  // {
+  //   ROS_INFO("[NEURAL][MPC] Loaded a temporal model (delay_horizon = %d).", delay_horizon_);
+  // }
 
-  if (linearize_mlp_)
-  {
-    if (linearize_start_idx_ < 0 || linearize_end_idx_ < 0 || linearize_end_idx_ <= linearize_start_idx_ || linearize_end_idx_ > NP_)
-    {
-      ROS_ERROR("[NEURAL][MPC] Invalid linearization index range [%d,%d). Disabling linearization.", linearize_start_idx_,
-                linearize_end_idx_);
-      linearize_mlp_ = false;
-    }
-    if (linearize_order_ < 1 || linearize_order_ > 2)
-    {
-      ROS_ERROR("[NEURAL][MPC] Invalid linearization order %d. Only 1 (Jacobian) or 2 (Hessian) are supported. Disabling linearization.",
-                linearize_order_);
-      linearize_mlp_ = false;
-    }
-  }
-  ROS_INFO("==========================");
+  // if (linearize_mlp_)
+  // {
+  //   if (linearize_start_idx_ < 0 || linearize_end_idx_ < 0 || linearize_end_idx_ <= linearize_start_idx_ || linearize_end_idx_ > NP_)
+  //   {
+  //     ROS_ERROR("[NEURAL][MPC] Invalid linearization index range [%d,%d). Disabling linearization.", linearize_start_idx_,
+  //               linearize_end_idx_);
+  //     linearize_mlp_ = false;
+  //   }
+  //   if (linearize_order_ < 1 || linearize_order_ > 2)
+  //   {
+  //     ROS_ERROR("[NEURAL][MPC] Invalid linearization order %d. Only 1 (Jacobian) or 2 (Hessian) are supported. Disabling linearization.",
+  //               linearize_order_);
+  //     linearize_mlp_ = false;
+  //   }
+  // }
+  // ROS_INFO("==========================");
 }
 
 void nmpc::TiltMtNeuralServoPlusMPC::initMPCCostW()
@@ -843,132 +844,133 @@ void nmpc::TiltMtNeuralServoPlusMPC::prepareMPCParams()
   }
 
   // Update linearization parameters
-  if (linearize_mlp_)
-  {
-    updateLinearizationParams();
-  }
+  // if (linearize_mlp_)
+  // {
+  //   updateLinearizationParams();
+  // }
 }
 
 void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
 {
-  try
-  {
-    double start_time = ros::Time::now().toSec();
-    // 1) Assemble batched neural network input x0
-    // NOTE: batch_size_ = NN_ + 1
-    for (int j = 0; j < batch_size_; ++j)
-    {
-      const auto& state_j_raw = mpc_solver_ptr_->xo_.at(j);
-
-      // For terminal node, use the control value from N-1
-      const auto& u_cmd_j = mpc_solver_ptr_->uo_.at(j < NN_ ? j : NN_ - 1);
-
-      // Input transform
-      std::vector<double> state_j = state_j_raw;
-      if (input_transform_)
-      {
-        tf::Quaternion q(state_j[6], state_j[7], state_j[8], state_j[9]);  // (w,x,y,z) order
-        tf::Vector3 v_w(state_j[3], state_j[4], state_j[5]);
-        tf::Vector3 v_b = tf::quatRotate(q.inverse(), v_w);
-        state_j[3] = v_b.x();
-        state_j[4] = v_b.y();
-        state_j[5] = v_b.z();
-      }
-
-      float* row_j = x0_vec_f32_.data() + j * N_in_;
-      int idx = 0;
-      for (int feat_idx : state_feats_) row_j[idx++] = static_cast<float>(state_j[feat_idx]);
-      for (int feat_idx : u_feats_)     row_j[idx++] = static_cast<float>(u_cmd_j[feat_idx]);
-    }
-
-    double constr_time = ros::Time::now().toSec();
-
-    // 2) Create torch::Tensor
-    // NOTE: from_blob() does NOT copy; the buffer must remain valid for the lifetime of the tensor
-    torch::Tensor x0 = torch::from_blob(
-      x0_vec_f32_.data(),
-      { batch_size_, N_in_ },
-      torch::TensorOptions()
-        .dtype(torch::kFloat32))
-      .to(device_mlp_);  // First construct on CPU and then move to device to avoid issues with split memory-access
-
-    // Repeat x0 such that each "virtual batch element" corresponds to one (b, i) pair
-    // IDEA: A single extended forward call is cheaper than N_out_ grad() calls
-    // Basically we repeat every row of x0 N_out_ times. From the model forward call we receive corresponding N_out_ duplicate outputs for each set of N_out_ rows
-    torch::Tensor x0_rep = x0.repeat_interleave(N_out_, /*dim=*/0)  // (B*N_out_, N_in_)
-                             .requires_grad_(true);
-
-    // Wrap the Tensor in an IValue vector
-    std::vector<torch::jit::IValue> inputs_rep;
-    inputs_rep.push_back(x0_rep);
-
-    double convert_time = ros::Time::now().toSec();
-    
-    // 3) Forward pass
-    // NOTE: We need to call forward() on the entire repeated input to ensure that the gradients are correctly tracked w.r.t. the entire repeated input
-    // NOTE: y0_rep does NOT need to be label transformed since mlp_out is transformed inside the MPC formulation
-    torch::Tensor y0_rep = neural_module_->forward(inputs_rep).toTensor();
-    TORCH_CHECK(y0_rep.dim() == 2 && y0_rep.size(0) == batch_size_ * N_out_ && y0_rep.size(1) == N_out_,
-          "Expected y0_rep shape (", batch_size_ * N_out_, ", ", N_out_, "), got ", y0_rep.sizes());
-
-    double forward_time = ros::Time::now().toSec();
-
-    // 4) Linearize
-    auto [J0, H0] = linearize(x0_rep, y0_rep);
-
-    double linearize_time = ros::Time::now().toSec();
-
-    // 5) Cast and Flatten Input, Output, Jacobian and Hessian to 1-D std::vector<double> in Fortran order to send to acados
-    // NOTE: acados expects double
-    x0_vec_.assign(x0_vec_f32_.begin(), x0_vec_f32_.end());  // move to std::vector<double>
-    torch::Tensor y0 = y0_rep.view({batch_size_, N_out_, N_out_}).select(1, 0);  // extract (B, N_out_)
-    auto y0_f64 = y0.detach().cpu().to(torch::kFloat64).contiguous();  // cast to double
-    std::memcpy(y0_vec_.data(),  // move to std::vector<double>
-                y0_f64.data_ptr<double>(),
-                y0_vec_.size() * sizeof(double));
-    flattenTensors(J0, H0);
-
-    double cast_time = ros::Time::now().toSec();
-
-    // 6) Set per-stage parameters from the batched linearization
-    for (int j = 0; j <= NN_; ++j)
-    {
-      std::memcpy(lin_params_.data() + off_x0_,
-                  x0_vec_.data() + j * stride_x0_,
-                  stride_x0_ * sizeof(double));
-
-      std::memcpy(lin_params_.data() + off_y0_,
-                  y0_vec_.data() + j * stride_y0_,
-                  stride_y0_ * sizeof(double));
-
-      std::memcpy(lin_params_.data() + off_J0_,
-                  J0_vec_.data() + j * stride_J0_,
-                  stride_J0_ * sizeof(double));
-
-      if (linearize_order_ >= 2)
-        std::memcpy(lin_params_.data() + off_H0_,
-                    H0_vec_.data() + j * stride_H0_,
-                    stride_H0_ * sizeof(double));
-
-      mpc_solver_ptr_->setParamSparseOneStage(j, lin_param_idx_, lin_params_);
-    }
-
-    double set_param_time = ros::Time::now().toSec();
-
-    ROS_INFO_THROTTLE(1.0, "[NEURAL][MPC] Linearization times (ms): constr=%.2f, convert=%.2f, forward=%.2f, linearize=%.2f, cast=%.2f, set_param=%.2f",
-                      (constr_time - start_time) * 1000,
-                      (convert_time - constr_time) * 1000,
-                      (forward_time - convert_time) * 1000,
-                      (linearize_time - forward_time) * 1000,
-                      (cast_time - linearize_time) * 1000,
-                      (set_param_time - cast_time) * 1000);
-  }
-  catch (const std::exception& e)
-  {
-    ROS_ERROR_THROTTLE(1.0, "[NEURAL][MPC] Torch error during batched linearization: %s", e.what());
-    return;
-  }
   return;
+  // try
+  // {
+  //   double start_time = ros::Time::now().toSec();
+  //   // 1) Assemble batched neural network input x0
+  //   // NOTE: batch_size_ = NN_ + 1
+  //   for (int j = 0; j < batch_size_; ++j)
+  //   {
+  //     const auto& state_j_raw = mpc_solver_ptr_->xo_.at(j);
+
+  //     // For terminal node, use the control value from N-1
+  //     const auto& u_cmd_j = mpc_solver_ptr_->uo_.at(j < NN_ ? j : NN_ - 1);
+
+  //     // Input transform
+  //     std::vector<double> state_j = state_j_raw;
+  //     if (input_transform_)
+  //     {
+  //       tf::Quaternion q(state_j[6], state_j[7], state_j[8], state_j[9]);  // (w,x,y,z) order
+  //       tf::Vector3 v_w(state_j[3], state_j[4], state_j[5]);
+  //       tf::Vector3 v_b = tf::quatRotate(q.inverse(), v_w);
+  //       state_j[3] = v_b.x();
+  //       state_j[4] = v_b.y();
+  //       state_j[5] = v_b.z();
+  //     }
+
+  //     float* row_j = x0_vec_f32_.data() + j * N_in_;
+  //     int idx = 0;
+  //     for (int feat_idx : state_feats_) row_j[idx++] = static_cast<float>(state_j[feat_idx]);
+  //     for (int feat_idx : u_feats_)     row_j[idx++] = static_cast<float>(u_cmd_j[feat_idx]);
+  //   }
+
+  //   double constr_time = ros::Time::now().toSec();
+
+  //   // 2) Create torch::Tensor
+  //   // NOTE: from_blob() does NOT copy; the buffer must remain valid for the lifetime of the tensor
+  //   torch::Tensor x0 = torch::from_blob(
+  //     x0_vec_f32_.data(),
+  //     { batch_size_, N_in_ },
+  //     torch::TensorOptions()
+  //       .dtype(torch::kFloat32))
+  //     .to(device_mlp_);  // First construct on CPU and then move to device to avoid issues with split memory-access
+
+  //   // Repeat x0 such that each "virtual batch element" corresponds to one (b, i) pair
+  //   // IDEA: A single extended forward call is cheaper than N_out_ grad() calls
+  //   // Basically we repeat every row of x0 N_out_ times. From the model forward call we receive corresponding N_out_ duplicate outputs for each set of N_out_ rows
+  //   torch::Tensor x0_rep = x0.repeat_interleave(N_out_, /*dim=*/0)  // (B*N_out_, N_in_)
+  //                            .requires_grad_(true);
+
+  //   // Wrap the Tensor in an IValue vector
+  //   std::vector<torch::jit::IValue> inputs_rep;
+  //   inputs_rep.push_back(x0_rep);
+
+  //   double convert_time = ros::Time::now().toSec();
+    
+  //   // 3) Forward pass
+  //   // NOTE: We need to call forward() on the entire repeated input to ensure that the gradients are correctly tracked w.r.t. the entire repeated input
+  //   // NOTE: y0_rep does NOT need to be label transformed since mlp_out is transformed inside the MPC formulation
+  //   torch::Tensor y0_rep = neural_module_->forward(inputs_rep).toTensor();
+  //   TORCH_CHECK(y0_rep.dim() == 2 && y0_rep.size(0) == batch_size_ * N_out_ && y0_rep.size(1) == N_out_,
+  //         "Expected y0_rep shape (", batch_size_ * N_out_, ", ", N_out_, "), got ", y0_rep.sizes());
+
+  //   double forward_time = ros::Time::now().toSec();
+
+  //   // 4) Linearize
+  //   auto [J0, H0] = linearize(x0_rep, y0_rep);
+
+  //   double linearize_time = ros::Time::now().toSec();
+
+  //   // 5) Cast and Flatten Input, Output, Jacobian and Hessian to 1-D std::vector<double> in Fortran order to send to acados
+  //   // NOTE: acados expects double
+  //   x0_vec_.assign(x0_vec_f32_.begin(), x0_vec_f32_.end());  // move to std::vector<double>
+  //   torch::Tensor y0 = y0_rep.view({batch_size_, N_out_, N_out_}).select(1, 0);  // extract (B, N_out_)
+  //   auto y0_f64 = y0.detach().cpu().to(torch::kFloat64).contiguous();  // cast to double
+  //   std::memcpy(y0_vec_.data(),  // move to std::vector<double>
+  //               y0_f64.data_ptr<double>(),
+  //               y0_vec_.size() * sizeof(double));
+  //   flattenTensors(J0, H0);
+
+  //   double cast_time = ros::Time::now().toSec();
+
+  //   // 6) Set per-stage parameters from the batched linearization
+  //   for (int j = 0; j <= NN_; ++j)
+  //   {
+  //     std::memcpy(lin_params_.data() + off_x0_,
+  //                 x0_vec_.data() + j * stride_x0_,
+  //                 stride_x0_ * sizeof(double));
+
+  //     std::memcpy(lin_params_.data() + off_y0_,
+  //                 y0_vec_.data() + j * stride_y0_,
+  //                 stride_y0_ * sizeof(double));
+
+  //     std::memcpy(lin_params_.data() + off_J0_,
+  //                 J0_vec_.data() + j * stride_J0_,
+  //                 stride_J0_ * sizeof(double));
+
+  //     if (linearize_order_ >= 2)
+  //       std::memcpy(lin_params_.data() + off_H0_,
+  //                   H0_vec_.data() + j * stride_H0_,
+  //                   stride_H0_ * sizeof(double));
+
+  //     mpc_solver_ptr_->setParamSparseOneStage(j, lin_param_idx_, lin_params_);
+  //   }
+
+  //   double set_param_time = ros::Time::now().toSec();
+
+  //   ROS_INFO_THROTTLE(1.0, "[NEURAL][MPC] Linearization times (ms): constr=%.2f, convert=%.2f, forward=%.2f, linearize=%.2f, cast=%.2f, set_param=%.2f",
+  //                     (constr_time - start_time) * 1000,
+  //                     (convert_time - constr_time) * 1000,
+  //                     (forward_time - convert_time) * 1000,
+  //                     (linearize_time - forward_time) * 1000,
+  //                     (cast_time - linearize_time) * 1000,
+  //                     (set_param_time - cast_time) * 1000);
+  // }
+  // catch (const std::exception& e)
+  // {
+  //   ROS_ERROR_THROTTLE(1.0, "[NEURAL][MPC] Torch error during batched linearization: %s", e.what());
+  //   return;
+  // }
+  // return;
 }
 
 std::pair<torch::Tensor, torch::Tensor> nmpc::TiltMtNeuralServoPlusMPC::linearize(const torch::Tensor& x0_rep,
