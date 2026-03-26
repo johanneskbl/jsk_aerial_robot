@@ -16784,10 +16784,10 @@
     "runtime_options": {
         "model_name": "residual_mlp",
         "model_instance": "neuralmodel_185",
-        "linearize_mlp": true,
+        "linearize_mlp": false,
         "linearize_order": 1,
-        "linearize_start_idx": 35,
-        "linearize_end_idx": 118,
+        "linearize_start_idx": -1,
+        "linearize_end_idx": -1,
         "use_gpu": false
     }
 }

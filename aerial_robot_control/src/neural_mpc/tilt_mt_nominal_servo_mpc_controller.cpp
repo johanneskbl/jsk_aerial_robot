@@ -106,11 +106,18 @@ bool nmpc::TiltMtNominalServoMPC::update()
   }
   else
   {
+    double start_time = ros::Time::now().toSec();
     controlCore();
+    double core_time = ros::Time::now().toSec();
     sendCmd();
+    double send_time = ros::Time::now().toSec();
     // *** RECORDING ***
     // Only needed to record dataset but else its computationally expensive, so we can comment it out when not needed.
     publishRecording();
+    double record_time = ros::Time::now().toSec();
+    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - controlCore(): %.3f ms", (core_time - start_time) * 1000.0);
+    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - sendCmd(): %.3f ms", (send_time - core_time) * 1000.0);
+    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - publishRecording(): %.3f ms", (record_time - send_time) * 1000.0);
   }
 
   return true;

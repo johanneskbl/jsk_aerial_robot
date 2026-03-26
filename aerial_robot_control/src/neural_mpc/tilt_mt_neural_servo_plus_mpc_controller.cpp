@@ -126,21 +126,39 @@ bool nmpc::TiltMtNeuralServoPlusMPC::update()
   else
   {
     /* Runtime analysis
-    Nominal:
-        - controlCore: 1.2-2.0 ms
-    Neural (neuralmodel_185):
-        - controlCore: 10.0-10.8 ms
-    Neural (neuralmodel_185 & linearized order 1):
-        - controlCore: 2.0-3.0 ms
-            - construction: 0.00 ms
-            - convert: 0.03 ms
-            - forward pass: 0.13-0.2 ms (peak 0.7 ms)
-            - linearization: 0.11-0.2 ms
-            - flatten: 0.03-0.06 ms
-            - set params: 0.001 ms
-    Auxiliary:
-        - sendCmd: 0.01 ms
-        - recording: 0.02 ms
+    On PC:
+      Nominal:
+          - controlCore: 1.2-2.0 ms
+      Neural (neuralmodel_185):
+          - controlCore: 10.0-10.8 ms
+      Neural (neuralmodel_185 & linearized order 1):
+          - controlCore: 2.0-3.0 ms
+              - construction: 0.00 ms
+              - convert: 0.03 ms
+              - forward pass: 0.13-0.2 ms (peak 0.7 ms)
+              - linearization: 0.11-0.2 ms
+              - flatten: 0.03-0.06 ms
+              - set params: 0.001 ms
+      Auxiliary:
+          - sendCmd: 0.01 ms
+          - recording: 0.02 ms
+
+    On Laptop:
+      Nominal:
+          - controlCore: 2-3 ms
+      Neural (neuralmodel_185):
+          - controlCore: 15 ms
+      Neural (neuralmodel_185 & linearized order 1):
+          - controlCore: 10-44 ms (high variance)
+              - construction:
+              - convert:
+              - forward pass:
+              - linearization:
+              - flatten:
+              - set params:
+      Auxiliary:
+          - sendCmd: 0.00 ms
+          - recording: 0.00 ms
     */
     double start_time = ros::WallTime::now().toSec();
     controlCore();
@@ -835,6 +853,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
 {
   try
   {
+    double start_time = ros::Time::now().toSec();
     // 1) Assemble batched neural network input x0
     // NOTE: batch_size_ = NN_ + 1
     for (int j = 0; j < batch_size_; ++j)
@@ -862,6 +881,8 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
       for (int feat_idx : u_feats_)     row_j[idx++] = static_cast<float>(u_cmd_j[feat_idx]);
     }
 
+    double constr_time = ros::Time::now().toSec();
+
     // 2) Create torch::Tensor
     // NOTE: from_blob() does NOT copy; the buffer must remain valid for the lifetime of the tensor
     torch::Tensor x0 = torch::from_blob(
@@ -880,6 +901,8 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
     // Wrap the Tensor in an IValue vector
     std::vector<torch::jit::IValue> inputs_rep;
     inputs_rep.push_back(x0_rep);
+
+    double convert_time = ros::Time::now().toSec();
     
     // 3) Forward pass
     // NOTE: We need to call forward() on the entire repeated input to ensure that the gradients are correctly tracked w.r.t. the entire repeated input
@@ -888,8 +911,12 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
     TORCH_CHECK(y0_rep.dim() == 2 && y0_rep.size(0) == batch_size_ * N_out_ && y0_rep.size(1) == N_out_,
           "Expected y0_rep shape (", batch_size_ * N_out_, ", ", N_out_, "), got ", y0_rep.sizes());
 
+    double forward_time = ros::Time::now().toSec();
+
     // 4) Linearize
     auto [J0, H0] = linearize(x0_rep, y0_rep);
+
+    double linearize_time = ros::Time::now().toSec();
 
     // 5) Cast and Flatten Input, Output, Jacobian and Hessian to 1-D std::vector<double> in Fortran order to send to acados
     // NOTE: acados expects double
@@ -900,6 +927,8 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
                 y0_f64.data_ptr<double>(),
                 y0_vec_.size() * sizeof(double));
     flattenTensors(J0, H0);
+
+    double cast_time = ros::Time::now().toSec();
 
     // 6) Set per-stage parameters from the batched linearization
     for (int j = 0; j <= NN_; ++j)
@@ -923,6 +952,16 @@ void nmpc::TiltMtNeuralServoPlusMPC::updateLinearizationParams()
 
       mpc_solver_ptr_->setParamSparseOneStage(j, lin_param_idx_, lin_params_);
     }
+
+    double set_param_time = ros::Time::now().toSec();
+
+    ROS_INFO_THROTTLE(1.0, "[NEURAL][MPC] Linearization times (ms): constr=%.2f, convert=%.2f, forward=%.2f, linearize=%.2f, cast=%.2f, set_param=%.2f",
+                      (constr_time - start_time) * 1000,
+                      (convert_time - constr_time) * 1000,
+                      (forward_time - convert_time) * 1000,
+                      (linearize_time - forward_time) * 1000,
+                      (cast_time - linearize_time) * 1000,
+                      (set_param_time - cast_time) * 1000);
   }
   catch (const std::exception& e)
   {
