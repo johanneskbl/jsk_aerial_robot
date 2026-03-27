@@ -275,6 +275,16 @@ class QDNMPCReferenceGenerator:
 
             roll, pitch, yaw = 0.0, 0.0, 0.0
 
+        elif traj == "roll":
+            x, y, z = 0.0, 0.0, 0.5
+            roll = np.pi / 6 * np.sin(2 * np.pi * t / T)
+            pitch, yaw = 0.0, 0.0
+
+        elif traj == "pitch":
+            x, y, z = 0.0, 0.0, 0.5
+            pitch = np.pi / 6 * np.sin(2 * np.pi * t / T)
+            roll, yaw = 0.0, 0.0
+
         else:
             raise ValueError(f"Trajectory {traj} not valid.")
 

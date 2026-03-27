@@ -208,12 +208,14 @@ class EnvConfig:
     run_options.update(
         {
             "trajectories": [
-                "line",
-                "circle",
-                "helix",
-                "lemniscate_I",
-                "lemniscate_II",
-            ],  # "step", "hover", "takeoff", "smooth_takeoff", "circle"
+                # "line",
+                # "circle",
+                # "helix",
+                # "lemniscate_I",
+                # "lemniscate_II",
+                "roll",
+                "pitch",
+            ],  # "step", "hover", "takeoff", "smooth_takeoff", "circle", "helix", "lemniscate_I", "lemniscate_II", "roll", "pitch"
             "trajectory_length": 15.0,
         }
     )
