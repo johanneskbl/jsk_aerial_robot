@@ -1,4 +1,4 @@
-//
+ //
 // Created by lijinjie on 23/11/29.
 //
 
@@ -41,7 +41,6 @@ void nmpc::TiltMtNeuralServoMinusMPC::initialize(ros::NodeHandle nh, ros::NodeHa
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoMinusMPC::callbackViz, this);
 
   /* publishers */
-  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::MPCState>("nmpc/record_curr", 1);
   pub_record_ref_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_ref", 1);
   pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
   pub_viz_ref_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_ref", 1);
@@ -881,42 +880,6 @@ void nmpc::TiltMtNeuralServoMinusMPC::publishRecording()
 {
   int& NN = mpc_solver_ptr_->NN_;
   stamp = ros::Time::now();
-
-  // Current state (input to MPC at this timestep)
-  aerial_robot_msgs::MPCState curr_mpc_state;
-  curr_mpc_state.header.frame_id = "world";
-  curr_mpc_state.header.stamp = stamp;
-  
-  std::vector<double> curr_state = meas2VecX();
-  // Position
-  curr_mpc_state.position.x = curr_state[0];
-  curr_mpc_state.position.y = curr_state[1];
-  curr_mpc_state.position.z = curr_state[2];
-  
-  // Linear velocity
-  curr_mpc_state.linear_velocity.x = curr_state[3];
-  curr_mpc_state.linear_velocity.y = curr_state[4];
-  curr_mpc_state.linear_velocity.z = curr_state[5];
-  
-  // Quaternion
-  curr_mpc_state.orientation.w = curr_state[6];
-  curr_mpc_state.orientation.x = curr_state[7];
-  curr_mpc_state.orientation.y = curr_state[8];
-  curr_mpc_state.orientation.z = curr_state[9];
-  
-  // Angular velocity
-  curr_mpc_state.angular_velocity.x = curr_state[10];
-  curr_mpc_state.angular_velocity.y = curr_state[11];
-  curr_mpc_state.angular_velocity.z = curr_state[12];
-  
-  // Servo angle state
-  curr_mpc_state.servo_angles.resize(joint_num_);
-  for (int i = 0; i < joint_num_; ++i)
-  {
-    curr_mpc_state.servo_angles[i] = curr_state[13 + i];
-  }
-  
-  pub_record_curr_.publish(curr_mpc_state);
 
   // Publish reference states
   aerial_robot_msgs::MPCTrajectory ref_msg;

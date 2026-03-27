@@ -60,7 +60,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNeuralServoPlusMPC::callbackViz, this);
 
   /* publishers */
-  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::MPCState>("nmpc/record_curr", 1);
   pub_record_ref_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_ref", 1);
   pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
   pub_viz_ref_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_ref", 1);
@@ -713,12 +712,12 @@ void nmpc::TiltMtNeuralServoPlusMPC::controlCore(bool is_warmup)
   prepareMPCParams();
 
   /* Get current state from estimator */
-  bx0_ = meas2VecX();
+  std::vector<double> bx0 = meas2VecX();
 
   /* Call solver to solve the optimization problem */
   try
   {
-    mpc_solver_ptr_->solve(bx0_, is_debug_);
+    mpc_solver_ptr_->solve(bx0, is_debug_);
   }
   catch (mpc_solver::AcadosSolveException& e)
   {
@@ -1406,36 +1405,6 @@ void nmpc::TiltMtNeuralServoPlusMPC::publishRecording()
   aerial_robot_msgs::MPCState curr_mpc_state;
   curr_mpc_state.header.frame_id = "world";
   curr_mpc_state.header.stamp = stamp;
-  
-  // Position
-  curr_mpc_state.position.x = bx0_[0];
-  curr_mpc_state.position.y = bx0_[1];
-  curr_mpc_state.position.z = bx0_[2];
-  
-  // Linear velocity
-  curr_mpc_state.linear_velocity.x = bx0_[3];
-  curr_mpc_state.linear_velocity.y = bx0_[4];
-  curr_mpc_state.linear_velocity.z = bx0_[5];
-  
-  // Quaternion
-  curr_mpc_state.orientation.w = bx0_[6];
-  curr_mpc_state.orientation.x = bx0_[7];
-  curr_mpc_state.orientation.y = bx0_[8];
-  curr_mpc_state.orientation.z = bx0_[9];
-  
-  // Angular velocity
-  curr_mpc_state.angular_velocity.x = bx0_[10];
-  curr_mpc_state.angular_velocity.y = bx0_[11];
-  curr_mpc_state.angular_velocity.z = bx0_[12];
-  
-  // Servo angle state
-  curr_mpc_state.servo_angles.resize(joint_num_);
-  for (int i = 0; i < joint_num_; ++i)
-  {
-    curr_mpc_state.servo_angles[i] = bx0_[13 + i];
-  }
-  
-  pub_record_curr_.publish(curr_mpc_state);
 
   // Publish reference states
   aerial_robot_msgs::MPCTrajectory ref_msg;

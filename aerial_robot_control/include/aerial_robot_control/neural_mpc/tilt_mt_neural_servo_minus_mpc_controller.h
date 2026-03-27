@@ -63,7 +63,6 @@ protected:
   ros::Time stamp;
   ros::Timer tmr_viz_;
 
-  ros::Publisher pub_record_curr_;                // for dataset recording
   ros::Publisher pub_record_ref_;                 // for dataset recording
   ros::Publisher pub_record_pred_;                // for dataset recording
   ros::Publisher pub_viz_ref_;                    // for viz
