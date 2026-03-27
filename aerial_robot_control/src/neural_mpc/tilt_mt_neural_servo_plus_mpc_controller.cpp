@@ -85,6 +85,8 @@ void nmpc::TiltMtNeuralServoPlusMPC::initialize(ros::NodeHandle nh, ros::NodeHan
   initPredXU(x_u_ref_);
 
   quat_prev_.setW(1.0);
+  target_ee_quat_prev_.setW(1.0);
+  quat_ref_prev_.assign(mpc_solver_ptr_->NN_ + 1, tf::Quaternion(0,0,0,1));  // (x,y,z,w)
 
   reset();
   ROS_INFO("[CONTROL] MPC Controller initialized!");
@@ -819,6 +821,9 @@ void nmpc::TiltMtNeuralServoPlusMPC::prepareMPCRef()
   tf::Quaternion target_ee_quat;
   robot_model_->convertFromCoGToEEContact(target_cog_pos_in_w, target_cog_vel_in_w, target_cog_quat, target_cog_omega,
                                           target_ee_pos_in_w, target_ee_vel_in_w, target_ee_quat, target_ee_omega);
+
+  // Ensure quaternion continuity to avoid discontinuity in reference signal
+  ensureQuaternionContinuity(target_ee_quat, target_ee_quat_prev_);
 
   // set the reference state and control input
   setXrUrRef(target_ee_pos_in_w, target_ee_vel_in_w, tf::Vector3(0, 0, 0), target_ee_quat, target_ee_omega,
@@ -1604,6 +1609,26 @@ void nmpc::TiltMtNeuralServoPlusMPC::callbackSetRefXU(const aerial_robot_msgs::P
   /* receive info */
   x_u_ref_ = *msg;
 
+  /* Check if quaternion flips at each stage */
+  for (int i = 0; i <= mpc_solver_ptr_->NN_; i++)
+  {
+    const int base = i * mpc_solver_ptr_->NX_;
+
+    tf::Quaternion quat_ref(
+      x_u_ref_.x.data[base + 7], // x
+      x_u_ref_.x.data[base + 8], // y
+      x_u_ref_.x.data[base + 9], // z
+      x_u_ref_.x.data[base + 6]  // w
+    );
+
+    ensureQuaternionContinuity(quat_ref, quat_ref_prev_[i]);
+
+    x_u_ref_.x.data[base + 6] = quat_ref.w();
+    x_u_ref_.x.data[base + 7] = quat_ref.x();
+    x_u_ref_.x.data[base + 8] = quat_ref.y();
+    x_u_ref_.x.data[base + 9] = quat_ref.z();
+  }
+
   /* set reference */
   rosXU2VecXU(x_u_ref_, mpc_solver_ptr_->xr_, mpc_solver_ptr_->ur_);
   mpc_solver_ptr_->setReference(mpc_solver_ptr_->xr_, mpc_solver_ptr_->ur_, true);
@@ -1790,15 +1815,7 @@ std::vector<double> nmpc::TiltMtNeuralServoPlusMPC::meas2VecX(bool is_ee_centric
   tf::Vector3 ang_vel = estimator_->getAngularVel(Frame::COG, estimate_mode_);
 
   // === check the sign of the quaternion, avoid the flip of the quaternion. ===
-  // This is quite important because of the warm-starting of the MPC solver. The quaternion should be continuous.
-  double qe_c_w =
-      quat.w() * quat_prev_.w() + quat.x() * quat_prev_.x() + quat.y() * quat_prev_.y() + quat.z() * quat_prev_.z();
-  if (qe_c_w < 0)
-  {
-    quat = quat.operator-();
-  }
-
-  quat_prev_ = quat;
+  ensureQuaternionContinuity(quat, quat_prev_);
 
   // === for reference, we may need to convert the position and velocity to the end-effector frame ===
   if (is_ee_centric)
@@ -1832,6 +1849,19 @@ std::vector<double> nmpc::TiltMtNeuralServoPlusMPC::meas2VecX(bool is_ee_centric
   for (int i = 0; i < joint_num_; i++)
     bx0[13 + i] = joint_angles_[i];
   return bx0;
+}
+
+void nmpc::TiltMtNominalServoMPC::ensureQuaternionContinuity(tf::Quaternion& quat, tf::Quaternion& quat_prev) const
+{
+  // === check the sign of the quaternion, avoid the flip of the quaternion. ===
+  // This is quite important because of the warm-starting of the MPC solver. The quaternion should be continuous.
+  double qe_c_w =
+      quat.w() * quat_prev.w() + quat.x() * quat_prev.x() + quat.y() * quat_prev.y() + quat.z() * quat_prev.z();
+  if (qe_c_w < 0)
+  {
+    quat = quat.operator-();
+  }
+  quat_prev = quat;
 }
 
 double nmpc::TiltMtNeuralServoPlusMPC::ensureOneServoContinuity(double a_ref, int idx) const

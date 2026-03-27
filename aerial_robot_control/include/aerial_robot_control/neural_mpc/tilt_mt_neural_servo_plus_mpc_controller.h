@@ -242,6 +242,7 @@ protected:
   virtual std::vector<double> meas2VecX(bool is_ee_centric);
 
   // ensure the continuity of servo angles
+  void ensureQuaternionContinuity(tf::Quaternion& quat, tf::Quaternion& quat_prev) const;
   double ensureOneServoContinuity(double a_ref, int idx) const;
   std::vector<double> ensureAllServoContinuity(std::vector<double>& a_ref_vec) const;
 
@@ -259,7 +260,10 @@ protected:
                                 double epsilon = 1e-6);
 
 private:
-  tf::Quaternion quat_prev_;  // To deal with the discontinuity of the quaternion.
+  // To deal with the discontinuity of the quaternion.
+  tf::Quaternion quat_prev_;
+  tf::Quaternion target_ee_quat_prev_;
+  std::vector<tf::Quaternion> quat_ref_prev_;
 };
 
 }  // namespace nmpc

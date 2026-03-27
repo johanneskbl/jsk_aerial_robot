@@ -41,7 +41,6 @@ void nmpc::TiltMtNominalServoMPC::initialize(ros::NodeHandle nh, ros::NodeHandle
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &TiltMtNominalServoMPC::callbackViz, this);
 
   /* publishers */
-  pub_record_curr_ = nh_.advertise<aerial_robot_msgs::MPCState>("nmpc/record_curr", 1);
   pub_record_ref_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_ref", 1);
   pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
   pub_viz_ref_ = nh_.advertise<geometry_msgs::PoseArray>("nmpc/viz_ref", 1);
@@ -67,6 +66,8 @@ void nmpc::TiltMtNominalServoMPC::initialize(ros::NodeHandle nh, ros::NodeHandle
   initPredXU(x_u_ref_);
 
   quat_prev_.setW(1.0);
+  target_ee_quat_prev_.setW(1.0);
+  quat_ref_prev_.assign(mpc_solver_ptr_->NN_ + 1, tf::Quaternion(0,0,0,1));  // (x,y,z,w)
 
   reset();
   ROS_INFO("MPC Controller initialized!");
@@ -513,12 +514,12 @@ void nmpc::TiltMtNominalServoMPC::controlCore(bool is_warmup)
   prepareMPCParams();
 
   /* Get current state from estimator */
-  bx0_ = meas2VecX();
+  std::vector<double> bx0 = meas2VecX();
 
   /* Call solver to solve the optimization problem */
   try
   {
-    mpc_solver_ptr_->solve(bx0_, is_debug_);
+    mpc_solver_ptr_->solve(bx0, is_debug_);
   }
   catch (mpc_solver::AcadosSolveException& e)
   {
@@ -620,6 +621,9 @@ void nmpc::TiltMtNominalServoMPC::prepareMPCRef()
   tf::Quaternion target_ee_quat;
   robot_model_->convertFromCoGToEEContact(target_cog_pos_in_w, target_cog_vel_in_w, target_cog_quat, target_cog_omega,
                                           target_ee_pos_in_w, target_ee_vel_in_w, target_ee_quat, target_ee_omega);
+
+  // Ensure quaternion continuity to avoid discontinuity in reference signal
+  ensureQuaternionContinuity(target_ee_quat, target_ee_quat_prev_);
 
   // set the reference state and control input
   setXrUrRef(target_ee_pos_in_w, target_ee_vel_in_w, tf::Vector3(0, 0, 0), target_ee_quat, target_ee_omega,
@@ -884,41 +888,6 @@ void nmpc::TiltMtNominalServoMPC::publishRecording()
   int& NN = mpc_solver_ptr_->NN_;
   stamp = ros::Time::now();
 
-  // Current state (input to MPC at this timestep)
-  aerial_robot_msgs::MPCState curr_mpc_state;
-  curr_mpc_state.header.frame_id = "world";
-  curr_mpc_state.header.stamp = stamp;
-
-  // Position
-  curr_mpc_state.position.x = bx0_[0];
-  curr_mpc_state.position.y = bx0_[1];
-  curr_mpc_state.position.z = bx0_[2];
-  
-  // Linear velocity
-  curr_mpc_state.linear_velocity.x = bx0_[3];
-  curr_mpc_state.linear_velocity.y = bx0_[4];
-  curr_mpc_state.linear_velocity.z = bx0_[5];
-  
-  // Quaternion
-  curr_mpc_state.orientation.w = bx0_[6];
-  curr_mpc_state.orientation.x = bx0_[7];
-  curr_mpc_state.orientation.y = bx0_[8];
-  curr_mpc_state.orientation.z = bx0_[9];
-  
-  // Angular velocity
-  curr_mpc_state.angular_velocity.x = bx0_[10];
-  curr_mpc_state.angular_velocity.y = bx0_[11];
-  curr_mpc_state.angular_velocity.z = bx0_[12];
-  
-  // Servo angle state
-  curr_mpc_state.servo_angles.resize(joint_num_);
-  for (int i = 0; i < joint_num_; ++i)
-  {
-    curr_mpc_state.servo_angles[i] = bx0_[13 + i];
-  }
-  
-  pub_record_curr_.publish(curr_mpc_state);
-
   // Publish reference states
   aerial_robot_msgs::MPCTrajectory ref_msg;
   ref_msg.header.frame_id = "world";
@@ -1120,6 +1089,26 @@ void nmpc::TiltMtNominalServoMPC::callbackSetRefXU(const aerial_robot_msgs::Pred
   /* receive info */
   x_u_ref_ = *msg;
 
+  /* Check if quaternion flips at each stage */
+  for (int i = 0; i <= mpc_solver_ptr_->NN_; i++)
+  {
+    const int base = i * mpc_solver_ptr_->NX_;
+
+    tf::Quaternion quat_ref(
+      x_u_ref_.x.data[base + 7], // x
+      x_u_ref_.x.data[base + 8], // y
+      x_u_ref_.x.data[base + 9], // z
+      x_u_ref_.x.data[base + 6]  // w
+    );
+
+    ensureQuaternionContinuity(quat_ref, quat_ref_prev_[i]);
+
+    x_u_ref_.x.data[base + 6] = quat_ref.w();
+    x_u_ref_.x.data[base + 7] = quat_ref.x();
+    x_u_ref_.x.data[base + 8] = quat_ref.y();
+    x_u_ref_.x.data[base + 9] = quat_ref.z();
+  }
+
   /* set reference */
   rosXU2VecXU(x_u_ref_, mpc_solver_ptr_->xr_, mpc_solver_ptr_->ur_);
   mpc_solver_ptr_->setReference(mpc_solver_ptr_->xr_, mpc_solver_ptr_->ur_, true);
@@ -1306,15 +1295,7 @@ std::vector<double> nmpc::TiltMtNominalServoMPC::meas2VecX(bool is_ee_centric)
   tf::Vector3 ang_vel = estimator_->getAngularVel(Frame::COG, estimate_mode_);
 
   // === check the sign of the quaternion, avoid the flip of the quaternion. ===
-  // This is quite important because of the warm-starting of the MPC solver. The quaternion should be continuous.
-  double qe_c_w =
-      quat.w() * quat_prev_.w() + quat.x() * quat_prev_.x() + quat.y() * quat_prev_.y() + quat.z() * quat_prev_.z();
-  if (qe_c_w < 0)
-  {
-    quat = quat.operator-();
-  }
-
-  quat_prev_ = quat;
+  ensureQuaternionContinuity(quat, quat_prev_);
 
   // === for reference, we may need to convert the position and velocity to the end-effector frame ===
   if (is_ee_centric)
@@ -1348,6 +1329,19 @@ std::vector<double> nmpc::TiltMtNominalServoMPC::meas2VecX(bool is_ee_centric)
   for (int i = 0; i < joint_num_; i++)
     bx0[13 + i] = joint_angles_[i];
   return bx0;
+}
+
+void nmpc::TiltMtNominalServoMPC::ensureQuaternionContinuity(tf::Quaternion& quat, tf::Quaternion& quat_prev) const
+{
+  // === check the sign of the quaternion, avoid the flip of the quaternion. ===
+  // This is quite important because of the warm-starting of the MPC solver. The quaternion should be continuous.
+  double qe_c_w =
+      quat.w() * quat_prev.w() + quat.x() * quat_prev.x() + quat.y() * quat_prev.y() + quat.z() * quat_prev.z();
+  if (qe_c_w < 0)
+  {
+    quat = quat.operator-();
+  }
+  quat_prev = quat;
 }
 
 double nmpc::TiltMtNominalServoMPC::ensureOneServoContinuity(double a_ref, int idx) const

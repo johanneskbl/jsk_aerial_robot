@@ -63,7 +63,6 @@ protected:
   ros::Time stamp;
   ros::Timer tmr_viz_;
 
-  ros::Publisher pub_record_curr_;                // for dataset recording
   ros::Publisher pub_record_ref_;                 // for dataset recording
   ros::Publisher pub_record_pred_;                // for dataset recording
   ros::Publisher pub_viz_ref_;                    // for viz
@@ -114,7 +113,6 @@ protected:
   trajectory_msgs::MultiDOFJointTrajectory last_traj_msg_;
 
   aerial_robot_msgs::PredXU x_u_ref_;  // TODO: maybe we should remove x_u_ref_ and use xr_ & ur_ inside mpc_solver_ptr_
-  std::vector<double> bx0_;  // Current state from estimator
   spinal::FourAxisCommand flight_cmd_;
   sensor_msgs::JointState gimbal_ctrl_cmd_;
 
@@ -193,6 +191,7 @@ protected:
   virtual std::vector<double> meas2VecX(bool is_ee_centric);
 
   // ensure the continuity of servo angles
+  void ensureQuaternionContinuity(tf::Quaternion& quat, tf::Quaternion& quat_prev) const;
   double ensureOneServoContinuity(double a_ref, int idx) const;
   std::vector<double> ensureAllServoContinuity(std::vector<double>& a_ref_vec) const;
 
@@ -210,7 +209,10 @@ protected:
                                 double epsilon = 1e-6);
 
 private:
-  tf::Quaternion quat_prev_;  // To deal with the discontinuity of the quaternion.
+  // To deal with the discontinuity of the quaternion.
+  tf::Quaternion quat_prev_;
+  tf::Quaternion target_ee_quat_prev_;
+  std::vector<tf::Quaternion> quat_ref_prev_;
 };
 
 }  // namespace nmpc
