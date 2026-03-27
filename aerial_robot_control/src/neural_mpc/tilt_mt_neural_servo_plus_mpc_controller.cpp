@@ -1851,7 +1851,7 @@ std::vector<double> nmpc::TiltMtNeuralServoPlusMPC::meas2VecX(bool is_ee_centric
   return bx0;
 }
 
-void nmpc::TiltMtNominalServoMPC::ensureQuaternionContinuity(tf::Quaternion& quat, tf::Quaternion& quat_prev) const
+void nmpc::TiltMtNeuralServoPlusMPC::ensureQuaternionContinuity(tf::Quaternion& quat, tf::Quaternion& quat_prev) const
 {
   // === check the sign of the quaternion, avoid the flip of the quaternion. ===
   // This is quite important because of the warm-starting of the MPC solver. The quaternion should be continuous.
