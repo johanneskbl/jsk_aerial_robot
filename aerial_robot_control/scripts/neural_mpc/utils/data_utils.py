@@ -389,10 +389,13 @@ def jsonify(array) -> list:
     return array
 
 
-def undo_jsonify(array) -> np.ndarray:
+def undo_jsonify(array, to_float: bool = True) -> np.ndarray:
     x = []
     for elem in array:
         a = elem.split("[")[1].split("]")[0].split(",")
-        a = [float(num) for num in a]
+        if to_float:
+            a = [float(num) for num in a]
+        else:
+            a = [int(num) for num in a]
         x = x + [a]
     return np.array(x)

@@ -322,7 +322,7 @@ def main():
     model_options = EnvConfig.model_options
     sim_options = EnvConfig.sim_options
     run_options = EnvConfig.run_options
-    neural_model, mlp_metadata = load_model(model_options, sim_options, run_options)
+    neural_model, mlp_metadata = load_model(model_options, sim_options, run_options, torch.device("cpu"))
     neural_model.eval()
 
     state_feats = eval(mlp_metadata["ModelFitConfig"]["state_feats"])

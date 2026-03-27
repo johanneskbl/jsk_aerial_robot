@@ -46,7 +46,7 @@ class EnvConfig:
             "plus_neural": True,
             "minus_neural": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
-            "neural_model_instance": "neuralmodel_185",  # 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            "neural_model_instance": "neuralmodel_201",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
@@ -290,8 +290,8 @@ class NetworkConfig:
     # Number of neurons in each hidden layer
     if model_type == "MLP":
         # hidden_sizes = [8, 8]
-        # hidden_sizes = [32]
-        hidden_sizes = [64]
+        hidden_sizes = [32]
+        # hidden_sizes = [64]
         # hidden_sizes = [32, 32]
         # hidden_sizes = [64, 64]
         # hidden_sizes = [128, 256, 128, 64]
@@ -344,7 +344,7 @@ class NetworkConfig:
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Energy regularization
-    energy_lambda = 1e1  # Set to 0.0 to disable
+    energy_lambda = 1e3  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon
@@ -403,7 +403,8 @@ class ModelFitConfig:
     save_plots = False
 
     # ------- Dataset loading -------
-    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
+    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_TRAIN"
+    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ONLY_JOY"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_WITH_REF_ALL_PROP"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_FULL"
@@ -422,7 +423,8 @@ class ModelFitConfig:
     # real machine GROUND_EFFECT_ONLY: hovering and ground effect data only (48k datapoints)
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_FOR_PAPER"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
-    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_VAL"
+    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_03"
     val_ds_instance = "dataset_001"
     # === FROM HERE WITH MOVING AVERAGE FILTER APPLIED ===

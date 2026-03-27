@@ -12,7 +12,9 @@ def plot_trajectory():
     ###################################################
     # Load recording
     recfile = (
-        "NMPCTiltQdServo_real_machine_dataset_TRAIN", "dataset_001.csv"
+        # "NMPCTiltQdServo_real_machine_dataset_TRAIN", "dataset_001.csv"
+        # "NMPCTiltQdServo_real_machine_dataset_BAD_REF_TRAIN", "dataset_001.csv"
+        "NMPCTiltQdServo_real_machine_dataset_BAD_REF_VAL", "dataset_001.csv"
         # "NMPCTiltQdServo_residual_dataset_04", "dataset_001.csv"
         # "NMPCTiltQdServo_residual_dataset_06", "dataset_001.csv"
         # "NMPCTiltQdServo_real_machine_dataset_GROUND_EFFECT_ONLY", "dataset_002.csv"
@@ -28,10 +30,10 @@ def plot_trajectory():
     rec_dict = pd.read_csv(recfile)
 
     state = undo_jsonify(rec_dict["state"].to_numpy())
-    state_prop = undo_jsonify(rec_dict["state_pred"].to_numpy())
+    state_pred = undo_jsonify(rec_dict["state_pred"].to_numpy())
     # state_in = undo_jsonify(rec_dict["state_in"].to_numpy())
     # state_out = undo_jsonify(rec_dict["state_out"].to_numpy())
-    # state_prop = undo_jsonify(rec_dict["state_prop"].to_numpy())
+    # state_pred = undo_jsonify(rec_dict["state_prop"].to_numpy())
     control = undo_jsonify(rec_dict["control"].to_numpy())
     timestamp = rec_dict["timestamp"].to_numpy()
     dt = rec_dict["dt"].to_numpy()
@@ -39,14 +41,14 @@ def plot_trajectory():
     if ModelFitConfig.prop_long_horizon:
         state_out = state[10:, :]
         state_in = state[:-10, :]
-        state_prop = state_prop[:-10, :]
+        state_pred = state_pred[:-10, :]
         control = control[:-10, :]
         dt = dt[:-10]
         timestamp = timestamp[:-10]
     else:
         state_out = state[1:, :]
         state_in = state[:-1, :]
-        state_prop = state_prop[:-1, :]
+        state_pred = state_pred[:-1, :]
         control = control[:-1, :]
         dt = dt[:-1]
         timestamp = timestamp[:-1]
@@ -57,7 +59,7 @@ def plot_trajectory():
         plt.subplot(state_in.shape[1], 1, dim + 1)
         plt.plot(timestamp, state_in[:, dim], label="state_in")
         plt.plot(timestamp, state_out[:, dim], label="state_out")
-        plt.plot(timestamp, state_prop[:, dim], label="state_prop")
+        plt.plot(timestamp, state_pred[:, dim], label="state_pred")
         plt.xlim(timestamp[0], timestamp[-1])
         plt.ylabel(f"D{dim}")
         plt.grid("on")
@@ -88,7 +90,7 @@ def plot_trajectory():
     plt.title("Dim 3 zoom in")
     plt.plot(timestamp, state_in[:, 3], label="state_in")
     plt.plot(timestamp, state_out[:, 3], label="state_out")
-    plt.plot(timestamp, state_prop[:, 3], label="state_prop")
+    plt.plot(timestamp, state_pred[:, 3], label="state_pred")
     plt.xlim(timestamp[0], timestamp[-1])
     plt.grid("on")
     plt.legend(loc="upper right")
@@ -98,7 +100,7 @@ def plot_trajectory():
     plt.title("Dim 4 zoom in")
     plt.plot(timestamp, state_in[:, 4], label="state_in")
     plt.plot(timestamp, state_out[:, 4], label="state_out")
-    plt.plot(timestamp, state_prop[:, 4], label="state_prop")
+    plt.plot(timestamp, state_pred[:, 4], label="state_pred")
     plt.xlim(timestamp[0], timestamp[-1])
     plt.grid("on")
     plt.legend(loc="upper right")
@@ -108,7 +110,7 @@ def plot_trajectory():
     plt.title("Dim 5 zoom in")
     plt.plot(timestamp, state_in[:, 5], label="state_in")
     plt.plot(timestamp, state_out[:, 5], label="state_out")
-    plt.plot(timestamp, state_prop[:, 5], label="state_prop")
+    plt.plot(timestamp, state_pred[:, 5], label="state_pred")
     plt.xlim(timestamp[0], timestamp[-1])
     plt.grid("on")
     plt.legend(loc="upper right")
@@ -131,7 +133,7 @@ def plot_trajectory():
 
     # Labels
     dt = np.expand_dims(dt, 1)
-    y_true = (state_out - state_prop) / dt
+    y_true = (state_out - state_pred) / dt
     a_idx = [3, 4, 5]
 
     # Apply moving average filter to smooth the labels

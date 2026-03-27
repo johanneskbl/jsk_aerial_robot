@@ -91,11 +91,17 @@ class TrajectoryDataset(Dataset):
         control = undo_jsonify(self.df["control"].to_numpy())
         dt = self.df["dt"].to_numpy()
         timestamp = self.df["timestamp"].to_numpy()
+        recording_start_idx = undo_jsonify(self.df["recording_start_idx"].to_numpy(), to_float=False)[0]  # All rows have the same entry
 
         # Adjust for size of state_out
         if ModelFitConfig.prop_long_horizon:
             # Offset by 10 because T_step is 0.1s but the data is sampled at 100Hz
             state_out = state[10:, :]
+            if recording_start_idx.shape[0] > 1:
+                # Multiple recordings have been concatenated, therefore we map artificially continue state_out to avoid outliers in the label
+                for i in range(1, recording_start_idx.shape[0]):
+                    start_idx = recording_start_idx[i]
+                    state_out[start_idx - 10:start_idx, :] = np.tile(state_out[start_idx - 11, :], (10, 1))
             state_in = state[:-10, :]
             state_prop = state_prop[:-10, :]
             control = control[:-10, :]
@@ -104,6 +110,10 @@ class TrajectoryDataset(Dataset):
             state_raw = state_in.copy()
         else:
             state_out = state[1:, :]
+            if recording_start_idx.shape[0] > 1:
+                for i in range(1, recording_start_idx.shape[0]):
+                    start_idx = recording_start_idx[i]
+                    state_out[start_idx - 1, :] = state_out[start_idx - 2, :]
             state_in = state[:-1, :]
             state_prop = state_prop[:-1, :]
             control = control[:-1, :]

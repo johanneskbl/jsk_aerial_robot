@@ -121,27 +121,30 @@ def get_synched_data_from_rosbag(file_path: str, apply_temporal_filter: bool) ->
     ]
     data_alpha_s = data_alpha_s.dropna()
 
-    # Linear acceleration in Body (from IMU)
-    data_lin_acc_b = df[
-        [
-            "__time",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z",
+    include_acceleration = "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x" in df.columns and \
+                           "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x" in df.columns
+    if include_acceleration:
+        # Linear acceleration in Body (from IMU)
+        data_lin_acc_b = df[
+            [
+                "__time",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z",
+            ]
         ]
-    ]
-    data_lin_acc_b = data_lin_acc_b.dropna()
+        data_lin_acc_b = data_lin_acc_b.dropna()
 
-    # Linear acceleration in World (from IMU)
-    data_lin_acc_w = df[
-        [
-            "__time",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z",
+        # Linear acceleration in World (from IMU)
+        data_lin_acc_w = df[
+            [
+                "__time",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z",
+            ]
         ]
-    ]
-    data_lin_acc_w = data_lin_acc_w.dropna()
+        data_lin_acc_w = data_lin_acc_w.dropna()
 
     # Thrust command
     data_thrust_cmd = df[
@@ -446,33 +449,34 @@ def get_synched_data_from_rosbag(file_path: str, apply_temporal_filter: bool) ->
         t_ref, t, data_alpha_s["/beetle1/nmpc/record_pred/states[0]/servo_angles[3]"]
     )
 
-    # Linear acceleration in Body
-    t = np.array(data_lin_acc_b["__time"])
-    data_lin_acc_b_interp = pd.DataFrame()
-    data_lin_acc_b_interp["__time"] = t_ref
-    data_lin_acc_b_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x"] = np.interp(
-        t_ref, t, data_lin_acc_b["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x"]
-    )
-    data_lin_acc_b_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y"] = np.interp(
-        t_ref, t, data_lin_acc_b["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y"]
-    )
-    data_lin_acc_b_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z"] = np.interp(
-        t_ref, t, data_lin_acc_b["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z"]
-    )
+    if include_acceleration:
+        # Linear acceleration in Body
+        t = np.array(data_lin_acc_b["__time"])
+        data_lin_acc_b_interp = pd.DataFrame()
+        data_lin_acc_b_interp["__time"] = t_ref
+        data_lin_acc_b_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x"] = np.interp(
+            t_ref, t, data_lin_acc_b["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x"]
+        )
+        data_lin_acc_b_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y"] = np.interp(
+            t_ref, t, data_lin_acc_b["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y"]
+        )
+        data_lin_acc_b_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z"] = np.interp(
+            t_ref, t, data_lin_acc_b["/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z"]
+        )
 
-    # Linear acceleration in World
-    t = np.array(data_lin_acc_w["__time"])
-    data_lin_acc_w_interp = pd.DataFrame()
-    data_lin_acc_w_interp["__time"] = t_ref
-    data_lin_acc_w_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x"] = np.interp(
-        t_ref, t, data_lin_acc_w["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x"]
-    )
-    data_lin_acc_w_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y"] = np.interp(
-        t_ref, t, data_lin_acc_w["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y"]
-    )
-    data_lin_acc_w_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z"] = np.interp(
-        t_ref, t, data_lin_acc_w["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z"]
-    )
+        # Linear acceleration in World
+        t = np.array(data_lin_acc_w["__time"])
+        data_lin_acc_w_interp = pd.DataFrame()
+        data_lin_acc_w_interp["__time"] = t_ref
+        data_lin_acc_w_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x"] = np.interp(
+            t_ref, t, data_lin_acc_w["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x"]
+        )
+        data_lin_acc_w_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y"] = np.interp(
+            t_ref, t, data_lin_acc_w["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y"]
+        )
+        data_lin_acc_w_interp["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z"] = np.interp(
+            t_ref, t, data_lin_acc_w["/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z"]
+        )
 
     # Thrust command
     # NOTE: No need to interpolate since this is the reference time series
@@ -726,20 +730,21 @@ def get_synched_data_from_rosbag(file_path: str, apply_temporal_filter: bool) ->
             "/beetle1/nmpc/record_pred/states[0]/servo_angles[3]",
         ]
     ].to_numpy()
-    data["linear_acc_body"] = data_lin_acc_b_interp[
-        [
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z",
-        ]
-    ].to_numpy()
-    data["linear_acc_world"] = data_lin_acc_w_interp[
-        [
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y",
-            "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z",
-        ]
-    ].to_numpy()
+    if include_acceleration:
+        data["linear_acc_body"] = data_lin_acc_b_interp[
+            [
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/x",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/y",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_body_frame/z",
+            ]
+        ].to_numpy()
+        data["linear_acc_world"] = data_lin_acc_w_interp[
+            [
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/x",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/y",
+                "/beetle1/sensor_plugin/imu1/acc_only/acc_world_frame/z",
+            ]
+        ].to_numpy()
 
     data["thrust_cmd"] = data_thrust_cmd[
         [
@@ -860,8 +865,8 @@ def get_synched_data_from_rosbag(file_path: str, apply_temporal_filter: bool) ->
         mean_dt = np.mean(data["dt"])
         std_dt = np.std(data["dt"])
         print(
-            f"[INFO] Applying temporal filter to data with mean dt = {mean_dt:.2f}s and std dt = {std_dt:.2f}s. ",
-            f"Removing all dt under {mean_dt - std_dt * 3:.2f}s and over {mean_dt + std_dt * 3:.2f}s.",
+            f"[INFO] Applying temporal filter to data with mean dt = {mean_dt:.4f}s and std dt = {std_dt:.4f}s. ",
+            f"Removing all dt under {mean_dt - std_dt * 4:.4f}s", #and over {mean_dt + std_dt * 3:.2f}s.",
         )
 
         # 1. Filter out too large timesteps by shortening them to mean_dt
@@ -959,8 +964,8 @@ if __name__ == "__main__":
     """
     ############## Configuration ##############
     # Name of the dataset to be created
-    ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ONLY_JOY"
-    # ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    # ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_TRAIN"
+    ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_VAL"
     ds_dir = os.path.join(DirectoryConfig.DATA_DIR, ds_name)
 
     apply_temporal_filter = True
@@ -999,11 +1004,14 @@ if __name__ == "__main__":
         ### TRAINING ###
         # "2025-09-10-17-09-30_long_flight_ground_effect_targets_mode_10_success_TRAIN_WITH_REF.csv",
         # "2025-09-10-18-52-13_multiple_smach_trajs_focus_on_rotation_mode_10_TRAIN_WITH_REF_FULL.csv",
-        "2026-02-11-14-56-18_DATASET_RECORDING_SUCCESS_mode_10_all_record_hover_and_joystick_mov_incl_rotation_long_FULL.csv",
+        # "2026-02-11-14-56-18_DATASET_RECORDING_SUCCESS_mode_10_all_record_hover_and_joystick_mov_incl_rotation_long_FULL.csv",
         # "2026-02-11-15-36-47_DATASET_RECORDING_SUCCESS_mode_10_all_record_mutilple_trajs_incl_rotation_with_mirrored_versions_FULL.csv",
+        # "2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS.csv",
+        # "2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS2.csv",
         ### VALIDATION ###
         # "2025-09-10-16-44-59_long_flight_ground_effect_targets_mode_10_solver_error_for_aggressive_target_success_VAL_WITH_REF.csv",
         # "2026-02-11-13-48-15_DATASET_RECORDING_SUCCESS_mode_10_all_record_hover_and_joystick_mov_incl_rotation_FULL.csv",
+        "2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS1.csv",
         ### HOVERING & GROUND EFFECT TRAIN ###
         # NOT THIS SINCE TOO AGGRESSIVE: "2025-09-10-16-44-59_long_flight_ground_effect_targets_mode_10_solver_error_for_aggressive_target_success_GROUND_EFFECT_ONLY.csv",
         # "2025-09-10-18-52-13_multiple_smach_trajs_focus_on_rotation_mode_10_GROUND_EFFECT_ONLY.csv",
@@ -1038,6 +1046,7 @@ if __name__ == "__main__":
     # Time step
     timestamp = data["timestamp"].squeeze()
     dt = data["dt"]
+    recording_start_idx = np.tile(data["recording_start_idx"], (len(timestamp), 1))
 
     # State in
     state = np.hstack(
@@ -1070,8 +1079,10 @@ if __name__ == "__main__":
     )
 
     # Acceleration measurements
-    acc_body = data["linear_acc_body"]
-    acc_world = data["linear_acc_world"]
+    include_acceleration = "linear_acc_body" in data and "linear_acc_world" in data
+    if include_acceleration:
+        acc_body = data["linear_acc_body"]
+        acc_world = data["linear_acc_world"]
 
     # Reference state
     state_ref = np.hstack(
@@ -1159,15 +1170,17 @@ if __name__ == "__main__":
     ############## Save dataset ##############
     dataset_dict = {
         "timestamp": timestamp,
+        "recording_start_idx": recording_start_idx,
         "dt": dt,
         "state": state,
         "state_pred": state_pred,
         "control": control,
-        "acc_body": acc_body,
-        "acc_world": acc_world,
         "state_ref": state_ref,
         "control_ref": control_ref,        
     }
+    if include_acceleration:
+        dataset_dict["acc_body"] = acc_body
+        dataset_dict["acc_world"] = acc_world
 
     # Generate new CSV to store data in
     rec_json = dict()

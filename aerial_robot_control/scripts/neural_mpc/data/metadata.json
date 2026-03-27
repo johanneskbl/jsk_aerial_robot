@@ -3304,5 +3304,70 @@
             "world_radius": 3,
             "seed": 897
         }
+    },
+    "NMPCTiltQdServo_real_machine_dataset_BAD_REF_TRAIN": {
+        "date": "2026-03-27 15:22:21",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS1.csv",
+            "~/ros/rosbag_files/csv/2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS2.csv",
+            "~/ros/rosbag_files/csv/2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS2.csv"
+        ],
+        "duration": [
+            151.14937281608582,
+            206.60011792182922,
+            187.54132294654846
+        ],
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            },
+            "trained_models": [
+                "neuralmodel_195",
+                "neuralmodel_195",
+                "neuralmodel_195",
+                "neuralmodel_195",
+                "neuralmodel_195",
+                "neuralmodel_195",
+                "neuralmodel_195",
+                "neuralmodel_196",
+                "neuralmodel_197",
+                "neuralmodel_198",
+                "neuralmodel_199",
+                "neuralmodel_200",
+                "neuralmodel_201",
+                "neuralmodel_202",
+                "neuralmodel_203"
+            ]
+        }
+    },
+    "NMPCTiltQdServo_real_machine_dataset_BAD_REF_VAL": {
+        "date": "2026-03-27 15:24:25",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS1.csv"
+        ],
+        "duration": 174.1992290019989,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
     }
 }
