@@ -688,20 +688,28 @@ class NeuralMPC(RecedingHorizonBase):
         #                     j(w1*y2 - x1*z2 + y1*w2 + z1*x2)
         #                     k(w1*z2 + x1*y2 - y1*x2 + z1*w2)
         # NOTE: Here q1 is q_curr and q2 is q_ref because we want to compute the error from the current to desired orientation.
-        qe_w = self.qwr * self.qw - self.qxr * self.qx - self.qyr * self.qy - self.qzr * self.qz
-        qe_x = self.qwr * self.qx + self.qxr * self.qw + self.qyr * self.qz - self.qzr * self.qy
-        qe_y = self.qwr * self.qy - self.qxr * self.qz + self.qyr * self.qw + self.qzr * self.qx
-        qe_z = self.qwr * self.qz + self.qxr * self.qy - self.qyr * self.qx + self.qzr * self.qw
+        # NOTE: Minimizing qe_w drives cos(θ/2) -> 0, i.e. toward a 180° rotation, not toward alignment. Therefore, if the weight Qq_w!=0
+        # we need to set the cost to qe_w -> 1, not qe_w -> 0. This means not to include qe_w directly into state_y but to include (1 - qe_w) instead.
+        # qe_w = self.qwr * self.qw - self.qxr * self.qx - self.qyr * self.qy - self.qzr * self.qz
+        # qe_x = self.qwr * self.qx + self.qxr * self.qw + self.qyr * self.qz - self.qzr * self.qy
+        # qe_y = self.qwr * self.qy - self.qxr * self.qz + self.qyr * self.qw + self.qzr * self.qx
+        # qe_z = self.qwr * self.qz + self.qxr * self.qy - self.qyr * self.qx + self.qzr * self.qw
 
-        # Old solution from Jinjie
-        # qe_x =  self.qwr * self.qx - self.qw * self.qxr - self.qyr * self.qz + self.qy * self.qzr
-        # qe_y =  self.qwr * self.qy - self.qw * self.qyr + self.qxr * self.qz - self.qx * self.qzr
-        # qe_z = -self.qxr * self.qy + self.qx * self.qyr + self.qwr * self.qz - self.qw * self.qzr
+        # qe_w = -1 * qe_w
+        # qe_x = -1 * qe_x
+        # qe_y = -1 * qe_y
+        # qe_z = -1 * qe_z
+
+        # Using q_inv (somehow makes the tracking correct else it mirrors the reference)
+        qe_w = 1  # Ignore since it the tracking is already sufficiently defined by qx, qy, qz
+        qe_x = self.qwr * self.qx - self.qxr * self.qw - self.qyr * self.qz + self.qzr * self.qy
+        qe_y = self.qwr * self.qy + self.qxr * self.qz - self.qyr * self.qw - self.qzr * self.qx
+        qe_z = self.qwr * self.qz - self.qxr * self.qy + self.qyr * self.qx - self.qzr * self.qw
 
         state_y = ca.vertcat(
             self.p,
             self.v,
-            qe_w + self.qwr,
+            (1 - qe_w)**2 + self.qwr,
             qe_x + self.qxr,
             qe_y + self.qyr,
             qe_z + self.qzr,
