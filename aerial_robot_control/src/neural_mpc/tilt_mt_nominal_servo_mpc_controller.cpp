@@ -102,8 +102,16 @@ bool nmpc::TiltMtNominalServoMPC::update()
     // After press activate button, but before takeoff
     // Warm-up the solver & network (if any) before actual takeoff
     if (navigator_->getNaviState() == aerial_robot_navigation::ARM_ON_STATE)
+    {
+      double start_time = ros::Time::now().toSec();
       controlCore(true);
-    return false;
+      double core_time = ros::Time::now().toSec();
+      publishRecording();
+      double record_time = ros::Time::now().toSec();
+      ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - controlCore(): %.3f ms", (core_time - start_time) * 1000.0);
+      ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - publishRecording(): %.3f ms", (record_time - core_time) * 1000.0);
+      return false;
+    }
   }
   else
   {
