@@ -160,6 +160,23 @@ bool nmpc::TiltMtNeuralServoPlusMPC::update()
       Auxiliary:
           - sendCmd: 0.00 ms
           - recording: 0.00 ms
+
+    On Jetson:
+      Nominal:
+          - controlCore: 7.5 ms
+      Neural (neuralmodel_185):
+          - controlCore:
+      Neural (neuralmodel_185 & linearized order 1):
+          - controlCore:
+              - construction:
+              - convert:
+              - forward pass:
+              - linearization:
+              - flatten:
+              - set params:
+      Auxiliary:
+          - sendCmd:
+          - recording: 0.03 ms
     */
     double start_time = ros::WallTime::now().toSec();
     controlCore();
