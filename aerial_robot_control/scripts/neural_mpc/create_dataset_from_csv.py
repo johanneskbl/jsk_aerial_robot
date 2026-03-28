@@ -182,15 +182,32 @@ def get_synched_data_from_rosbag(file_path: str, apply_temporal_filter: bool) ->
     data_xyz_pred = data_xyz_pred.dropna()
 
     # Predicted velocity
-    data_vel_pred = df[
-        [
-            "__time",
-            "/beetle1/nmpc/record_pred/states[1]/linear_velocity/x",
-            "/beetle1/nmpc/record_pred/states[1]/linear_velocity/y",
-            "/beetle1/nmpc/record_pred/states[1]/linear_velocity/z",
+    # data_vel_pred = df[
+    #     [
+    #         "__time",
+    #         "/beetle1/nmpc/record_pred/states[1]/linear_velocity/x",
+    #         "/beetle1/nmpc/record_pred/states[1]/linear_velocity/y",
+    #         "/beetle1/nmpc/record_pred/states[1]/linear_velocity/z",
+    #     ]
+    # ]
+    # data_vel_pred = data_vel_pred.dropna()
+    ########### TEMPORARY ###########
+    # Temporal context window: Predict for entire horizon -> need label for all nodes
+    # For now only velocity as label so for now just store these
+    data_vel_pred = {}
+    for i in range(1,21):
+        data_vel_pred_i = df[
+            [
+                "__time",
+                f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/x",
+                f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/y",
+                f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/z",
+            ]
         ]
-    ]
-    data_vel_pred = data_vel_pred.dropna()
+        data_vel_pred_i = data_vel_pred_i.dropna()
+        # Store with key as the node index in the horizon
+        data_vel_pred[i] = data_vel_pred_i
+
 
     # Predicted quaternion
     data_qwxyz_pred = df[
@@ -513,18 +530,34 @@ def get_synched_data_from_rosbag(file_path: str, apply_temporal_filter: bool) ->
     )
 
     # Predicted velocity
-    t = np.array(data_vel_pred["__time"])
+    # t = np.array(data_vel_pred["__time"])
+    # data_vel_pred_interp = pd.DataFrame()
+    # data_vel_pred_interp["__time"] = t_ref
+    # data_vel_pred_interp["/beetle1/nmpc/record_pred/states[1]/linear_velocity/x"] = np.interp(
+    #     t_ref, t, data_vel_pred["/beetle1/nmpc/record_pred/states[1]/linear_velocity/x"]
+    # )
+    # data_vel_pred_interp["/beetle1/nmpc/record_pred/states[1]/linear_velocity/y"] = np.interp(
+    #     t_ref, t, data_vel_pred["/beetle1/nmpc/record_pred/states[1]/linear_velocity/y"]
+    # )
+    # data_vel_pred_interp["/beetle1/nmpc/record_pred/states[1]/linear_velocity/z"] = np.interp(
+    #     t_ref, t, data_vel_pred["/beetle1/nmpc/record_pred/states[1]/linear_velocity/z"]
+    # )
+
     data_vel_pred_interp = pd.DataFrame()
-    data_vel_pred_interp["__time"] = t_ref
-    data_vel_pred_interp["/beetle1/nmpc/record_pred/states[1]/linear_velocity/x"] = np.interp(
-        t_ref, t, data_vel_pred["/beetle1/nmpc/record_pred/states[1]/linear_velocity/x"]
-    )
-    data_vel_pred_interp["/beetle1/nmpc/record_pred/states[1]/linear_velocity/y"] = np.interp(
-        t_ref, t, data_vel_pred["/beetle1/nmpc/record_pred/states[1]/linear_velocity/y"]
-    )
-    data_vel_pred_interp["/beetle1/nmpc/record_pred/states[1]/linear_velocity/z"] = np.interp(
-        t_ref, t, data_vel_pred["/beetle1/nmpc/record_pred/states[1]/linear_velocity/z"]
-    )
+    for i in range(1,21):
+        t = np.array(data_vel_pred[i]["__time"])
+        data_vel_pred_interp_i = pd.DataFrame()
+        data_vel_pred_interp_i["__time"] = t_ref
+        data_vel_pred_interp_i[f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/x"] = np.interp(
+            t_ref, t, data_vel_pred[i][f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/x"]
+        )
+        data_vel_pred_interp_i[f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/y"] = np.interp(
+            t_ref, t, data_vel_pred[i][f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/y"]
+        )
+        data_vel_pred_interp_i[f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/z"] = np.interp(
+            t_ref, t, data_vel_pred[i][f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/z"]
+        )
+        data_vel_pred_interp = pd.concat([data_vel_pred_interp, data_vel_pred_interp_i], axis=1)
 
     # Predicted quaternion
     t = np.array(data_qwxyz_pred["__time"])
@@ -770,13 +803,21 @@ def get_synched_data_from_rosbag(file_path: str, apply_temporal_filter: bool) ->
             "/beetle1/nmpc/record_pred/states[1]/position/z",
         ]
     ].to_numpy()
-    data["velocity_pred"] = data_vel_pred_interp[
-        [
-            "/beetle1/nmpc/record_pred/states[1]/linear_velocity/x",
-            "/beetle1/nmpc/record_pred/states[1]/linear_velocity/y",
-            "/beetle1/nmpc/record_pred/states[1]/linear_velocity/z",
-        ]
-    ].to_numpy()
+    # data["velocity_pred"] = data_vel_pred_interp[
+    #     [
+    #         "/beetle1/nmpc/record_pred/states[1]/linear_velocity/x",
+    #         "/beetle1/nmpc/record_pred/states[1]/linear_velocity/y",
+    #         "/beetle1/nmpc/record_pred/states[1]/linear_velocity/z",
+    #     ]
+    # ].to_numpy()
+    for i in range(1,21):
+        data[f"velocity_pred_{i}"] = data_vel_pred_interp[
+            [
+                f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/x",
+                f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/y",
+                f"/beetle1/nmpc/record_pred/states[{i}]/linear_velocity/z",
+            ]
+        ].to_numpy()
     data["quaternion_pred"] = data_qwxyz_pred_interp[
         [
             "/beetle1/nmpc/record_pred/states[1]/orientation/w",
@@ -964,8 +1005,8 @@ if __name__ == "__main__":
     """
     ############## Configuration ##############
     # Name of the dataset to be created
-    # ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_TRAIN"
-    ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_VAL"
+    ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_TRAIN"
+    # ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_VAL"
     ds_dir = os.path.join(DirectoryConfig.DATA_DIR, ds_name)
 
     apply_temporal_filter = True
@@ -1006,12 +1047,12 @@ if __name__ == "__main__":
         # "2025-09-10-18-52-13_multiple_smach_trajs_focus_on_rotation_mode_10_TRAIN_WITH_REF_FULL.csv",
         # "2026-02-11-14-56-18_DATASET_RECORDING_SUCCESS_mode_10_all_record_hover_and_joystick_mov_incl_rotation_long_FULL.csv",
         # "2026-02-11-15-36-47_DATASET_RECORDING_SUCCESS_mode_10_all_record_mutilple_trajs_incl_rotation_with_mirrored_versions_FULL.csv",
-        # "2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS.csv",
-        # "2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS2.csv",
+        "2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS.csv",
+        "2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS2.csv",
         ### VALIDATION ###
         # "2025-09-10-16-44-59_long_flight_ground_effect_targets_mode_10_solver_error_for_aggressive_target_success_VAL_WITH_REF.csv",
         # "2026-02-11-13-48-15_DATASET_RECORDING_SUCCESS_mode_10_all_record_hover_and_joystick_mov_incl_rotation_FULL.csv",
-        "2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS1.csv",
+        # "2026-03-26-14-51-51_mode_10_jetson_phys_RECORDING_JOYSTICK_GROUND_EFFECT_AND_ROTATIONS_7_MINS_SUCCESS1.csv",
         ### HOVERING & GROUND EFFECT TRAIN ###
         # NOT THIS SINCE TOO AGGRESSIVE: "2025-09-10-16-44-59_long_flight_ground_effect_targets_mode_10_solver_error_for_aggressive_target_success_GROUND_EFFECT_ONLY.csv",
         # "2025-09-10-18-52-13_multiple_smach_trajs_focus_on_rotation_mode_10_GROUND_EFFECT_ONLY.csv",
@@ -1063,7 +1104,7 @@ if __name__ == "__main__":
     state_pred = np.hstack(
         (
             data["position_pred"],
-            data["velocity_pred"],
+            *[data[f"velocity_pred_{i}"] for i in range(1,21)],
             data["quaternion_pred"],
             data["angular_velocity_pred"],
             data["servo_angle_state_pred"],
