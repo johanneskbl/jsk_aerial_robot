@@ -46,7 +46,7 @@ class EnvConfig:
             "plus_neural": True,
             "minus_neural": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
-            "neural_model_instance": "neuralmodel_201",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            "neural_model_instance": "neuralmodel_209",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
@@ -153,6 +153,17 @@ class EnvConfig:
             # 186 (GOOD CL! worse train, same val): Same as 185 but with 32 nodes instead of 64 nodes (single layer)
             # 187 (decent learning): FOR ROBOMECH PAPER Same as 185 but on dataset with simulated labels (nominal control, sim 185 model)
             # 188: Vanilla configuration without any additional losses (to observe difference when adding new energy reg loss)
+            # 196 (low training loss, insane overfitting): Vanilla configuration with 32 nodes on 1 layer no extra losses or dropout
+            # 197-202: Experiments if the energy regularization makes a difference. Lesson: Slightly improved training and val loss but not fixing overfitting.
+            #                                                                               But sharper gradients in input output mapping.
+            #                                                                               Dropout really negates overfitting but also negates learning - maybe 0.5 is overkill.
+            # 203 (good learning and no overfitting): Same as 196 but with dropout 0.2
+            # 204 (good learning and no overfitting): Same as 203 but with dropout 0.1 -> GOAL!
+            # 205 (lower learning but strong overfitting): Same as 203 but with dropout 0.01
+            # 206 (same: good learning and no overfitting): Same as 204 but with energy regularization of 1e3
+            # 207 (Very high loss ~800): Same as 204 but with absolute (not relative) energy regularization penalty of  -> very high loss
+            # 208 (decent learning, no overfitting but larger val loss; energy reg loss is const 0.008207!): Same as 207 but with energy reg 1e-5
+            # 209 (same behavior just higher loss values as energy loss doesnt change!; energy reg loss is const 0.8207!): Same as 208 but with energy reg 1e-3
             # ---- VAE ----
             # 1 (bad learning & stepwise output): Use VAE! NOT LEARNING LOGVAR
             # 2 (no learning & very low KL Loss): Learning logvar
@@ -194,7 +205,7 @@ class EnvConfig:
         "use_nominal_simulator": False,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 10,
+        "max_sim_time": 60,
         "world_radius": 2,
         "seed": 897,
     }
@@ -210,9 +221,9 @@ class EnvConfig:
             "trajectories": [
                 # "line",
                 # "circle",
-                # "helix",
-                # "lemniscate_I",
-                # "lemniscate_II",
+                "helix",
+                "lemniscate_I",
+                "lemniscate_II",
                 "roll",
                 "pitch",
             ],  # "step", "hover", "takeoff", "smooth_takeoff", "circle", "helix", "lemniscate_I", "lemniscate_II", "roll", "pitch"
@@ -320,7 +331,7 @@ class NetworkConfig:
     use_batch_norm = False
 
     # Use dropout after each layer
-    dropout_p = 0.5  # To disable dropout, set to 0.0
+    dropout_p = 0.1  # To disable dropout, set to 0.0
     dropout_input = True
 
     # -----------------------------------------------------------------------------------------
@@ -344,7 +355,7 @@ class NetworkConfig:
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Energy regularization
-    energy_lambda = 1e3  # Set to 0.0 to disable
+    energy_lambda = 1e-3  # (for relative 1e3)  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon

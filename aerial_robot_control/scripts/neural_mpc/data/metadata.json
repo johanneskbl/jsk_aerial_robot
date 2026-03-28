@@ -3345,8 +3345,25 @@
                 "neuralmodel_200",
                 "neuralmodel_201",
                 "neuralmodel_202",
-                "neuralmodel_203"
+                "neuralmodel_203",
+                "neuralmodel_203",
+                "neuralmodel_204",
+                "neuralmodel_205",
+                "neuralmodel_206",
+                "neuralmodel_207",
+                "neuralmodel_208",
+                "neuralmodel_209"
             ]
+        },
+        "dataset_002": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
         }
     },
     "NMPCTiltQdServo_real_machine_dataset_BAD_REF_VAL": {

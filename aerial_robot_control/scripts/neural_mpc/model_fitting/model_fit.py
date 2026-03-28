@@ -438,7 +438,7 @@ def train(dataloader, model, loss_function, energy_reg: EnergyRegularization, we
     return loss_avg
 
 
-def inference(dataloader, model, loss_function, energy_reg, weight, device):
+def inference(dataloader, model, loss_function, energy_reg: EnergyRegularization, weight, device):
     """
     Combined inference function for validation and testing.
     """
