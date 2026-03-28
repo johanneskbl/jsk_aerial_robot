@@ -3049,15 +3049,15 @@
         }
     },
     "NMPCTiltQdServo_real_machine_dataset_TRAIN": {
-        "date": "2026-02-14 10:38:02",
+        "date": "2026-03-28 21:21:02",
         "real_machine": true,
         "rosbag_file": [
-            "~/ros/rosbag_files/csv/2026-02-11-14-56-18_DATASET_RECORDING_SUCCESS_mode_10_all_record_hover_and_joystick_mov_incl_rotation_long_FULL.csv",
-            "~/ros/rosbag_files/csv/2026-02-11-15-36-47_DATASET_RECORDING_SUCCESS_mode_10_all_record_mutilple_trajs_incl_rotation_with_mirrored_versions_FULL.csv"
+            "~/ros/rosbag_files/csv/2026-03-28-07-48-33_mode_10_RECORDING_JOYSTICK_7_MIN_success.csv",
+            "~/ros/rosbag_files/csv/2026-03-28-08-27-27_mode_10_RECORDING_TRAJS_6_MINS_success.csv"
         ],
         "duration": [
-            252.66358709335327,
-            244.81487202644348
+            -1,
+            -1
         ],
         "temporal_filtering": true,
         "mpc_type": "NMPCTiltQdServo",
@@ -3072,49 +3072,21 @@
                 "payload": false
             },
             "trained_models": [
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_169",
-                "neuralmodel_170",
-                "neuralmodel_176",
-                "neuralmodel_177",
-                "neuralmodel_178",
-                "neuralmodel_179",
-                "neuralmodel_180",
-                "neuralmodel_181",
-                "neuralmodel_182",
-                "neuralmodel_183",
-                "neuralmodel_184",
-                "neuralmodel_185",
-                "neuralmodel_186",
-                "neuralmodel_186",
-                "neuralmodel_188"
+                "neuralmodel_211",
+                "neuralmodel_212",
+                "neuralmodel_213",
+                "neuralmodel_213",
+                "neuralmodel_214"
             ]
-        },
-        "dataset_002": {
-            "disturbances": {
-                "cog_dist": false,
-                "cog_dist_model": "",
-                "cog_dist_factor": 0.0,
-                "motor_noise": false,
-                "drag": false,
-                "payload": false
-            }
         }
     },
     "NMPCTiltQdServo_real_machine_dataset_VAL": {
-        "date": "2026-02-14 10:42:17",
+        "date": "2026-03-28 21:30:02",
         "real_machine": true,
         "rosbag_file": [
-            "~/ros/rosbag_files/csv/2026-02-11-13-48-15_DATASET_RECORDING_SUCCESS_mode_10_all_record_hover_and_joystick_mov_incl_rotation_FULL.csv"
+            "~/ros/rosbag_files/csv/2026-03-28-08-56-35_mode_10_RECORDING_TRAJS_AND_JOYSTICK_6_MINS_success.csv"
         ],
-        "duration": 166.19431686401367,
+        "duration": -1,
         "temporal_filtering": true,
         "mpc_type": "NMPCTiltQdServo",
         "T_samp": 0.01,

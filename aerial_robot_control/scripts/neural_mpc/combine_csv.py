@@ -43,6 +43,9 @@ def combine_csv_files(rosbag_dir: str, csv_files: Iterable[str], output_file: st
     else:
         output_path = os.path.join(rosbag_dir_expanded, output_expanded)
 
+    if os.path.exists(output_path):
+        raise FileExistsError(f"Output CSV already exists: {output_path}")
+
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     dataframes = [pd.read_csv(p) for p in input_paths]
@@ -62,9 +65,9 @@ def combine_csv_files(rosbag_dir: str, csv_files: Iterable[str], output_file: st
 if __name__ == "__main__":
     rosbag_dir = "~/ros/rosbag_files/csv"
     csv_files = [
-        "2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS1.csv",
-        "2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS2.csv",
+        "2026-03-28-07-48-33_mode_10_RECORDING_JOYSTICK_7_MIN_success1.csv",
+        "2026-03-28-07-48-33_mode_10_RECORDING_JOYSTICK_7_MIN_success2.csv",
     ]
-    output_file = "2026-03-26-15-24-32_mode_10_jetson_phys_RECORDING_TRAJS_CIRCLES_LEMNISCATES_TILT_ROLL_incl_YAW_OFFSET_AND_FIXPOINT_TRAJ_6_MINS_SUCCESS.csv"
+    output_file = "2026-03-28-07-48-33_mode_10_RECORDING_JOYSTICK_7_MIN_success.csv"
     output_path = combine_csv_files(rosbag_dir, csv_files, output_file)
     print(f"Successfully combined CSVs and written to {output_path}!")

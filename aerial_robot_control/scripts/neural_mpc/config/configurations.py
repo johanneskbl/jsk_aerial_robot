@@ -164,6 +164,12 @@ class EnvConfig:
             # 207 (Very high loss ~800): Same as 204 but with absolute (not relative) energy regularization penalty of  -> very high loss
             # 208 (decent learning, no overfitting but larger val loss; energy reg loss is const 0.008207!): Same as 207 but with energy reg 1e-5
             # 209 (same behavior just higher loss values as energy loss doesnt change!; energy reg loss is const 0.8207!): Same as 208 but with energy reg 1e-3
+            # ---- all before with bad ref and old phys / from now on really good dataset (correct phys, correct ref, no failure, two full recordings for train and one full for val) ----
+            # 211 (decent learning, no overfitting): Vanilla configuration with small network and dropout 0.1
+            # 212 (no learning) : Same as 211 but with absolute energy regularization 1e-3
+            # 213 (decent learning, no overfitting): Same as 211 but with absolute energy regularization 1e-5
+            # 214 (decent learning, no overfitting): Same as 211 but with relative energy regularization 1e3
+            
             # ---- VAE ----
             # 1 (bad learning & stepwise output): Use VAE! NOT LEARNING LOGVAR
             # 2 (no learning & very low KL Loss): Learning logvar
@@ -355,7 +361,7 @@ class NetworkConfig:
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Energy regularization
-    energy_lambda = 1e-3  # (for relative 1e3)  # Set to 0.0 to disable
+    energy_lambda = 1e3  # for relative 1e3 / for absolute 1e-5  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon
@@ -414,8 +420,7 @@ class ModelFitConfig:
     save_plots = False
 
     # ------- Dataset loading -------
-    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_TRAIN"
-    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
+    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ONLY_JOY"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_WITH_REF_ALL_PROP"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_FULL"
@@ -434,8 +439,7 @@ class ModelFitConfig:
     # real machine GROUND_EFFECT_ONLY: hovering and ground effect data only (48k datapoints)
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_FOR_PAPER"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
-    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_BAD_REF_VAL"
-    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_03"
     val_ds_instance = "dataset_001"
     # === FROM HERE WITH MOVING AVERAGE FILTER APPLIED ===

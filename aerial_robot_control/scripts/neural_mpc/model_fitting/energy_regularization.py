@@ -159,9 +159,9 @@ class EnergyRegularization:
         E_neural = 0.5 * self.mass * torch.sum(v_prop_neural * v_prop_neural, dim=1) + self.mass * self.gravity * z_prop_neural
 
         # Only penalize if neural-enhanced energy exceeds nominal energy
-        # return torch.relu(E_neural - E)
+        return torch.relu(E_neural - E)
         # Penalize total energy
-        return E_neural
+        # return E_neural
     
     def rk4_step(self, z_in: torch.Tensor, v_in: torch.Tensor, a_in: torch.Tensor, dt: torch.Tensor):
         k1_z = v_in[:, 2]
