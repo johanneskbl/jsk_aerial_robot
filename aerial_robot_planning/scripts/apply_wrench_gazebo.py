@@ -28,7 +28,7 @@ class ConstantForceApplier:
         # expressed in the body frame.
         self.offset_x = rospy.get_param("~offset_x", 0.0)
         self.offset_y = rospy.get_param("~offset_y", 0.0)
-        self.offset_z = rospy.get_param("~offset_z", 0.2)
+        self.offset_z = rospy.get_param("~offset_z", 0.0)  # 0.35
 
         # Fallback application point, expressed in the reference_frame
         self.point_x = rospy.get_param("~point_x", 0.0)
@@ -36,7 +36,7 @@ class ConstantForceApplier:
         self.point_z = rospy.get_param("~point_z", 0.0)
 
         # Target constant force (N)
-        self.force_x = rospy.get_param("~force_x", 5.0)
+        self.force_x = rospy.get_param("~force_x", -1.0)
         self.force_y = rospy.get_param("~force_y", 0.0)
         self.force_z = rospy.get_param("~force_z", 0.0)
 

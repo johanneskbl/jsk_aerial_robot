@@ -66,13 +66,13 @@ class AdmittanceState(smach.State):
         # ====== M D K ======
         self.Mp = np.diag([3, 3, 3])  # [kg]
         self.Mp_rev = np.linalg.inv(self.Mp)
-        self.Dp = np.diag([10, 10, 10])  # [N*s/m]
+        self.Dp = np.diag([5, 5, 5])  # [N*s/m]
         self.Kp = np.diag([5, 5, 5])  # [N/m]
 
-        self.Mq = np.diag([0.1, 0.1, 0.1])  # [kg*m^2]
+        self.Mq = np.diag([0.5, 0.5, 0.5])  # [kg*m^2]
         self.Mq_rev = np.linalg.inv(self.Mq)
         self.Dq = np.diag([0.5, 0.5, 0.5])  # [N*m*s/rad]
-        self.Kq = np.diag([0.1, 0.1, 0.1])  # [N*m/rad]
+        self.Kq = np.diag([1, 1, 1])  # [N*m/rad]
 
         # ====== admittance state ========
         self.p_a = np.zeros(3)  # [m]
