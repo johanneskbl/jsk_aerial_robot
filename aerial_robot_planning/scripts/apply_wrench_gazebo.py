@@ -15,21 +15,33 @@ class ConstantForceApplier:
         # Note: body_name must be a link name, not a model name
         # The format is usually "model_name::link_name"
         self.body_name = rospy.get_param("~body_name", "beetle1::root")
-        self.reference_frame = rospy.get_param("~reference_frame", "world")
         self.rate_hz = rospy.get_param("~rate", 50.0)
 
-        # Application point of the wrench, expressed in the reference_frame
+        # Force application mode:
+        # - "body_offset": apply the wrench at a point offset from body_name
+        #   and express both force and point in the body frame.
+        # - otherwise, use the provided reference_frame directly.
+        self.point_mode = rospy.get_param("~point_mode", "body_offset")
+        self.reference_frame = rospy.get_param("~reference_frame", "world")
+
+        # Offset of the application point from beetle1::root (or body_name),
+        # expressed in the body frame.
+        self.offset_x = rospy.get_param("~offset_x", 0.0)
+        self.offset_y = rospy.get_param("~offset_y", 0.0)
+        self.offset_z = rospy.get_param("~offset_z", 0.2)
+
+        # Fallback application point, expressed in the reference_frame
         self.point_x = rospy.get_param("~point_x", 0.0)
         self.point_y = rospy.get_param("~point_y", 0.0)
         self.point_z = rospy.get_param("~point_z", 0.0)
 
         # Target constant force (N)
-        self.force_x = rospy.get_param("~force_x", 0.0)
+        self.force_x = rospy.get_param("~force_x", 5.0)
         self.force_y = rospy.get_param("~force_y", 0.0)
         self.force_z = rospy.get_param("~force_z", 0.0)
 
         # Target constant torque (N*m)
-        self.torque_x = rospy.get_param("~torque_x", 0.2)
+        self.torque_x = rospy.get_param("~torque_x", 0.0)
         self.torque_y = rospy.get_param("~torque_y", 0.0)
         self.torque_z = rospy.get_param("~torque_z", 0.0)
 
@@ -70,18 +82,20 @@ class ConstantForceApplier:
         scale = max(0.0, min(1.0, elapsed / self.ramp_duration))
         return scale
 
+    def get_reference_frame_and_point(self):
+        if self.point_mode == "body_offset":
+            return self.reference_frame, Point(self.offset_x, self.offset_y, self.offset_z)
+
+        return self.reference_frame, Point(self.point_x, self.point_y, self.point_z)
+
     def build_request(self):
         scale = self.get_ramp_scale()
+        reference_frame, reference_point = self.get_reference_frame_and_point()
 
         req = ApplyBodyWrenchRequest()
         req.body_name = self.body_name
-        req.reference_frame = self.reference_frame
-
-        req.reference_point = Point(
-            x=self.point_x,
-            y=self.point_y,
-            z=self.point_z,
-        )
+        req.reference_frame = reference_frame
+        req.reference_point = reference_point
 
         req.wrench = Wrench()
         req.wrench.force.x = scale * self.force_x
@@ -97,11 +111,7 @@ class ConstantForceApplier:
 
     def run(self):
         rate = rospy.Rate(self.rate_hz)
-        rospy.loginfo(
-            "Applying ramped wrench to [%s] in frame [%s]",
-            self.body_name,
-            self.reference_frame,
-        )
+        rospy.loginfo("Applying ramped wrench to [%s]", self.body_name)
 
         while not rospy.is_shutdown():
             req = self.build_request()
@@ -110,8 +120,13 @@ class ConstantForceApplier:
                 self.apply_wrench_srv(req)
                 rospy.loginfo_throttle(
                     0.5,
-                    "Ramp scale: %.3f | Force: [%.3f, %.3f, %.3f] | Torque: [%.3f, %.3f, %.3f]",
+                    "Ramp scale: %.3f | Ref frame: %s | Point: [%.3f, %.3f, %.3f] | "
+                    "Force: [%.3f, %.3f, %.3f] | Torque: [%.3f, %.3f, %.3f]",
                     scale,
+                    req.reference_frame,
+                    req.reference_point.x,
+                    req.reference_point.y,
+                    req.reference_point.z,
                     scale * self.force_x,
                     scale * self.force_y,
                     scale * self.force_z,
