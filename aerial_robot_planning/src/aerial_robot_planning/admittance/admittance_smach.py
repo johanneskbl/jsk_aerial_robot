@@ -64,10 +64,15 @@ class AdmittanceState(smach.State):
         self.q_ee_in_body = np.array([[0, 0, 0, 1]]).T  # xyzw, same order as tf
         self.rot_body_ee = R.from_quat(self.q_ee_in_body.flatten()).as_matrix()
 
+        # ====== threshold to avoid too small wrench =====
+        # 0.5N, 0.1 Nm are based on the rosbag before.
+        self.force_thresh = 0.5  # [N]
+        self.torque_thresh = 0.1  # [N*m]
+
         # ====== M D K ======
         self.Mp = np.diag([3, 3, 3])  # [kg]
         self.Mp_rev = np.linalg.inv(self.Mp)
-        self.Dp = np.diag([5, 5, 5])  # [N*s/m]
+        self.Dp = np.diag([10, 10, 10])  # [N*s/m]
         self.Kp = np.diag([20, 20, 20])  # [N/m]    # 20 for rigid
 
         self.Mq = np.diag([0.5, 0.5, 0.5])  # [kg*m^2]
@@ -144,6 +149,13 @@ class AdmittanceState(smach.State):
 
         while not rospy.is_shutdown():
             force_w, torque_local = self.compute_wrench()
+
+            if np.linalg.norm(force_w) < self.force_thresh:
+                force_w = np.zeros(3)
+
+            if np.linalg.norm(torque_local) < self.torque_thresh:
+                torque_local = np.zeros(3)
+
             self.publish_wrench(force_w, torque_local)
 
             a_lin_a = self.Mp_rev @ (force_w - self.Dp @ self.v_a - self.Kp @ (self.p_a - self.p_r))
