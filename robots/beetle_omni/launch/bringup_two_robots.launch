@@ -47,4 +47,7 @@
         <arg name="spawn_yaw" value="0.0"/>
     </include>
 
+    <node pkg="topic_tools" type="relay" name="relay_ball2_pose"
+          args="/ball2/mocap/pose /hand/mocap/pose" />
+
 </launch>

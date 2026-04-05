@@ -14,7 +14,8 @@ class ConstantForceApplier:
         # ===== Parameters =====
         # Note: body_name must be a link name, not a model name
         # The format is usually "model_name::link_name"
-        self.body_name = rospy.get_param("~body_name", "beetle1::root")
+        self.robot_name = rospy.get_param("~robot_name", "ball2")
+        self.body_name = rospy.get_param("~body_name", self.robot_name + "::root")
         self.rate_hz = rospy.get_param("~rate", 50.0)
 
         # Force application mode:
@@ -24,7 +25,7 @@ class ConstantForceApplier:
         self.point_mode = rospy.get_param("~point_mode", "body_offset")
         self.reference_frame = rospy.get_param("~reference_frame", "world")
 
-        # Offset of the application point from beetle1::root (or body_name),
+        # Offset of the application point from root (or body_name),
         # expressed in the body frame.
         self.offset_x = rospy.get_param("~offset_x", 0.0)
         self.offset_y = rospy.get_param("~offset_y", 0.0)

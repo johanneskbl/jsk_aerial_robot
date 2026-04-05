@@ -265,7 +265,7 @@ class TrackState(smach.State):
 ###############################################
 def main(args):
     # Initialize a single ROS node for the entire SMACH-based system
-    rospy.init_node("mpc_smach_node")
+    rospy.init_node("mpc_smach_node", anonymous=True)
 
     # check if the robot_name exists in ROS
     if not rospy.has_param(args.robot_name):
