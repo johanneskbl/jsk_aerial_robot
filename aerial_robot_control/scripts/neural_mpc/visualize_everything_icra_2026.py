@@ -28,15 +28,17 @@ def main():
     # ds = "NMPCTiltQdServo_real_machine_dataset_01/dataset_013.csv"
     # ds = "NMPCTiltQdServo_real_machine_dataset_VAL_FOR_PAPER/dataset_003.csv"
     # VAL: 1 (base), 3 (with ref)
-    ds = "NMPCTiltQdServo_real_machine_dataset_GROUND_EFFECT_ONLY/dataset_001.csv"
+    ds = "NMPCTiltQdServo_real_machine_dataset_OLD_PHYS_BAD_TAKEOFF_GROUND_EFFECT_ONLY/dataset_002.csv"
 
     dataset_file = os.path.join(data_dir, ds)
     df = pd.read_csv(dataset_file)
     vz_idx = 5
     q_idx = 6
-    state_feats = np.array([2, 3, 4, 5])  # , 6, 7, 8, 9])  # , 10, 11, 12])
+    # state_feats = np.array([2, 3, 4, 5])  # , 6, 7, 8, 9])  # , 10, 11, 12])
     # state_feats = np.array([2, 3, 4, 5, 6, 7, 8, 9])  # , 10, 11, 12])
-    u_feats = np.array([0, 1, 2, 3, 4, 5, 6, 7])
+    state_feats = np.array([2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16])
+    # u_feats = np.array([0, 1, 2, 3, 4, 5, 6, 7])
+    u_feats = np.array([0, 1, 2, 3])
     # y_reg_dims = np.array([5])
     y_reg_dims = np.array([3, 4, 5])
 
@@ -45,7 +47,7 @@ def main():
     solver_options = EnvConfig.solver_options
     sim_options = EnvConfig.sim_options
     run_options = EnvConfig.run_options
-    neural_model, mlp_metadata = load_model(model_options, sim_options, run_options)
+    neural_model, mlp_metadata = load_model(model_options, sim_options, run_options, torch.device("cpu"))
     neural_model.eval()
 
     # Format data
