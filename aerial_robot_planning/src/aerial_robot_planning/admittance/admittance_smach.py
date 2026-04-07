@@ -64,12 +64,20 @@ class AdmittanceState(smach.State):
         self.q_ee_in_body = np.array([[0, 0, 0, 1]]).T  # xyzw, same order as tf
         self.rot_body_ee = R.from_quat(self.q_ee_in_body.flatten()).as_matrix()
 
+        # ===== param load server =====
+        self.param_update_rate = 2.0
+        self.param_ns_admittance = None
+        self.param_timer = None
+        self._last_param_signature = None
+
         # ====== threshold to avoid too small wrench =====
         # 0.5N, 0.1 Nm are based on the rosbag before.
         self.force_thresh = 0.5  # [N]
         self.torque_thresh = 0.1  # [N*m]
 
         # ====== M D K ======
+        # Note: these parameters will be overridden by the function _update_params_if_needed(self, event=None)
+        # Please check _read_param_dict() for the default parameters
         self.Mp = np.diag([3, 3, 3])  # [kg]
         self.Mp_rev = np.linalg.inv(self.Mp)
         self.Dp = np.diag([10, 10, 10])  # [N*s/m]
@@ -96,6 +104,20 @@ class AdmittanceState(smach.State):
     def execute(self, userdata):
         rospy.loginfo("Executing state AdmittanceState (%s)", self.frame_type)
         robot_name = userdata.robot_name
+
+        # ====== get M, D, K params =====
+        self.param_ns_admittance = f"/{robot_name}/admittance"
+        self._update_params_if_needed()
+
+        if self.param_timer is not None:
+            self.param_timer.shutdown()
+        self.param_timer = rospy.Timer(
+            rospy.Duration(1.0 / self.param_update_rate),
+            self._update_params_if_needed,
+        )
+        # ===============================
+
+        self.param_ns_admittance = f"/{robot_name}/admittance"
 
         frame_name = "ee" if self.frame_type == "ee" else "cog"
         odom_topic = f"/{robot_name}/uav/ee_contact/odom" if self.frame_type == "ee" else f"/{robot_name}/uav/cog/odom"
@@ -211,6 +233,11 @@ class AdmittanceState(smach.State):
             self.pub_ref_traj.publish(multi_dof_joint_traj)
             self.rate.sleep()
 
+        # shutdown the timer
+        if self.param_timer is not None:
+            self.param_timer.shutdown()
+            self.param_timer = None
+
         return "done_admittance"
 
     def _sub_odom_callback(self, msg):
@@ -267,6 +294,91 @@ class AdmittanceState(smach.State):
         wrench_msg.wrench.torque.z = torque_local[2]
 
         self.admittance_wrench_pub.publish(wrench_msg)
+
+    @staticmethod
+    def _safe_get_param(name, default):
+        try:
+            return rospy.get_param(name, default)
+        except Exception as e:
+            rospy.logwarn_throttle(5.0, f"Failed to get param {name}: {e}")
+            return default
+
+    def _read_param_dict(self):
+        ns = self.param_ns_admittance
+
+        param_dict = {
+            "force_thresh": float(self._safe_get_param(f"{ns}/force_thresh", 0.5)),
+            "torque_thresh": float(self._safe_get_param(f"{ns}/torque_thresh", 0.1)),
+            "Mp": list(self._safe_get_param(f"{ns}/Mp", [3.0, 3.0, 3.0])),
+            "Dp": list(self._safe_get_param(f"{ns}/Dp", [10.0, 10.0, 10.0])),
+            "Kp": list(self._safe_get_param(f"{ns}/Kp", [20.0, 20.0, 20.0])),
+            "Mq": list(self._safe_get_param(f"{ns}/Mq", [0.5, 0.5, 0.5])),
+            "Dq": list(self._safe_get_param(f"{ns}/Dq", [5.0, 5.0, 5.0])),
+            "Kq": list(self._safe_get_param(f"{ns}/Kq", [10.0, 10.0, 10.0])),
+        }
+
+        return param_dict
+
+    def _validate_and_apply_params(self, p):
+        def _check_vec(name, vec, positive=False, nonnegative=False):
+            if not isinstance(vec, (list, tuple)) or len(vec) != 3:
+                raise ValueError(f"{name} must be a length-3 list, got {vec}")
+            vec = np.array(vec, dtype=float)
+            if positive and np.any(vec <= 0.0):
+                raise ValueError(f"{name} must be > 0, got {vec}")
+            if nonnegative and np.any(vec < 0.0):
+                raise ValueError(f"{name} must be >= 0, got {vec}")
+            return vec
+
+        force_thresh = float(p["force_thresh"])
+        torque_thresh = float(p["torque_thresh"])
+
+        if force_thresh < 0.0:
+            raise ValueError(f"force_thresh must be >= 0, got {force_thresh}")
+        if torque_thresh < 0.0:
+            raise ValueError(f"torque_thresh must be >= 0, got {torque_thresh}")
+
+        Mp = _check_vec("Mp", p["Mp"], positive=True)
+        Dp = _check_vec("Dp", p["Dp"], nonnegative=True)
+        Kp = _check_vec("Kp", p["Kp"], nonnegative=True)
+
+        Mq = _check_vec("Mq", p["Mq"], positive=True)
+        Dq = _check_vec("Dq", p["Dq"], nonnegative=True)
+        Kq = _check_vec("Kq", p["Kq"], nonnegative=True)
+
+        self.force_thresh = force_thresh
+        self.torque_thresh = torque_thresh
+
+        self.Mp = np.diag(Mp)
+        self.Mp_rev = np.linalg.inv(self.Mp)
+        self.Dp = np.diag(Dp)
+        self.Kp = np.diag(Kp)
+
+        self.Mq = np.diag(Mq)
+        self.Mq_rev = np.linalg.inv(self.Mq)
+        self.Dq = np.diag(Dq)
+        self.Kq = np.diag(Kq)
+
+    def _update_params_if_needed(self, event=None):
+        try:
+            p = self._read_param_dict()
+            signature = repr(p)  # return the str format of p
+
+            if signature == self._last_param_signature:
+                return
+
+            self._validate_and_apply_params(p)
+            self._last_param_signature = signature
+
+            rospy.loginfo(
+                f"[Admittance] Parameters updated from {self.param_ns_admittance}: "
+                f"Mp={p['Mp']}, Dp={p['Dp']}, Kp={p['Kp']}, "
+                f"Mq={p['Mq']}, Dq={p['Dq']}, Kq={p['Kq']}, "
+                f"force_thresh={p['force_thresh']}, torque_thresh={p['torque_thresh']}"
+            )
+
+        except Exception as e:
+            rospy.logerr_throttle(2.0, f"[Admittance] Invalid parameter update ignored: {e}")
 
 
 def create_admittance_state_machine():
