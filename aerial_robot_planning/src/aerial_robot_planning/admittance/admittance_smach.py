@@ -367,6 +367,17 @@ class AdmittanceState(smach.State):
             if signature == self._last_param_signature:
                 return
 
+            # === safety concern ===
+            # the position will not jump to the original position, but the orientation will.
+            self.p_r = np.array(
+                [
+                    self.odom_msg.pose.pose.position.x,
+                    self.odom_msg.pose.pose.position.y,
+                    self.odom_msg.pose.pose.position.z,
+                ]
+            )
+            # ======================
+
             self._validate_and_apply_params(p)
             self._last_param_signature = signature
 
