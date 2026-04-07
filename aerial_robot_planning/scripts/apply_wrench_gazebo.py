@@ -1,15 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import sys
 import rospy
 from geometry_msgs.msg import Point, Wrench
 from gazebo_msgs.srv import ApplyBodyWrench, ApplyBodyWrenchRequest
 from std_srvs.srv import Empty
 
 
+def _clear_private_params_and_restore_cli():
+    """
+    Clear all private parameters under this node's namespace, then restore
+    command-line private parameter overrides such as _force_x:=1.
+    Must be called after rospy.init_node() and before rospy.get_param("~...").
+    """
+    # Parse command-line private params from sys.argv, e.g. _force_x:=1
+    cli_private_params = rospy.client.load_command_line_node_params(sys.argv)
+
+    node_name = rospy.get_name()  # e.g. /constant_force_applier
+
+    # Clear the whole private namespace of this node
+    if rospy.has_param(node_name):
+        rospy.delete_param(node_name)
+        rospy.loginfo("Cleared private parameter namespace: %s", node_name)
+
+    # Restore CLI private params into this node's private namespace
+    for key, value in cli_private_params.items():
+        full_key = node_name + "/" + key
+        rospy.set_param(full_key, value)
+        rospy.loginfo("Restored CLI private param: %s = %s", full_key, value)
+
+
 class ConstantForceApplier:
     def __init__(self):
         rospy.init_node("constant_force_applier")
+
+        # Clear stale private params from previous runs, but preserve current
+        # command-line overrides such as _force_x:=1.
+        _clear_private_params_and_restore_cli()
 
         # ===== Parameters =====
         # Note: body_name must be a link name, not a model name
@@ -37,7 +65,7 @@ class ConstantForceApplier:
         self.point_z = rospy.get_param("~point_z", 0.0)
 
         # Target constant force (N)
-        self.force_x = rospy.get_param("~force_x", -1.0)
+        self.force_x = rospy.get_param("~force_x", 0.0)
         self.force_y = rospy.get_param("~force_y", 0.0)
         self.force_z = rospy.get_param("~force_z", 0.0)
 
