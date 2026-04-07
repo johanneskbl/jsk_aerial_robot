@@ -339,7 +339,7 @@ void nmpc::TiltMtNeuralServoPlusMPC::initNeuralModel()
   //     }
   //   }
 
-  //   // Temporal model
+  //   // Delayed model
   //   delay_horizon_ = metadata_[neural_model_name_][neural_model_instance_]["NetworkConfig"]["delay_horizon"];
 
   //   ROS_INFO("[NEURAL][MPC] Using neural model %s/%s.", neural_model_name_.c_str(), neural_model_instance_.c_str());
@@ -389,10 +389,10 @@ void nmpc::TiltMtNeuralServoPlusMPC::initNeuralModel()
   //   ROS_INFO("[NEURAL][MPC] Linearization is DISABLED.");
   // }
 
-  // // Temporal model
+  // // Delayed model
   // if (delay_horizon_ > 0)
   // {
-  //   ROS_INFO("[NEURAL][MPC] Loaded a temporal model (delay_horizon = %d).", delay_horizon_);
+  //   ROS_INFO("[NEURAL][MPC] Loaded a delayed model (delay_horizon = %d).", delay_horizon_);
   // }
 
   // if (linearize_mlp_)

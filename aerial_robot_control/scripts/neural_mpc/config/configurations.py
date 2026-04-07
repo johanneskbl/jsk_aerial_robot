@@ -45,7 +45,7 @@ class EnvConfig:
             "only_use_nominal": False,
             "plus_neural": True,
             "minus_neural": False,
-            "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "temporal_mlp"
+            "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp" or "temporal_residual_mlp"
             "neural_model_instance": "neuralmodel_209",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
@@ -299,10 +299,16 @@ class NetworkConfig:
         model_name = "residual_vae"
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
-    # model_name = "temporal_mlp"
 
-    # Delay horizon for temporal networks
+    # Delay horizon for delayed input/output models (e.g., "delayed_residual_mlp")
     delay_horizon = 0  # Number of time steps into the past to consider (set to 0 to only use current state)
+    if delay_horizon > 0:
+        model_name = f"delay_{model_name}"
+
+    # Predict entire horizon at once
+    temporalize = True
+    if temporalize:
+        model_name = f"temporal_{model_name}"
 
     # Number of neurons in each hidden layer
     if model_type == "MLP":
@@ -361,7 +367,7 @@ class NetworkConfig:
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Energy regularization
-    energy_lambda = 1e3  # for relative 1e3 / for absolute 1e-5  # Set to 0.0 to disable
+    energy_lambda = 0.0 #1e3  # for relative 1e3 / for absolute 1e-5  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon
@@ -372,7 +378,7 @@ class NetworkConfig:
     # Learning rate
     learning_rate = 1e-3  # for residual
     # learning_rate = 1e-2  # for residual
-    # learning_rate = 1e-5  # for temporal
+    # learning_rate = 1e-5  # for delayed
     # learning_rate = 1e-3  # for LR scheduling
     # lr_milestones = [50, 100] #[100, 150]
     lr_scheduler = "LambdaLR"  # "ReduceLROnPlateau", "LambdaLR", "MultiStepLR", "LRScheduler", None
@@ -399,7 +405,7 @@ class ModelFitConfig:
 
     # ------- Moving Average Filter -------
     use_moving_average_filter = False
-    use_moving_average_filter_only_label = True  # VERY IMPORTANT!
+    use_moving_average_filter_only_label = False  # VERY IMPORTANT!
     control_filtering = False  # USE WAY SMALLER WINDOW SIZE IF TRUE!
     window_size = 5 #33  # Must be odd
 
@@ -420,7 +426,8 @@ class ModelFitConfig:
     save_plots = False
 
     # ------- Dataset loading -------
-    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
+    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
+    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ENTIRE_HORIZON"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ONLY_JOY"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_WITH_REF_ALL_PROP"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_FULL"
@@ -439,7 +446,8 @@ class ModelFitConfig:
     # real machine GROUND_EFFECT_ONLY: hovering and ground effect data only (48k datapoints)
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_FOR_PAPER"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
-    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_03"
     val_ds_instance = "dataset_001"
     # === FROM HERE WITH MOVING AVERAGE FILTER APPLIED ===

@@ -448,7 +448,7 @@ class NeuralMPC(RecedingHorizonBase):
             # Assemble MLP input from selected state and control features
             mlp_in = ca.vertcat(state_in[self.state_feats], controls[self.u_feats])
 
-            if "temporal" in self.mlp_metadata["NetworkConfig"]["model_name"]:
+            if "delay" in self.mlp_metadata["NetworkConfig"]["model_name"]:
                 # Use previous (i.e. delayed) states and controls time steps as input to the MLP
                 delay = self.mlp_metadata["NetworkConfig"]["delay_horizon"]  # Delay as number of previous time steps
                 state_prev, controls_prev = self.append_delay(delay)

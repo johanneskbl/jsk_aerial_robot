@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from sim_environment.sim_solver import create_acados_sim_solver
 from utils.controller_utils import check_state_constraints, check_input_constraints
-from utils.model_utils import set_linearization_params, set_linearization_params_sim, set_l4casadi_params, set_l4casadi_params_sim, set_temporal_states_as_params
+from utils.model_utils import set_linearization_params, set_linearization_params_sim, set_l4casadi_params, set_l4casadi_params_sim, set_delayed_states_as_params
 from utils.reference_utils import sample_random_position_target, sample_random_orientation_target
 from utils.geometry_utils import unit_quaternion, euclidean_dist, quaternion_dist
 from visualize_comparison_icra_2026 import plot_comparison
@@ -92,8 +92,8 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
         sim_solver_neural.simulate(x=state_curr_sim_neural, u=u_temp, p=sim_solver_neural.acados_sim.parameter_values)
     x_l = []
 
-    # --- Set up running history for temporal neural networks ---
-    if neural_mpc.use_mlp and "temporal" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
+    # --- Set up running history for delayed neural networks ---
+    if neural_mpc.use_mlp and "delay" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
         delay = neural_mpc.mlp_metadata["NetworkConfig"]["delay_horizon"]  # Delay as number of time steps into the past
         history = np.tile(np.append(state_curr_neural, np.zeros((nu,))), (delay, 1))
 
@@ -188,9 +188,9 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             elif model_options["use_l4casadi"]:
                 set_l4casadi_params(neural_mpc, ocp_solver_neural)
 
-            # --- Prepare temporal neural network input ---
-            if "temporal" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
-                set_temporal_states_as_params(neural_mpc, ocp_solver_neural, history, u_cmd_neural)
+            # --- Prepare delayed neural network input ---
+            if "delay" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
+                set_delayed_states_as_params(neural_mpc, ocp_solver_neural, history, u_cmd_neural)
 
             # --- Set parameters in OCP solver ---
             for j in range(ocp_solver_neural.N + 1):
@@ -214,8 +214,8 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             check_input_constraints(nominal_mpc, u_cmd_nominal, i)
             ############################################################################################
 
-            # --- Running history for temporal neural networks ---
-            if "temporal" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
+            # --- Running history for delayed neural networks ---
+            if "delay" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
                 # Append current state and control to history for next iteration
                 # Sorted from newest to oldest
                 history = history[:-1, :]
@@ -250,10 +250,10 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             elif sim_neural_mpc.use_mlp and model_options["use_l4casadi"]:
                 set_l4casadi_params_sim(sim_neural_mpc, sim_solver_neural, u_cmd_neural)
 
-            # --- Prepare temporal neural network input ---
-            if sim_neural_mpc.use_mlp and "temporal" in sim_neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
+            # --- Prepare delayed neural network input ---
+            if sim_neural_mpc.use_mlp and "delay" in sim_neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
                 raise NotImplementedError("Implement.")
-                set_temporal_states_as_params(sim_neural_mpc, sim_solver_neural, history, u_cmd_neural)
+                set_delayed_states_as_params(sim_neural_mpc, sim_solver_neural, history, u_cmd_neural)
 
             # --- Set parameters in OCP solver ---
             sim_solver_neural.set("p", sim_neural_mpc.acados_parameters[0, :])

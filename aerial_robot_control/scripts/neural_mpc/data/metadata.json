@@ -3358,5 +3358,567 @@
                 "payload": false
             }
         }
+    },
+    "NMPCTiltQdServo_real_machine_dataset_TRAIN_ENTIRE_HORIZON": {
+        "date": "2026-03-28 14:50:08",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-28-07-48-33_mode_10_RECORDING_JOYSTICK_7_MIN_success.csv",
+            "~/ros/rosbag_files/csv/2026-03-28-08-27-27_mode_10_RECORDING_TRAJS_6_MINS_success.csv"
+        ],
+        "duration": [
+            401.85998010635376,
+            284.3196380138397
+        ],
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            },
+            "trained_models": [
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_215",
+                "neuralmodel_001",
+                "neuralmodel_001",
+                "neuralmodel_001",
+                "neuralmodel_001",
+                "neuralmodel_001"
+            ]
+        }
+    },
+    "NMPCTiltQdServo_real_machine_dataset_VAL_ENTIRE_HORIZON": {
+        "date": "2026-03-29 05:19:46",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-28-08-56-35_mode_10_RECORDING_TRAJS_AND_JOYSTICK_6_MINS_success.csv"
+        ],
+        "duration": 377.93790912628174,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_10": {
+        "date": "2026-03-29 12:55:17",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-22-46_mode_10_success.csv"
+        ],
+        "duration": 125.26571607589722,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_211": {
+        "date": "2026-03-29 12:56:44",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-30-56_mode_11_model_211_success.csv"
+        ],
+        "duration": 129.25822401046753,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_214": {
+        "date": "2026-03-29 12:57:13",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-49-16_mode_11_model_214_success.csv"
+        ],
+        "duration": 111.9726870059967,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_213": {
+        "date": "2026-03-29 12:57:27",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-58-09_mode_11_model_213_success.csv"
+        ],
+        "duration": 134.80772709846497,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_10_CIRCLE": {
+        "date": "2026-03-30 06:19:14",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-22-46_mode_10_success_circle.csv"
+        ],
+        "duration": 8.710073947906494,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_211_CIRCLE": {
+        "date": "2026-03-30 06:20:27",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-30-56_mode_11_model_211_success_circle.csv"
+        ],
+        "duration": 8.69740891456604,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_214_CIRCLE": {
+        "date": "2026-03-30 06:20:44",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-49-16_mode_11_model_214_success_circle.csv"
+        ],
+        "duration": 8.360574960708618,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_002": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_003": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_004": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_213_CIRCLE": {
+        "date": "2026-03-30 06:21:01",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-58-09_mode_11_model_213_success_circle.csv"
+        ],
+        "duration": 8.666763067245483,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_002": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_003": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_004": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_10_TAKEOFF": {
+        "date": "2026-03-30 08:06:51",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-22-46_mode_10_success_takeoff.csv"
+        ],
+        "duration": 6.350229024887085,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_002": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        },
+        "dataset_003": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_211_TAKEOFF": {
+        "date": "2026-03-30 08:07:30",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-30-56_mode_11_model_211_success_takeoff.csv"
+        ],
+        "duration": 6.087731838226318,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_214_TAKEOFF": {
+        "date": "2026-03-30 08:07:48",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-49-16_mode_11_model_214_success_takeoff.csv"
+        ],
+        "duration": 5.988385200500488,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_213_TAKEOFF": {
+        "date": "2026-03-30 08:08:01",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-58-09_mode_11_model_213_success_takeoff.csv"
+        ],
+        "duration": 6.005902051925659,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_10_LEMNISCATE": {
+        "date": "2026-03-30 08:40:32",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-22-46_mode_10_success_lemniscate.csv"
+        ],
+        "duration": 21.390268087387085,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_211_LEMNISCATE": {
+        "date": "2026-03-30 08:40:45",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-30-56_mode_11_model_211_success_lemniscate.csv"
+        ],
+        "duration": 21.39372205734253,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_214_LEMNISCATE": {
+        "date": "2026-03-30 08:40:57",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-49-16_mode_11_model_214_success_lemniscate.csv"
+        ],
+        "duration": 21.377737045288086,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_213_LEMNISCATE": {
+        "date": "2026-03-30 08:41:04",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-58-09_mode_11_model_213_success_lemniscate.csv"
+        ],
+        "duration": 21.395922899246216,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_10_SETPOINT": {
+        "date": "2026-03-30 08:41:34",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-22-46_mode_10_success_setpoint.csv"
+        ],
+        "duration": 23.97999095916748,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_211_SETPOINT": {
+        "date": "2026-03-30 08:41:44",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-30-56_mode_11_model_211_success_setpoint.csv"
+        ],
+        "duration": 23.970662117004395,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_214_SETPOINT": {
+        "date": "2026-03-30 08:41:53",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-49-16_mode_11_model_214_success_setpoint.csv"
+        ],
+        "duration": 23.92802906036377,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
+    },
+    "RESULTS_CDC2026_real_machine_MODE_11_MODEL_213_SETPOINT": {
+        "date": "2026-03-30 08:42:03",
+        "real_machine": true,
+        "rosbag_file": [
+            "~/ros/rosbag_files/csv/2026-03-29-09-58-09_mode_11_model_213_success_setpoint.csv"
+        ],
+        "duration": 23.95256996154785,
+        "temporal_filtering": true,
+        "mpc_type": "NMPCTiltQdServo",
+        "T_samp": 0.01,
+        "dataset_001": {
+            "disturbances": {
+                "cog_dist": false,
+                "cog_dist_model": "",
+                "cog_dist_factor": 0.0,
+                "motor_noise": false,
+                "drag": false,
+                "payload": false
+            }
+        }
     }
 }

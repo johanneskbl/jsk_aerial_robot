@@ -230,7 +230,7 @@ def set_l4casadi_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolver, u_cmd: 
     sim_neural_mpc.acados_parameters[:, sim_neural_mpc.l4casadi_start_idx : sim_neural_mpc.l4casadi_end_idx] = l4casadi_params.flatten()
 
 
-def set_temporal_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
+def set_delayed_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
     # Set previous state and control as parameters
     if u_cmd is None:
         # Take init values for all nodes at t=0
@@ -259,6 +259,15 @@ def set_temporal_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver, histo
 
             # Set acados parameters in OCP solver
             neural_mpc.acados_parameters[j, neural_mpc.delay_start_idx : neural_mpc.delay_end_idx] = running_y.flatten()
+
+def set_delayed_states_as_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
+    raise NotImplementedError("TODO.")
+
+def set_temporal_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
+    raise NotImplementedError("TODO.")
+
+def set_temporal_states_as_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
+    raise NotImplementedError("TODO.")
 
 
 def get_output_mapping(state_dim, y_reg_dims, label_transform=False, only_vz=False):
@@ -402,7 +411,7 @@ def cross_check_params(mpc_params, mlp_metadata):
             raise ValueError("Step time used in dataset for training the neural model doesn't match the MPC parameters.")
 
 
-def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_dims, in_dim, out_dim, delay):
+def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_dims, in_dim, out_dim, delay, temporalize, N):
     """
     Simple check to ensure that the features and regression dimensions are valid.
     """
@@ -412,23 +421,42 @@ def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_d
     if len(state_feats) == 0 or len(y_reg_dims) == 0:
         raise ValueError("state_feats and y_reg_dims cannot be empty lists.")
 
-    if (len(state_feats) + len(u_feats)) * (delay + 1) != in_dim:
-        raise ValueError(
-            f"Total number of features {len(state_feats) + len(u_feats)} does not match input dimension {in_dim}."
-        )
-
-    if len(y_reg_dims) != out_dim:
-        raise ValueError(
-            f"Total number of regression dimensions {len(y_reg_dims)} does not match output dimension {out_dim}."
-        )
+    if temporalize:
+        if (len(state_feats) + len(u_feats)) * (N + 1) != in_dim:
+            raise ValueError(
+                f"Total number of features {(len(state_feats) + len(u_feats)) * (N + 1)} does not match input dimension {in_dim}."
+            )
+        if len(y_reg_dims) * N != out_dim:
+            raise ValueError(
+                f"Total number of regression dimensions {len(y_reg_dims) * N} does not match output dimension {out_dim}."
+            )
+    else:
+        if (len(state_feats) + len(u_feats)) * (delay + 1) != in_dim:
+            raise ValueError(
+                f"Total number of features {(len(state_feats) + len(u_feats)) * (delay + 1)} does not match input dimension {in_dim}."
+            )
+        if len(y_reg_dims) != out_dim:
+            raise ValueError(
+                f"Total number of regression dimensions {len(y_reg_dims)} does not match output dimension {out_dim}."
+            )
 
     if delay > 0:
+        if "delay" not in model_name:
+            raise ValueError(
+                "Delay horizon is set but model name does not contain 'delay'. Please use a delayed model."
+            )
+    else:
+        if "delay" in model_name:
+            raise ValueError(
+                "Delay horizon is not set but model name contains 'delay'. Please use a non-delayed model."
+            )
+    if temporalize:
         if "temporal" not in model_name:
             raise ValueError(
-                "Delay horizon is set but model name does not contain 'temporal'. Please use a temporal model."
+                "Temporalization is set but model name does not contain 'temporal'. Please use a temporalized model."
             )
     else:
         if "temporal" in model_name:
             raise ValueError(
-                "Delay horizon is not set but model name contains 'temporal'. Please use a non-temporal model."
+                "Temporalization is not set but model name contains 'temporal'. Please use a non-temporalized model."
             )
