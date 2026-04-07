@@ -27,26 +27,19 @@ class TrajectoryDataset(Dataset):
         mode=None,
     ):
         self.df = dataframe
+        self.state_feats = state_feats
+        self.u_feats = u_feats
+        self.y_reg_dims = y_reg_dims
         self.T_samp = neural_mpc.T_samp
         self.T_step = neural_mpc.T_step
         self.N = neural_mpc.N
 
-        if NetworkConfig.temporalize and not ModelFitConfig.prop_long_horizon:
-            raise ValueError("Temporalization is expecting long horizon over T_step.")
-
-        self.prepare_data(state_feats, u_feats, y_reg_dims)
-        if ModelFitConfig.prune and NetworkConfig.delay_horizon == 0 or NetworkConfig.temporalize:
+        self.prepare_data()
+        if ModelFitConfig.prune and (NetworkConfig.delay_horizon == 0 and not NetworkConfig.temporalize):
             # Don't prune when using temporal networks with history since pruning causes incontinuities
-            self.prune(
-                state_feats,
-                y_reg_dims,
-                ModelFitConfig.histogram_n_bins,
-                ModelFitConfig.histogram_thresh,
-                ModelFitConfig.vel_cap,
-                ModelFitConfig.plot_dataset,
-            )
+            self.prune()
         if NetworkConfig.delay_horizon > 0:
-            self.append_history(NetworkConfig.delay_horizon, state_feats, u_feats)
+            self.append_history()
         self.calculate_statistics()
         if ModelFitConfig.plot_dataset:
             if not ModelFitConfig.save_plots:
@@ -77,69 +70,70 @@ class TrajectoryDataset(Dataset):
     def __getitem__(self, idx):
         return self.x[idx], self.y[idx]
 
-    def prepare_data(self, state_feats, u_feats, y_reg_dims):
+    def prepare_data(self):
         state = undo_jsonify(self.df["state"].to_numpy())
         control = undo_jsonify(self.df["control"].to_numpy())
         if NetworkConfig.temporalize:
-            state_pred = np.zeros((state.shape[0], 0, state.shape[1]))
-            control_pred = np.zeros((state.shape[0], 0, control.shape[1]))
+            # Parse temporalized predictions and controls
+            state_pred = np.zeros((state.shape[0], self.N, state.shape[1]))
+            control_pred = np.zeros((state.shape[0], self.N - 1, control.shape[1]))
             for i in range(1, self.N + 1):
-                state_pred_i = undo_jsonify(self.df[f"state_pred_{i}"].to_numpy())
-                state_pred = np.concatenate([state_pred, state_pred_i[:, np.newaxis, :]], axis=1)
+                state_pred[:, i-1, :] = undo_jsonify(self.df[f"state_pred_{i}"].to_numpy())
                 if i < self.N:
-                    control_pred_i = undo_jsonify(self.df[f"control_pred_{i}"].to_numpy())
-                    control_pred = np.concatenate([control_pred, control_pred_i[:, np.newaxis, :]], axis=1)
+                    control_pred[:, i-1, :] = undo_jsonify(self.df[f"control_pred_{i}"].to_numpy())
         else:
             state_pred = undo_jsonify(self.df["state_pred_1"].to_numpy())
         dt = self.df["dt"].to_numpy()
         timestamp = self.df["timestamp"].to_numpy()
-        recording_start_idx = undo_jsonify(self.df["recording_start_idx"].to_numpy(), to_float=False)[0]  # All rows have the same entry
+        recording_start_idx = undo_jsonify(self.df["recording_start_idx"].to_numpy(), to_float=False)[0, ...]
 
-        # Adjust for size of state_out
+        # Prediction horizon of predicted state w.r.t. sampling rate
         if ModelFitConfig.prop_long_horizon:
-            # Offset by 10 because T_step is 0.1s but the data is sampled at 100Hz
-            state_out = state[10:, :]
-            if recording_start_idx.shape[0] > 1:
-                # Multiple recordings have been concatenated, therefore we map artificially continue state_out to avoid outliers in the label
-                for i in range(1, recording_start_idx.shape[0]):
-                    start_idx = recording_start_idx[i]
-                    state_out[start_idx - 10:start_idx, :] = np.tile(state_out[start_idx - 11, :], (10, 1))
-            # Adjust to size of state_out
-            state_curr = state[:-10, :]
-            state_pred = state_pred[:-10, ...]
-            control = control[:-10, :]
-            dt = dt[:-10]
-            timestamp = timestamp[:-10]
-            if NetworkConfig.temporalize:
-                control_pred = control_pred[:-10, ...]
-                # Create new state_out that is filled with the next N state_outs at each time step t
-                state_out_over_horizon = np.zeros((state_out.shape[0] - self.N, self.N, state_out.shape[1]))
-                for t in range(state_out.shape[0] - self.N):  # Avoid out-of-bounds indexing
-                    time_curr = timestamp[t]
-                    for i in range(self.N):
-                        time_next = time_curr + (i + 1) * self.T_step
-                        t_next = (np.abs(timestamp - time_next)).argmin() 
-                        state_out_over_horizon[t, i, :] = state_out[t_next, :]
-                # Adjust to size of state_out_over_horizon
-                state_curr = state_curr[:-self.N, :]
-                state_pred = state_pred[:-self.N, ...]
-                control_pred = control_pred[:-self.N, ...]
-                control = control[:-self.N, :]
-                dt = dt[:-self.N]
-                timestamp = timestamp[:-self.N]
-            state_raw = state_curr.copy()
+            P = int(self.T_step / self.T_samp)  # T_step / T_samp = 0.1s / 0.01s = 10 steps
+            P_step = self.T_step
         else:
-            state_out = state[1:, :]
-            if recording_start_idx.shape[0] > 1:
-                for i in range(1, recording_start_idx.shape[0]):
-                    start_idx = recording_start_idx[i]
-                    state_out[start_idx - 1, :] = state_out[start_idx - 2, :]
-            state_curr = state[:-1, :]
-            state_pred = state_pred[:-1, :]
-            control = control[:-1, :]
-            dt = dt[:-1]
-            timestamp = timestamp[:-1]
-            state_raw = state_curr.copy()
+            P = 1
+            P_step = self.T_samp
+
+        # Offset by prediction horizon P
+        state_out = state[P:, :]
+        if recording_start_idx.shape[0] > 1:
+            # Multiple recordings have been concatenated, therefore we artificially continue state_out to avoid outliers in the label
+            for i in range(1, recording_start_idx.shape[0]):
+                start_idx = recording_start_idx[i]
+                state_out[start_idx - P : start_idx, :] = np.tile(state_out[start_idx - (P + 1), :], (P, 1))
+        # Adjust to size of state_out
+        state_curr = state[:-P, :]
+        state_pred = state_pred[:-P, ...]
+        control = control[:-P, :]
+        dt = dt[:-P]
+        timestamp = timestamp[:-P]
+
+        if NetworkConfig.temporalize:
+            control_pred = control_pred[:-P, :, :]
+            # Create new state_out that is filled with the next N state_outs at each time step t
+            idx_trunc = (self.N - 1) * P  # Indices to truncate from the end of state_out to ensure we have enough future steps to fill over the entire horizon
+            state_out_over_horizon = np.zeros((state_out.shape[0] - idx_trunc, self.N, state_out.shape[1]))
+            for t in range(state_out.shape[0] - idx_trunc):
+                time_curr = timestamp[t]
+                t_prev = t
+                for i in range(self.N):
+                    # time_next = time_curr + (i + 1) * P_step
+                    # t_next = (np.abs(timestamp - time_next)).argmin()
+                    t_next = t + i * P
+                    if t_prev == t_next:
+                        print(f"WARNING: Duplicate timestamp found: t_prev == t_next -> {t_prev} == {t_next} at index {t}.")
+                    state_out_over_horizon[t, i, :] = state_out[t_next, :]
+
+                    t_prev = t_next
+            # Adjust to size of state_out_over_horizon
+            state_curr = state_curr[:-idx_trunc, :]
+            state_pred = state_pred[:-idx_trunc, :, :]
+            control = control[:-idx_trunc, :]
+            control_pred = control_pred[:-idx_trunc, :, :]
+            dt = dt[:-idx_trunc]
+            timestamp = timestamp[:-idx_trunc]
+        state_raw = state_curr.copy()
 
         # Remove invalid entries (dt = 0)
         invalid = np.where(dt == 0)
@@ -156,14 +150,16 @@ class TrajectoryDataset(Dataset):
                 raise ValueError(f"Expected {self.N} prediction steps in state_pred but got {state_pred.shape[1]}.")
             if control_pred.shape[1] != self.N - 1:
                 raise ValueError(f"Expected {self.N-1} prediction steps in control_pred but got {control_pred.shape[1]}.")
-            if state_curr.shape[0] != state_out_over_horizon.shape[0] or state_curr.shape[0] != state_pred.shape[0] or state_curr.shape[0] != control.shape[0] \
-                or state_curr.shape[0] != control_pred.shape[0]:
+            if state_curr.shape[0] != state_out_over_horizon.shape[0] \
+            or state_curr.shape[0] != state_pred.shape[0] \
+            or state_curr.shape[0] != control.shape[0] \
+            or state_curr.shape[0] != control_pred.shape[0]:
                 raise ValueError("Inconsistent shapes in the dataset.")
         else:
             if (
-                state_curr.shape != state_out.shape
-                or state_curr.shape != state_pred.shape
-                or state_curr.shape[0] != control.shape[0]
+                state_curr.shape != state_out.shape \
+             or state_curr.shape != state_pred.shape \
+             or state_curr.shape[0] != control.shape[0]
             ):
                 raise ValueError("Inconsistent shapes in the dataset.")
 
@@ -188,22 +184,13 @@ class TrajectoryDataset(Dataset):
             if NetworkConfig.temporalize:
                 for i in range(state_pred.shape[1]):
                     state_pred[:, i, :] = velocity_mapping(state_pred[:, i, :])
+                    state_out_over_horizon[:, i, :] = velocity_mapping(state_out_over_horizon[:, i, :])
             else:
                 state_pred = velocity_mapping(state_pred)
             state_out = velocity_mapping(state_out)
         else:
             # Don't transform labels but let network predict in world frame directly
             pass
-        
-        # if ModelFitConfig.prop_long_horizon:
-        #     # Shift output to correspond to state_pred after T_step seconds
-        #     next_timestamp = timestamp + T_step
-        #     next_idx = []
-        #     for t_next in next_timestamp:
-        #         idx_closest = (np.abs(timestamp - t_next)).argmin()
-        #         next_idx.append(idx_closest)
-        #     next_idx = np.array(next_idx)
-        #     state_out = state_out[next_idx, :]
 
         # =============================================================
         # Compute residual dynamics of actual state and predicted (or "propagated") state
@@ -266,7 +253,7 @@ class TrajectoryDataset(Dataset):
         # qe_z = qw_out * qz_prop + qx_out * qy_prop - qy_out * qx_prop + qz_out * qw_prop
         # q_e = np.stack((qe_w, qe_x, qe_y, qe_z), axis=1)
         # y[:, 6:10] = q_e / np.expand_dims(dt, 1)
-        # self.y_raw = y[:, y_reg_dims].copy()
+        self.y_raw = y[:, self.y_reg_dims].copy()
         # =============================================================
 
         # Data filtering
@@ -281,7 +268,7 @@ class TrajectoryDataset(Dataset):
             if ModelFitConfig.plot_dataset:
                 self.state_in_filtered = state_curr.copy()
                 self.control_filtered = control.copy()
-                self.y_filtered = y[:, y_reg_dims].copy()
+                self.y_filtered = y[:, self.y_reg_dims].copy()
         elif ModelFitConfig.use_moving_average_filter_only_label:
             print(f"[DATASET] Applying moving average filter with window size {ModelFitConfig.window_size} to labels only.")
             y = moving_average_filter(y, window_size=ModelFitConfig.window_size)
@@ -304,7 +291,7 @@ class TrajectoryDataset(Dataset):
                 state_curr[:, dim] = low_pass_filter(state_curr[:, dim], cutoff=cutoff_input, fs=fs)
             for dim in range(control.shape[1]):
                 control[:, dim] = low_pass_filter(control[:, dim], cutoff=cutoff_input, fs=fs)
-            for dim in y_reg_dims:
+            for dim in self.y_reg_dims:
                 y[:, dim] = low_pass_filter(y[:, dim], cutoff=cutoff_acc, fs=fs)
 
         # Store data
@@ -323,36 +310,39 @@ class TrajectoryDataset(Dataset):
         if NetworkConfig.temporalize:
             for i in range(-1, self.N):
                 if i == -1:
-                    self.x = np.concatenate((state_curr[:, state_feats], control[:, u_feats]), axis=1, dtype=np.float32)
+                    self.x = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
                 else:
                     if i < self.N - 1:
-                        self.x = np.concatenate((self.x, state_pred[:, i, state_feats], control_pred[:, i, u_feats]), axis=1, dtype=np.float32)
+                        self.x = np.concatenate((self.x, state_pred[:, i, self.state_feats], control_pred[:, i, self.u_feats]), axis=1, dtype=np.float32)
                     else:
                         # For the last prediction step, we don't have a control_pred value since the MPC only predicts N-1 control steps therefore we use the previous control input
-                        self.x = np.concatenate((self.x, state_pred[:, i, state_feats], control_pred[:, self.N - 2, u_feats]), axis=1, dtype=np.float32)
+                        self.x = np.concatenate((self.x, state_pred[:, i, self.state_feats], control_pred[:, self.N - 2, self.u_feats]), axis=1, dtype=np.float32)
 
         else:
-            self.x = np.concatenate((state_curr[:, state_feats], control[:, u_feats]), axis=1, dtype=np.float32)
+            self.x = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
         # Store labels
         if NetworkConfig.temporalize:
             # Flatten by appending the labels for each stage after another
-            self.y = y[:, :, y_reg_dims].reshape(y.shape[0], -1, order="F").astype(np.float32)
+            self.y = y[:, :, self.y_reg_dims].reshape(y.shape[0], -1, order="F").astype(np.float32)
         else:
-            self.y = y[:, y_reg_dims].astype(np.float32)
+            self.y = y[:, self.y_reg_dims].astype(np.float32)
 
-    def prune(self, state_feats, y_reg_dims, histogram_n_bins, histogram_thresh, vel_cap=None, plot=False):
+    def prune(self):
         """
         Prune the dataset to remove samples with outliers in velocity.
         """
+        histogram_n_bins = ModelFitConfig.histogram_n_bins
+        histogram_thresh = ModelFitConfig.histogram_thresh
+        
         vel_idx = np.array([3, 4, 5])
         v_z_idx = np.array([5])
-        if set(vel_idx).issubset(set(state_feats)) and set(vel_idx).issubset(set(y_reg_dims)):
-            x_vel_idx_real = np.where(np.in1d(state_feats, vel_idx))[0]
-            y_vel_idx_real = np.where(np.in1d(y_reg_dims, vel_idx))[0]
-        elif set(vel_idx).issubset(set(state_feats)) and set(v_z_idx).issubset(set(y_reg_dims)):
+        if set(vel_idx).issubset(set(self.state_feats)) and set(vel_idx).issubset(set(self.y_reg_dims)):
+            x_vel_idx_real = np.where(np.in1d(self.state_feats, vel_idx))[0]
+            y_vel_idx_real = np.where(np.in1d(self.y_reg_dims, vel_idx))[0]
+        elif set(vel_idx).issubset(set(self.state_feats)) and set(v_z_idx).issubset(set(self.y_reg_dims)):
             # Only vz in labels
-            x_vel_idx_real = np.where(np.in1d(state_feats, vel_idx))[0]
-            y_vel_idx_real = np.where(np.in1d(y_reg_dims, v_z_idx))[0]
+            x_vel_idx_real = np.where(np.in1d(self.state_feats, vel_idx))[0]
+            y_vel_idx_real = np.where(np.in1d(self.y_reg_dims, v_z_idx))[0]
         else:
             print("[PRUNING] Velocity features not part of input AND output, skipping pruning.")
             # Pruning only works right now if the velocity features are part of the input and output
@@ -365,16 +355,16 @@ class TrajectoryDataset(Dataset):
             self.pruned_idx = prune_dataset(
                 self.x[:, x_vel_idx_real],
                 self.y[:, y_vel_idx_real],
-                vel_cap,
+                ModelFitConfig.vel_cap,
                 histogram_n_bins,
                 histogram_thresh,
-                plot=plot,
+                plot=ModelFitConfig.plot_dataset,
                 labels=labels,
             )
             self.x = self.x[self.pruned_idx]
             self.y = self.y[self.pruned_idx]
 
-    def append_history(self, delay, state_feats, u_feats):
+    def append_history(self):
         """
         Append previous states and controls to the input features for temporal networks.
         Creates sliding windows of historical data with zero-padding for initial samples.
@@ -383,8 +373,9 @@ class TrajectoryDataset(Dataset):
         :param state_feats: List of state feature indices
         """
         n_samples = self.x.shape[0]
-        n_state_feats = len(state_feats)
-        n_control_feats = len(u_feats)
+        n_state_feats = len(self.state_feats)
+        n_control_feats = len(self.u_feats)
+        delay = NetworkConfig.delay_horizon
 
         # Create new input array with history: current + delay previous steps
         state_history = np.zeros((n_samples, n_state_feats * (delay + 1)), dtype=np.float32)

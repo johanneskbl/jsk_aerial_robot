@@ -217,9 +217,9 @@ def get_model_dir_and_file(ds_name, ds_instance, model_name):
     if model_instances:
         existing_instances = [int(instance.split("_")[1]) for instance in model_instances]
         max_instance_number = max(existing_instances)
-        model_instance = "neuralmodel_" + str(max_instance_number + 1).zfill(3)  # Add counter in the filename
+        model_instance = f"{model_name}_" + str(max_instance_number + 1).zfill(3)  # Add counter in the filename
     else:
-        model_instance = "neuralmodel_001"
+        model_instance = f"{model_name}_001"
 
     # Add model information to dataset metadata and get dataset config
     json_file_name_dataset = os.path.join(DirectoryConfig.DATA_DIR, "metadata.json")
