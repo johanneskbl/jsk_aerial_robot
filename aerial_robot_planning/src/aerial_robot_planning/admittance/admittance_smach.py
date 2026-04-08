@@ -164,6 +164,12 @@ class AdmittanceState(smach.State):
             ]
         )
 
+        # # modify q_a to let it rotate around pitch for -90 degree.
+        # rot_old = R.from_quat(self.q_a)
+        # rot_pitch_minus_90 = R.from_euler("y", -90, degrees=True)
+        # rot_new = rot_old * rot_pitch_minus_90
+        # self.q_a = rot_new.as_quat()
+
         self.p_r = self.p_a.copy()
         self.q_r = self.q_a.copy()
 
@@ -309,7 +315,7 @@ class AdmittanceState(smach.State):
             "torque_thresh": float(self._safe_get_param(f"{ns}/torque_thresh", 0.1)),
             "Mp": list(self._safe_get_param(f"{ns}/Mp", [3.0, 3.0, 3.0])),
             "Dp": list(self._safe_get_param(f"{ns}/Dp", [10.0, 10.0, 10.0])),
-            "Kp": list(self._safe_get_param(f"{ns}/Kp", [20.0, 20.0, 20.0])),
+            "Kp": list(self._safe_get_param(f"{ns}/Kp", [0.0, 0.0, 0.0])),
             "Mq": list(self._safe_get_param(f"{ns}/Mq", [0.5, 0.5, 0.5])),
             "Dq": list(self._safe_get_param(f"{ns}/Dq", [5.0, 5.0, 5.0])),
             "Kq": list(self._safe_get_param(f"{ns}/Kq", [10.0, 10.0, 10.0])),
