@@ -13,7 +13,7 @@
         <arg name="headless" value="$(arg headless)"/>
         <arg name="world_type" value="$(arg world_type)"/>
 
-        <arg name="nmpc_mode" value="0"/>
+        <arg name="nmpc_mode" value="1"/>
         <arg name="wrench_est_mode" value="acc"/>
         <arg name="end_effector" value="brush"/>
 
@@ -21,7 +21,7 @@
         <arg name="launch_gazebo" value="True"/>
 
         <arg name="robot_id" value="1"/>
-        <arg name="spawn_x" value="-1.0"/>
+        <arg name="spawn_x" value="0.0"/>
         <arg name="spawn_y" value="0.0"/>
         <arg name="spawn_z" value="0.2"/>
         <arg name="spawn_yaw" value="0.0"/>
@@ -41,7 +41,7 @@
         <arg name="launch_gazebo" value="False"/>
 
         <arg name="robot_id" value="2"/>
-        <arg name="spawn_x" value="1.0"/>
+        <arg name="spawn_x" value="-1.5"/>
         <arg name="spawn_y" value="0.0"/>
         <arg name="spawn_z" value="0.2"/>
         <arg name="spawn_yaw" value="0.0"/>
