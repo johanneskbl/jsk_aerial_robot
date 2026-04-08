@@ -67,8 +67,8 @@ class NMPCTiltQdServoImpedance(QDNMPCBase):
             qe_z + self.qzr,
             rot_tb @ self.w,
             self.a_s,
-            # ca.times(lin_acc_w, self.mp) - rot_tb @ rot_bw @ self.fds_w
-            - rot_tb @ rot_bw @ self.fds_w,
+            # ca.times(lin_acc_w, self.mp) - self.fds_w
+            - self.fds_w,
             # ca.times(ang_acc_b, self.mq) - rot_tb @ (self.tau_ds_b - skew_ee_p @ rot_bw @ self.fds_w)
             - rot_tb @ (self.tau_ds_b - skew_ee_p @ rot_bw @ self.fds_w),
         )
@@ -82,7 +82,7 @@ class NMPCTiltQdServoImpedance(QDNMPCBase):
             qe_z + self.qzr,
             rot_tb @ self.w,
             self.a_s,
-            - rot_tb @ rot_bw @ self.fds_w,
+            - self.fds_w,
             - rot_tb @ (self.tau_ds_b - skew_ee_p @ rot_bw @ self.fds_w),
         )
 
