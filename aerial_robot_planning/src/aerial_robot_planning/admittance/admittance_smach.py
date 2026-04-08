@@ -106,7 +106,7 @@ class AdmittanceState(smach.State):
         robot_name = userdata.robot_name
 
         # ====== get M, D, K params =====
-        self.param_ns_admittance = f"/{robot_name}/admittance"
+        self.param_ns_admittance = f"/admittance"
         self._update_params_if_needed()
 
         if self.param_timer is not None:
@@ -116,8 +116,6 @@ class AdmittanceState(smach.State):
             self._update_params_if_needed,
         )
         # ===============================
-
-        self.param_ns_admittance = f"/{robot_name}/admittance"
 
         frame_name = "ee" if self.frame_type == "ee" else "cog"
         odom_topic = f"/{robot_name}/uav/ee_contact/odom" if self.frame_type == "ee" else f"/{robot_name}/uav/cog/odom"
