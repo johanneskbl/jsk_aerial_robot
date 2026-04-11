@@ -171,6 +171,7 @@ class AdmittanceState(smach.State):
         # self.q_a = rot_new.as_quat()
 
         self.p_r = self.p_a.copy()
+        self.p_r[0] = 1.1
         self.q_r = self.q_a.copy()
 
         while not rospy.is_shutdown():
@@ -315,10 +316,10 @@ class AdmittanceState(smach.State):
             "torque_thresh": float(self._safe_get_param(f"{ns}/torque_thresh", 0.1)),
             "Mp": list(self._safe_get_param(f"{ns}/Mp", [3.0, 3.0, 3.0])),
             "Dp": list(self._safe_get_param(f"{ns}/Dp", [10.0, 10.0, 10.0])),
-            "Kp": list(self._safe_get_param(f"{ns}/Kp", [0.0, 0.0, 0.0])),
+            "Kp": list(self._safe_get_param(f"{ns}/Kp", [20.0, 20.0, 20.0])),
             "Mq": list(self._safe_get_param(f"{ns}/Mq", [0.5, 0.5, 0.5])),
-            "Dq": list(self._safe_get_param(f"{ns}/Dq", [5.0, 5.0, 5.0])),
-            "Kq": list(self._safe_get_param(f"{ns}/Kq", [10.0, 10.0, 10.0])),
+            "Dq": list(self._safe_get_param(f"{ns}/Dq", [10.0, 10.0, 10.0])),
+            "Kq": list(self._safe_get_param(f"{ns}/Kq", [15.0, 15.0, 15.0])),
         }
 
         return param_dict
@@ -401,7 +402,7 @@ def create_admittance_state_machine():
 
     with sm_sub:
         smach.StateMachine.add(
-            "ADMITTANCE", AdmittanceState(frame_type="cog"), transitions={"done_admittance": "DONE_ADMITTANCE"}
+            "ADMITTANCE", AdmittanceState(frame_type="ee"), transitions={"done_admittance": "DONE_ADMITTANCE"}
         )
 
     return sm_sub
