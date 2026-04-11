@@ -262,14 +262,14 @@ def main(file_path, type, if_hand_teleop):
         # --------------------------------
         plt.subplot(4, 2, 1)
 
-        # # plot a curve has the same length with t and the value is always 1.1. Only for admittance.
-        # t = np.array(data_xyz["__time"]) - t_bias
-        # x_original_ref = np.zeros_like(t) + 1.1
-        # plt.plot(t, x_original_ref, label="$p_{x,r}$", linestyle=":", color=color_cog)
+        # plot a curve has the same length with t and the value is always 1.1. Only for admittance.
+        t = np.array(data_xyz["__time"]) - t_bias
+        x_original_ref = np.zeros_like(t) + 1.1
+        plt.plot(t, x_original_ref, label="$p_{x,r}$", linestyle=":", color=color_cog)
 
         t_ref = np.array(data_xyz_ref_nmpc["__time"]) - t_bias
         x_ref = np.array(data_xyz_ref_nmpc["/beetle1/nmpc/viz_ref/poses[0]/position/x"])
-        plt.plot(t_ref, x_ref, label="$p_{x,r}$", linestyle="--", color=color_ref)
+        plt.plot(t_ref, x_ref, label="$p_{x,a}$", linestyle="--", color=color_ref)
 
         t = np.array(data_xyz["__time"]) - t_bias
         x = np.array(data_xyz["/beetle1/uav/ee_contact/odom/pose/pose/position/x"])
@@ -298,10 +298,165 @@ def main(file_path, type, if_hand_teleop):
         plt.subplot(4, 2, 3)
 
         t = np.array(data_iterm["__time"]) - t_bias
-        fz_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/x"])
+        fx_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/x"])
         fy_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/y"])
         fz_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/z"])
-        plt.plot(t, fz_iterm, label="$f_{x}$", linestyle="-.")
+        plt.plot(t, fx_iterm, label="$f_{x}$", linestyle="-.")
+        plt.plot(t, fy_iterm, label="$f_{y}$", linestyle="--")
+        plt.plot(t, fz_iterm, label="$f_{z}$", linestyle="-")
+
+        plt.legend(framealpha=legend_alpha)
+        plt.ylabel("${^W\\boldsymbol{f}_{dm}}$ [N]", fontsize=label_size)
+
+        # --------------------------------
+        plt.subplot(4, 2, 4)
+
+        t = np.array(data_iterm["__time"]) - t_bias
+        torque_x_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/torque/x"])
+        torque_y_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/torque/y"])
+        torque_z_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/torque/z"])
+        plt.plot(t, torque_x_iterm, label="$\\tau_{x}$", linestyle="-.")
+        plt.plot(t, torque_y_iterm, label="$\\tau_{y}$", linestyle="--")
+        plt.plot(t, torque_z_iterm, label="$\\tau_{z}$", linestyle="-")
+
+        plt.legend(framealpha=legend_alpha)
+        plt.ylabel("${^B\\boldsymbol{\\tau}_{dm}}$ [N$\cdot$m]", fontsize=label_size)
+
+        # --------------------------------
+        plt.subplot(4, 2, 5)
+
+        t = np.array(data_ext_wrench_est["__time"]) - t_bias
+        fx = np.array(data_ext_wrench_est["/beetle1/ext_wrench_est/value/wrench/force/x"])
+        fy = np.array(data_ext_wrench_est["/beetle1/ext_wrench_est/value/wrench/force/y"])
+        fz = np.array(data_ext_wrench_est["/beetle1/ext_wrench_est/value/wrench/force/z"])
+        plt.plot(t, fx, label="$f_{x}$", linestyle="-.")
+        plt.plot(t, fy, label="$f_{y}$", linestyle="--")
+        plt.plot(t, fz, label="$f_{z}$", linestyle="-")
+
+        plt.legend(framealpha=legend_alpha)
+        plt.ylabel("${^B\hat{\\boldsymbol{f}}_{de,0}}$ [N]", fontsize=label_size)
+
+        # --------------------------------
+        plt.subplot(4, 2, 6)
+
+        t = np.array(data_ext_wrench_est["__time"]) - t_bias
+        torque_x = np.array(data_ext_wrench_est["/beetle1/ext_wrench_est/value/wrench/torque/x"])
+        torque_y = np.array(data_ext_wrench_est["/beetle1/ext_wrench_est/value/wrench/torque/y"])
+        torque_z = np.array(data_ext_wrench_est["/beetle1/ext_wrench_est/value/wrench/torque/z"])
+        plt.plot(t, torque_x, label="$\\tau_{x}$", linestyle="-.")
+        plt.plot(t, torque_y, label="$\\tau_{y}$", linestyle="--")
+        plt.plot(t, torque_z, label="$\\tau_{z}$", linestyle="-")
+
+        plt.legend(framealpha=legend_alpha)
+        plt.ylabel("${^B\hat{\\boldsymbol{\\tau}}_{de,0}}$ [N$\cdot$m]", fontsize=label_size)
+
+        # --------------------------------
+        plt.subplot(4, 2, 7)
+        t = np.array(data_thrust_cmd["__time"]) - t_bias
+        thrust1 = np.array(data_thrust_cmd["/beetle1/four_axes/command/base_thrust[0]"])
+        plt.plot(t, thrust1, label="$f_{c1}$", linestyle="-")
+        thrust2 = np.array(data_thrust_cmd["/beetle1/four_axes/command/base_thrust[1]"])
+        plt.plot(t, thrust2, label="$f_{c2}$", linestyle="--")
+        thrust3 = np.array(data_thrust_cmd["/beetle1/four_axes/command/base_thrust[2]"])
+        plt.plot(t, thrust3, label="$f_{c3}$", linestyle="-.")
+        thrust4 = np.array(data_thrust_cmd["/beetle1/four_axes/command/base_thrust[3]"])
+        plt.plot(t, thrust4, label="$f_{c4}$", linestyle=":")
+        plt.ylabel("Thrust Cmd [N]", fontsize=label_size)
+        plt.xlabel("Time [s]", fontsize=label_size)
+        plt.legend(framealpha=legend_alpha, ncol=2)
+
+        # --------------------------------
+        plt.subplot(4, 2, 8)
+        t = np.array(data_servo_angle_cmd["__time"]) - t_bias
+        servo1 = np.array(data_servo_angle_cmd["/beetle1/gimbals_ctrl/gimbal1/position"]) * 180 / np.pi
+        plt.plot(t, servo1, label="$\\alpha_{c1}$", linestyle="-")
+        servo2 = np.array(data_servo_angle_cmd["/beetle1/gimbals_ctrl/gimbal2/position"]) * 180 / np.pi
+        plt.plot(t, servo2, label="$\\alpha_{c2}$", linestyle="--")
+        servo3 = np.array(data_servo_angle_cmd["/beetle1/gimbals_ctrl/gimbal3/position"]) * 180 / np.pi
+        plt.plot(t, servo3, label="$\\alpha_{c3}$", linestyle="-.")
+        servo4 = np.array(data_servo_angle_cmd["/beetle1/gimbals_ctrl/gimbal4/position"]) * 180 / np.pi
+        plt.plot(t, servo4, label="$\\alpha_{c4}$", linestyle=":")
+
+        plt.ylabel("Servo Cmd [$^\\circ$]", fontsize=label_size)
+        plt.xlabel("Time [s]", fontsize=label_size)
+        plt.legend(framealpha=legend_alpha, ncol=2)
+
+        # --------------------------------
+        plt.tight_layout()
+        # make the subplots very compact
+        fig.subplots_adjust(hspace=0.2)
+        plt.show()
+
+    elif type == 1:
+        plt.style.use(["science", "grid"])
+
+        plt.rcParams.update({"font.size": 11})  # default is 10
+        label_size = 14
+
+        fig = plt.figure(figsize=(12, 7))
+
+        t_bias = max(data_xyz["__time"].iloc[0], data_xyz_ref_nmpc["__time"].iloc[0])
+        color_ref = "#0C5DA5"
+        color_real = "#FF2C00"
+        color_cog = "#f29619"  # the orange in scienceplots
+
+        # --------------------------------
+        plt.subplot(4, 2, 1)
+
+        # # plot a curve has the same length with t and the value is always 1.1. Only for admittance.
+        # t = np.array(data_xyz["__time"]) - t_bias
+        # x_original_ref = np.zeros_like(t) + 1.1
+        # plt.plot(t, x_original_ref, label="$p_{x,r}$", linestyle=":", color=color_cog)
+
+        t_ref = np.array(data_xyz_ref["__time"]) - t_bias
+        x_ref = np.array(data_xyz_ref["/beetle1/set_ref_traj/points[0]/transforms[0]/translation/x"])
+        plt.plot(t_ref, x_ref, label="$p_{x,r}$", linestyle="-", color=color_ref)
+        y_ref = np.array(data_xyz_ref["/beetle1/set_ref_traj/points[0]/transforms[0]/translation/y"])
+        plt.plot(t_ref, y_ref, label="$p_{y,r}$", linestyle="-.", color=color_ref)
+        z_ref = np.array(data_xyz_ref["/beetle1/set_ref_traj/points[0]/transforms[0]/translation/z"])
+        plt.plot(t_ref, z_ref, label="$p_{z,r}$", linestyle="--", color=color_ref)
+
+        t = np.array(data_xyz["__time"]) - t_bias
+        x = np.array(data_xyz["/beetle1/uav/ee_contact/odom/pose/pose/position/x"])
+        plt.plot(t, x, label="$p_x$", linestyle="-", color=color_real)
+        y = np.array(data_xyz["/beetle1/uav/ee_contact/odom/pose/pose/position/y"])
+        plt.plot(t, y, label="$p_y$", linestyle="-.", color=color_real)
+        z = np.array(data_xyz["/beetle1/uav/ee_contact/odom/pose/pose/position/z"])
+        plt.plot(t, z, label="$p_z$", linestyle="--", color=color_real)
+
+        plt.legend(framealpha=legend_alpha, ncol=2)
+        plt.ylabel("Position [m]", fontsize=label_size)
+
+        # --------------------------------
+        plt.subplot(4, 2, 2)
+
+        t_ref = np.array(data_euler_ref["__time"]) - t_bias
+        roll_ref = np.array(data_euler_ref["roll"])
+        pitch_ref = np.array(data_euler_ref["pitch"])
+        yaw_ref = np.array(data_euler_ref["yaw"])
+        plt.plot(t_ref, roll_ref * 180 / np.pi, label="roll_ref", linestyle=":", color=color_ref)
+        plt.plot(t_ref, pitch_ref * 180 / np.pi, label="pitch_ref", linestyle="-.", color=color_ref)
+        plt.plot(t_ref, yaw_ref * 180 / np.pi, label="yaw_ref", linestyle="--", color=color_ref)
+
+        t = np.array(data_euler["__time"]) - t_bias
+        roll = np.array(data_euler["roll"])
+        pitch = np.array(data_euler["pitch"])
+        yaw = np.array(data_euler["yaw"])
+        plt.plot(t, roll * 180 / np.pi, label="roll", linestyle="-")
+        plt.plot(t, pitch * 180 / np.pi, label="pitch", linestyle="-.")
+        plt.plot(t, yaw * 180 / np.pi, label="yaw", linestyle="--")
+
+        plt.legend(framealpha=legend_alpha, ncol=2)
+        plt.ylabel("Orientation [$^\circ$]", fontsize=label_size)
+
+        # --------------------------------
+        plt.subplot(4, 2, 3)
+
+        t = np.array(data_iterm["__time"]) - t_bias
+        fx_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/x"])
+        fy_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/y"])
+        fz_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/z"])
+        plt.plot(t, fx_iterm, label="$f_{x}$", linestyle="-.")
         plt.plot(t, fy_iterm, label="$f_{y}$", linestyle="--")
         plt.plot(t, fz_iterm, label="$f_{z}$", linestyle="-")
 
