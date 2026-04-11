@@ -7,6 +7,7 @@ from typing import Tuple
 import tf_conversions as tf
 import rospy
 from std_srvs.srv import Trigger
+from geometry_msgs.msg import WrenchStamped
 
 
 class BaseTraj:
@@ -814,27 +815,76 @@ class PushWallTraj(BaseTraj):
         # calibrate wrench estimator once when this trajectory starts
         self._is_calibrated = False
 
+        ext_wrench_body_frame_topic = f"/beetle1/ext_wrench_est/value"
+        self.ext_wrench_body_frame_sub = rospy.Subscriber(
+            ext_wrench_body_frame_topic, WrenchStamped, self._sub_ext_wrench_body_frame_callback
+        )
+        self.ext_wrench_body_frame_msg = WrenchStamped()
+
+        # ==== force to be used in contact ====
+        self.init_contact_force_sum = 0
+        self.init_contact_force_num = 0
+        self.init_contact_force = 0.0
+
+        self.x_final_target = 0.0
+
     def get_3d_pt(self, t: float) -> Tuple[float, float, float, float, float, float, float, float, float]:
         y, z, vx, vy, vz, ax, ay, az = 0.0, 1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         t_period_wait_converge = 2.0
         t_period_calibrate = 3.0
         t_period_move_to_wall = 3.0  # s
-        t_period_keep_contact = 5.0  # s
+        t_period_keep_contact = 15.0  # s
         t_period_move_back_wall = 3.0  # s
 
+        t_period_accum_force = 2.5  # s
+        t_period_apply_force = 10  # s
+        t_period_gradually_increase_force = 3  # s  # included in t_period_apply_force
+
         target_distance = 1.1  # m
+
+        desired_force = 40  # N
+        K_p = 20  # hard-coded. Ensure that the outer side has the same value.
 
         if t > t_period_wait_converge and not self._is_calibrated:
             self._call_wrench_calibration()
             self._is_calibrated = True
 
         t_start_move_wall = t_period_wait_converge + t_period_calibrate
-        # when t is from 2 to 5, the position x is linearly increased from 0.0 to 0.8m
+        # when t is from 2 to 5, the position x is linearly increased
         if t_start_move_wall + t_period_move_to_wall >= t > t_start_move_wall:
             self.x = target_distance * (t - t_start_move_wall) / t_period_move_to_wall
 
-        # then x is linearly decreased from 0.8 to 0.0m
+        t_reach_wall = t_start_move_wall + t_period_move_to_wall
+        if t_reach_wall + t_period_accum_force >= t > t_reach_wall:
+            if abs(self.ext_wrench_body_frame_msg.wrench.force.z) > 0.5:  # Note: body frame
+                self.init_contact_force_sum += self.ext_wrench_body_frame_msg.wrench.force.z
+                self.init_contact_force_num += 1
+
+        t_start_apply_extra_force = t_start_move_wall + t_period_move_to_wall + t_period_accum_force + 0.5
+        if t_start_apply_extra_force + t_period_apply_force >= t > t_start_apply_extra_force:
+            if self.init_contact_force == 0.0:
+                self.init_contact_force = -self.init_contact_force_sum / self.init_contact_force_num  # negative value
+                rospy.loginfo(f"Initial contact force: {self.init_contact_force:.2f} N")
+
+                self.x_final_target = target_distance + (desired_force - self.init_contact_force) / K_p
+                rospy.loginfo(f"Applying extra force. Current x: {self.x:.2f} m, x_final: {self.x_final_target} m")
+
+            if t_start_apply_extra_force + t_period_gradually_increase_force >= t:
+                self.x = (self.x_final_target - target_distance) * (
+                    t - t_start_apply_extra_force
+                ) / t_period_gradually_increase_force + target_distance
+            else:
+                self.x = self.x_final_target
+
+        if (
+            t_start_move_wall + t_period_move_to_wall + t_period_keep_contact
+            > t
+            > t_start_apply_extra_force + t_period_apply_force
+        ):
+            self.x = target_distance
+
+        # then x is linearly decreased
         t_start_move_back = t_start_move_wall + t_period_move_to_wall + t_period_keep_contact
         if t_start_move_back + t_period_move_back_wall >= t > t_start_move_back:
             self.x = target_distance * (t_start_move_back + t_period_move_back_wall - t) / t_period_move_back_wall
@@ -877,3 +927,6 @@ class PushWallTraj(BaseTraj):
             rospy.logwarn(f"Service wait timeout for {service_name}: {e}")
         except rospy.ServiceException as e:
             rospy.logwarn(f"Failed to call {service_name}: {e}")
+
+    def _sub_ext_wrench_body_frame_callback(self, msg):
+        self.ext_wrench_body_frame_msg = msg

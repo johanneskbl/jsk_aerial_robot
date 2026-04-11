@@ -32,8 +32,8 @@ controller:
     pMz: 0.0
     Qv_xy: 10  # pDxy
     Qv_z: 10  # pDz
-    Qp_xy: 5  # pKxy
-    Qp_z: 5  # pKz
+    Qp_xy: 20  # pKxy
+    Qp_z: 20  # pKz
 
     # orientation
     oMxy: 0.0
