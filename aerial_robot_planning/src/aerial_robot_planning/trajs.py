@@ -6,7 +6,7 @@ import numpy as np
 from typing import Tuple
 import tf_conversions as tf
 import rospy
-from std_msgs.msg import Float32
+from std_srvs.srv import Trigger
 
 
 class BaseTraj:
@@ -800,3 +800,80 @@ class InfinitePitchNeg90deg(BaseTraj):
         roll_acc, pitch_acc, yaw_acc = 0.0, 0.0, 0.0
 
         return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+
+
+class PushWallTraj(BaseTraj):
+    def __init__(self, loop_num) -> None:
+        super().__init__(loop_num)
+        self.child_frame_id = "ee"
+        self.use_constant_ref = True
+
+        self.T = 30
+        self.x = 0.0
+
+        # calibrate wrench estimator once when this trajectory starts
+        self._is_calibrated = False
+
+    def get_3d_pt(self, t: float) -> Tuple[float, float, float, float, float, float, float, float, float]:
+        y, z, vx, vy, vz, ax, ay, az = 0.0, 1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+        t_period_wait_converge = 2.0
+        t_period_calibrate = 3.0
+        t_period_move_to_wall = 3.0  # s
+        t_period_keep_contact = 5.0  # s
+        t_period_move_back_wall = 3.0  # s
+
+        target_distance = 1.1  # m
+
+        if t > t_period_wait_converge and not self._is_calibrated:
+            self._call_wrench_calibration()
+            self._is_calibrated = True
+
+        t_start_move_wall = t_period_wait_converge + t_period_calibrate
+        # when t is from 2 to 5, the position x is linearly increased from 0.0 to 0.8m
+        if t_start_move_wall + t_period_move_to_wall >= t > t_start_move_wall:
+            self.x = target_distance * (t - t_start_move_wall) / t_period_move_to_wall
+
+        # then x is linearly decreased from 0.8 to 0.0m
+        t_start_move_back = t_start_move_wall + t_period_move_to_wall + t_period_keep_contact
+        if t_start_move_back + t_period_move_back_wall >= t > t_start_move_back:
+            self.x = target_distance * (t_start_move_back + t_period_move_back_wall - t) / t_period_move_back_wall
+
+        return self.x, y, z, vx, vy, vz, ax, ay, az
+
+    def get_3d_orientation(
+        self, t: float
+    ) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
+        # Calculate the pitch angle based on time
+        pitch = np.pi / 2
+        roll = 0.0
+        yaw = np.pi / 4
+
+        (qx, qy, qz, qw) = tf.transformations.quaternion_from_euler(roll, pitch, yaw, axes="rxyz")
+
+        pitch_rate = 0.0
+        roll_rate = 0.0
+        yaw_rate = 0.0
+
+        roll_acc = 0.0
+        pitch_acc = 0.0
+        yaw_acc = 0.0
+
+        return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+
+    @staticmethod
+    def _call_wrench_calibration():
+        service_name = "/beetle1/controller/wrench_est/calibrate"
+
+        try:
+            rospy.loginfo(f"Waiting for service: {service_name}")
+            rospy.wait_for_service(service_name, timeout=3.0)
+
+            calibrate_srv = rospy.ServiceProxy(service_name, Trigger)
+            calibrate_srv()
+
+            rospy.loginfo("Wrench estimator calibration succeeded.")
+        except rospy.ROSException as e:
+            rospy.logwarn(f"Service wait timeout for {service_name}: {e}")
+        except rospy.ServiceException as e:
+            rospy.logwarn(f"Failed to call {service_name}: {e}")
