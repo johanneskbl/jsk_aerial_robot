@@ -38,7 +38,7 @@
     <!-- Vertical wall for contact tests -->
     <model name='vertical_plane'>
       <static>1</static>
-      <pose>1 0 1.0 0 0 0</pose>
+      <pose>1.025 0 1.2 0 0 0</pose>  <!-- ensure the surface is at 1.0m -->
       <link name='wall'>
         <collision name='wall_collision'>
           <geometry>
