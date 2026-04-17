@@ -829,7 +829,7 @@ class PushWallTraj(BaseTraj):
         self.x_final_target = 0.0
 
     def get_3d_pt(self, t: float) -> Tuple[float, float, float, float, float, float, float, float, float]:
-        y, z, vx, vy, vz, ax, ay, az = 0.0, 1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        y, z, vx, vy, vz, ax, ay, az = 1.0, 1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         t_period_wait_converge = 2.0
         t_period_calibrate = 3.0
@@ -843,7 +843,7 @@ class PushWallTraj(BaseTraj):
 
         target_distance = 1.1  # m
 
-        desired_force = 40  # N
+        desired_force = 10  # N
         K_p = 20  # hard-coded. Ensure that the outer side has the same value.
 
         if t > t_period_wait_converge and not self._is_calibrated:
