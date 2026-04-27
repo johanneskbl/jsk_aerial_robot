@@ -287,13 +287,17 @@ def plot_dataset(
         y,
         dt,
         timestamp,
-        state_in,
+        state_curr,
         state_out,
         state_pred,
+        state_ref,
         control,
+        control_pred,
         T_step,
-        state_in_filtered=None,
+        state_curr_filtered=None,
         control_in_filtered=None,
+        x_raw=None,
+        x_filtered=None,
         y_raw=None,
         y_filtered=None,
         save_file_path=None,
@@ -307,17 +311,67 @@ def plot_dataset(
     """
     use_moving_average_filter = ModelFitConfig.use_moving_average_filter
     temporalize = NetworkConfig.temporalize
+    N = state_pred.shape[1] if temporalize else 1
+    
+    def _get_full_horizon_indices(n_samples: int, block_size: int = 1000, per_block: int = 20) -> np.ndarray:
+        """Get indices to sample full-horizon trajectories for temporal networks.
+
+        Splits the timeline into blocks of length ``block_size`` and, from each block,
+        selects the first ``per_block`` (M) samples. This avoids plotting too many
+        overlaid horizon trajectories while keeping consistent early-block coverage.
+        """
+        if per_block <= 0 or block_size <= 0 or n_samples <= 0:
+            return np.asarray([], dtype=int)
+
+        idx = []
+        for start in range(0, n_samples, block_size):
+            end = min(start + block_size, n_samples)
+            count = min(per_block, end - start)
+            if count <= 0:
+                continue
+            idx.extend(range(start, start + count))
+
+        return np.unique(np.asarray(idx, dtype=int))
+
+    def _plot_temporal_horizon_overlays(
+        ax,
+        t_base: np.ndarray,
+        traj: np.ndarray,
+        *,
+        color: str,
+        alpha: float = 0.7,
+        linewidth: float = 0.8,
+        linestyle: str = "--",
+        marker = "x",
+        markersize=12,
+        is_control: bool = False,
+    ) -> None:
+        """
+        Overlay full horizon trajectories for each trajectory at selected indices to avoid plotting too much.
+
+        traj: (T, N) for one scalar signal across the horizon.
+        """
+        if is_control:
+            offsets = np.arange(N - 1, dtype=float) * T_step
+        else: 
+            offsets = np.arange(N, dtype=float) * T_step
+        for k in full_horizon_idx:
+            ax.plot(t_base[k] + offsets, traj[k, :], color=color, alpha=alpha, linewidth=linewidth, linestyle=linestyle, marker=marker, markersize=markersize)
     
     t = timestamp - timestamp[0]
+    full_horizon_idx = _get_full_horizon_indices(len(t)) if temporalize else None
     figures = []
     # State features
     # --- Position
     fig, axs = plt.subplots(3, 1, sharex=True)
     axs[0].set_title("State In & Out & Prop (Position)")
-    axs[0].plot(t, state_in[:, 0], label="state_in")
+    axs[0].plot(t, state_curr[:, 0], label="state_curr")
+    axs[0].plot(t, state_ref[:, 0], label="state_ref")
     if temporalize:
         axs[0].plot(t, state_out[:, 0, 0], label="state_out")
         axs[0].plot(t, state_pred[:, 0, 0], label="state_pred")
+        _plot_temporal_horizon_overlays(axs[0], t, state_out[:, :, 0], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[0], t, state_pred[:, :, 0], color="tab:green")
     else:
         axs[0].plot(t, state_out[:, 0], label="state_out")
         axs[0].plot(t, state_pred[:, 0], label="state_pred")
@@ -325,20 +379,26 @@ def plot_dataset(
     axs[0].set_ylabel("x [m]")
     axs[0].set_xlim(t[0], t[-1])
     axs[0].grid(True)
-    axs[1].plot(t, state_in[:, 1])
+    axs[1].plot(t, state_curr[:, 1])
+    axs[1].plot(t, state_ref[:, 1])
     if temporalize:
-        axs[1].plot(t, state_out[:, 0, 1], label="state_out")
-        axs[1].plot(t, state_pred[:, 0, 1], label="state_pred")
+        axs[1].plot(t, state_out[:, 0, 1])
+        axs[1].plot(t, state_pred[:, 0, 1])
+        _plot_temporal_horizon_overlays(axs[1], t, state_out[:, :, 1], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[1], t, state_pred[:, :, 1], color="tab:green")
     else:
         axs[1].plot(t, state_out[:, 1])
         axs[1].plot(t, state_pred[:, 1])
     axs[1].set_ylabel("y [m]")
     axs[1].set_xlim(t[0], t[-1])
     axs[1].grid(True)
-    axs[2].plot(t, state_in[:, 2])
+    axs[2].plot(t, state_curr[:, 2])
+    axs[2].plot(t, state_ref[:, 2])
     if temporalize:
-        axs[2].plot(t, state_out[:, 0, 2], label="state_out")
-        axs[2].plot(t, state_pred[:, 0, 2], label="state_pred")
+        axs[2].plot(t, state_out[:, 0, 2])
+        axs[2].plot(t, state_pred[:, 0, 2])
+        _plot_temporal_horizon_overlays(axs[2], t, state_out[:, :, 2], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[2], t, state_pred[:, :, 2], color="tab:green")
     else:
         axs[2].plot(t, state_out[:, 2])
         axs[2].plot(t, state_pred[:, 2])
@@ -351,22 +411,22 @@ def plot_dataset(
     if use_moving_average_filter:
         fig, axs = plt.subplots(3, 1, sharex=True)
         axs[0].set_title("State In Filtered vs. Unfiltered (Position)")
-        axs[0].plot(t, state_in[:, 0], label="state_in")
+        axs[0].plot(t, state_curr[:, 0], label="state_curr")
         if use_moving_average_filter:
-            axs[0].plot(t, state_in_filtered[:, 0], label="state_in_filtered")
+            axs[0].plot(t, state_curr_filtered[:, 0], label="state_curr_filtered")
         axs[0].legend()
         axs[0].set_ylabel("x [m]")
         axs[0].set_xlim(t[0], t[-1])
         axs[0].grid(True)
-        axs[1].plot(t, state_in[:, 1])
+        axs[1].plot(t, state_curr[:, 1])
         if use_moving_average_filter:
-            axs[1].plot(t, state_in_filtered[:, 1])
+            axs[1].plot(t, state_curr_filtered[:, 1])
         axs[1].set_ylabel("y [m]")
         axs[1].set_xlim(t[0], t[-1])
         axs[1].grid(True)
-        axs[2].plot(t, state_in[:, 2])
+        axs[2].plot(t, state_curr[:, 2])
         if use_moving_average_filter:
-            axs[2].plot(t, state_in_filtered[:, 2])
+            axs[2].plot(t, state_curr_filtered[:, 2])
         axs[2].set_ylabel("z [m]")
         axs[2].set_xlim(t[0], t[-1])
         axs[2].grid(True)
@@ -377,10 +437,13 @@ def plot_dataset(
     # NOTE: Velocity is transformed to Body frame already
     fig, axs = plt.subplots(3, 1, sharex=True)
     axs[0].set_title("State In & Out & Prop (Velocity, transformed)")
-    axs[0].plot(t, state_in[:, 3], label="state_in")
+    axs[0].plot(t, state_curr[:, 3], label="state_curr")
+    axs[0].plot(t, state_ref[:, 3], label="state_ref")
     if temporalize:
         axs[0].plot(t, state_out[:, 0, 3], label="state_out")
         axs[0].plot(t, state_pred[:, 0, 3], label="state_pred")
+        _plot_temporal_horizon_overlays(axs[0], t, state_out[:, :, 3], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[0], t, state_pred[:, :, 3], color="tab:green")
     else:
         axs[0].plot(t, state_out[:, 3], label="state_out")
         axs[0].plot(t, state_pred[:, 3], label="state_pred")
@@ -388,20 +451,26 @@ def plot_dataset(
     axs[0].set_ylabel("vx [m]")
     axs[0].set_xlim(t[0], t[-1])
     axs[0].grid(True)
-    axs[1].plot(t, state_in[:, 4])
+    axs[1].plot(t, state_curr[:, 4])
+    axs[1].plot(t, state_ref[:, 4])
     if temporalize:
-        axs[1].plot(t, state_out[:, 0, 4], label="state_out")
-        axs[1].plot(t, state_pred[:, 0, 4], label="state_pred")
+        axs[1].plot(t, state_out[:, 0, 4])
+        axs[1].plot(t, state_pred[:, 0, 4])
+        _plot_temporal_horizon_overlays(axs[1], t, state_out[:, :, 4], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[1], t, state_pred[:, :, 4], color="tab:green")
     else:
         axs[1].plot(t, state_out[:, 4])
         axs[1].plot(t, state_pred[:, 4])
     axs[1].set_ylabel("vy [m]")
     axs[1].set_xlim(t[0], t[-1])
     axs[1].grid(True)
-    axs[2].plot(t, state_in[:, 5])
+    axs[2].plot(t, state_curr[:, 5])
+    axs[2].plot(t, state_ref[:, 5])
     if temporalize:
-        axs[2].plot(t, state_out[:, 0, 5], label="state_out")
-        axs[2].plot(t, state_pred[:, 0, 5], label="state_pred")
+        axs[2].plot(t, state_out[:, 0, 5])
+        axs[2].plot(t, state_pred[:, 0, 5])
+        _plot_temporal_horizon_overlays(axs[2], t, state_out[:, :, 5], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[2], t, state_pred[:, :, 5], color="tab:green")
     else:
         axs[2].plot(t, state_out[:, 5])
         axs[2].plot(t, state_pred[:, 5])
@@ -414,22 +483,22 @@ def plot_dataset(
     if use_moving_average_filter:
         fig, axs = plt.subplots(3, 1, sharex=True)
         axs[0].set_title("State In Filtered vs. Unfiltered (Velocity)")
-        axs[0].plot(t, state_in[:, 3], label="state_in")
+        axs[0].plot(t, state_curr[:, 3], label="state_curr")
         if use_moving_average_filter:
-            axs[0].plot(t, state_in_filtered[:, 3], label="state_in_filtered")
+            axs[0].plot(t, state_curr_filtered[:, 3], label="state_curr_filtered")
         axs[0].legend()
         axs[0].set_ylabel("vx [m]")
         axs[0].set_xlim(t[0], t[-1])
         axs[0].grid(True)
-        axs[1].plot(t, state_in[:, 4])
+        axs[1].plot(t, state_curr[:, 4])
         if use_moving_average_filter:
-            axs[1].plot(t, state_in_filtered[:, 4])
+            axs[1].plot(t, state_curr_filtered[:, 4])
         axs[1].set_ylabel("vy [m]")
         axs[1].set_xlim(t[0], t[-1])
         axs[1].grid(True)
-        axs[2].plot(t, state_in[:, 5])
+        axs[2].plot(t, state_curr[:, 5])
         if use_moving_average_filter:
-            axs[2].plot(t, state_in_filtered[:, 5])
+            axs[2].plot(t, state_curr_filtered[:, 5])
         axs[2].set_ylabel("vz [m]")
         axs[2].set_xlim(t[0], t[-1])
         axs[2].grid(True)
@@ -439,10 +508,13 @@ def plot_dataset(
     # --- Quaternion
     fig, axs = plt.subplots(4, 1, sharex=True)
     axs[0].set_title("State In & Out & Prop (Quaternion)")
-    axs[0].plot(t, state_in[:, 6], label="state_in")
+    axs[0].plot(t, state_curr[:, 6], label="state_curr")
+    axs[0].plot(t, state_ref[:, 6], label="state_ref")
     if temporalize:
         axs[0].plot(t, state_out[:, 0, 6], label="state_out")
         axs[0].plot(t, state_pred[:, 0, 6], label="state_pred")
+        _plot_temporal_horizon_overlays(axs[0], t, state_out[:, :, 6], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[0], t, state_pred[:, :, 6], color="tab:green")
     else:
         axs[0].plot(t, state_out[:, 6], label="state_out")
         axs[0].plot(t, state_pred[:, 6], label="state_pred")
@@ -450,30 +522,39 @@ def plot_dataset(
     axs[0].set_ylabel("qw")
     axs[0].set_xlim(t[0], t[-1])
     axs[0].grid(True)
-    axs[1].plot(t, state_in[:, 7])
+    axs[1].plot(t, state_curr[:, 7])
+    axs[1].plot(t, state_ref[:, 7])
     if temporalize:
-        axs[1].plot(t, state_out[:, 0, 7], label="state_out")
-        axs[1].plot(t, state_pred[:, 0, 7], label="state_pred")
+        axs[1].plot(t, state_out[:, 0, 7])
+        axs[1].plot(t, state_pred[:, 0, 7])
+        _plot_temporal_horizon_overlays(axs[1], t, state_out[:, :, 7], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[1], t, state_pred[:, :, 7], color="tab:green")
     else:
         axs[1].plot(t, state_out[:, 7])
         axs[1].plot(t, state_pred[:, 7])
     axs[1].set_ylabel("qx")
     axs[1].set_xlim(t[0], t[-1])
     axs[1].grid(True)
-    axs[2].plot(t, state_in[:, 8])
+    axs[2].plot(t, state_curr[:, 8])
+    axs[2].plot(t, state_ref[:, 8])
     if temporalize:
-        axs[2].plot(t, state_out[:, 0, 8], label="state_out")
-        axs[2].plot(t, state_pred[:, 0, 8], label="state_pred")
+        axs[2].plot(t, state_out[:, 0, 8])
+        axs[2].plot(t, state_pred[:, 0, 8])
+        _plot_temporal_horizon_overlays(axs[2], t, state_out[:, :, 8], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[2], t, state_pred[:, :, 8], color="tab:green")
     else:
         axs[2].plot(t, state_out[:, 8])
         axs[2].plot(t, state_pred[:, 8])
     axs[2].set_ylabel("qy")
     axs[2].set_xlim(t[0], t[-1])
     axs[2].grid(True)
-    axs[3].plot(t, state_in[:, 9])
+    axs[3].plot(t, state_curr[:, 9])
+    axs[3].plot(t, state_ref[:, 9])
     if temporalize:
-        axs[3].plot(t, state_out[:, 0, 9], label="state_out")
-        axs[3].plot(t, state_pred[:, 0, 9], label="state_pred")
+        axs[3].plot(t, state_out[:, 0, 9])
+        axs[3].plot(t, state_pred[:, 0, 9])
+        _plot_temporal_horizon_overlays(axs[3], t, state_out[:, :, 9], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[3], t, state_pred[:, :, 9], color="tab:green")
     else:
         axs[3].plot(t, state_out[:, 9])
         axs[3].plot(t, state_pred[:, 9])
@@ -486,10 +567,13 @@ def plot_dataset(
     # --- Angular Velocity
     fig, axs = plt.subplots(3, 1, sharex=True)
     axs[0].set_title("State In & Out & Prop (Angular Velocity)")
-    axs[0].plot(t, state_in[:, 10], label="state_in")
+    axs[0].plot(t, state_curr[:, 10], label="state_curr")
+    axs[0].plot(t, state_ref[:, 10], label="state_ref")
     if temporalize:
         axs[0].plot(t, state_out[:, 0, 10], label="state_out")
         axs[0].plot(t, state_pred[:, 0, 10], label="state_pred")
+        _plot_temporal_horizon_overlays(axs[0], t, state_out[:, :, 10], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[0], t, state_pred[:, :, 10], color="tab:green")
     else:
         axs[0].plot(t, state_out[:, 10], label="state_out")
         axs[0].plot(t, state_pred[:, 10], label="state_pred")
@@ -497,20 +581,26 @@ def plot_dataset(
     axs[0].set_ylabel("wx [rad/s]")
     axs[0].set_xlim(t[0], t[-1])
     axs[0].grid(True)
-    axs[1].plot(t, state_in[:, 11])
+    axs[1].plot(t, state_curr[:, 11])
+    axs[1].plot(t, state_ref[:, 11])
     if temporalize:
-        axs[1].plot(t, state_out[:, 0, 11], label="state_out")
-        axs[1].plot(t, state_pred[:, 0, 11], label="state_pred")
+        axs[1].plot(t, state_out[:, 0, 11])
+        axs[1].plot(t, state_pred[:, 0, 11])
+        _plot_temporal_horizon_overlays(axs[1], t, state_out[:, :, 11], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[1], t, state_pred[:, :, 11], color="tab:green")
     else:
         axs[1].plot(t, state_out[:, 11])
         axs[1].plot(t, state_pred[:, 11])
     axs[1].set_ylabel("wy [rad/s]")
     axs[1].set_xlim(t[0], t[-1])
     axs[1].grid(True)
-    axs[2].plot(t, state_in[:, 12])
+    axs[2].plot(t, state_curr[:, 12])
+    axs[2].plot(t, state_ref[:, 12])
     if temporalize:
-        axs[2].plot(t, state_out[:, 0, 12], label="state_out")
-        axs[2].plot(t, state_pred[:, 0, 12], label="state_pred")
+        axs[2].plot(t, state_out[:, 0, 12])
+        axs[2].plot(t, state_pred[:, 0, 12])
+        _plot_temporal_horizon_overlays(axs[2], t, state_out[:, :, 12], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[2], t, state_pred[:, :, 12], color="tab:green")
     else:
         axs[2].plot(t, state_out[:, 12])
         axs[2].plot(t, state_pred[:, 12])
@@ -523,28 +613,28 @@ def plot_dataset(
     if use_moving_average_filter:
         fig, axs = plt.subplots(4, 1, sharex=True)
         axs[0].set_title("State In Filtered vs. Unfiltered (Quaternion)")
-        axs[0].plot(t, state_in[:, 6], label="state_in")
+        axs[0].plot(t, state_curr[:, 6], label="state_curr")
         if use_moving_average_filter:
-            axs[0].plot(t, state_in_filtered[:, 6], label="state_in_filtered")
+            axs[0].plot(t, state_curr_filtered[:, 6], label="state_curr_filtered")
         axs[0].legend()
         axs[0].set_ylabel("qw")
         axs[0].set_xlim(t[0], t[-1])
         axs[0].grid(True)
-        axs[1].plot(t, state_in[:, 7])
+        axs[1].plot(t, state_curr[:, 7])
         if use_moving_average_filter:
-            axs[1].plot(t, state_in_filtered[:, 7])
+            axs[1].plot(t, state_curr_filtered[:, 7])
         axs[1].set_ylabel("qx")
         axs[1].set_xlim(t[0], t[-1])
         axs[1].grid(True)
-        axs[2].plot(t, state_in[:, 8])
+        axs[2].plot(t, state_curr[:, 8])
         if use_moving_average_filter:
-            axs[2].plot(t, state_in_filtered[:, 8])
+            axs[2].plot(t, state_curr_filtered[:, 8])
         axs[2].set_ylabel("qy")
         axs[2].set_xlim(t[0], t[-1])
         axs[2].grid(True)
-        axs[3].plot(t, state_in[:, 9])
+        axs[3].plot(t, state_curr[:, 9])
         if use_moving_average_filter:
-            axs[3].plot(t, state_in_filtered[:, 9])
+            axs[3].plot(t, state_curr_filtered[:, 9])
         axs[3].set_ylabel("qz")
         axs[3].set_xlim(t[0], t[-1])
         axs[3].grid(True)
@@ -554,10 +644,13 @@ def plot_dataset(
     # --- Servo Angle State
     fig, axs = plt.subplots(4, 1, sharex=True)
     axs[0].set_title("State In & Out & Prop (Servo Angle)")
-    axs[0].plot(t, state_in[:, 13], label="state_in")
+    axs[0].plot(t, state_curr[:, 13], label="state_curr")
+    axs[0].plot(t, state_ref[:, 13], label="state_ref")
     if temporalize:
         axs[0].plot(t, state_out[:, 0, 13], label="state_out")
         axs[0].plot(t, state_pred[:, 0, 13], label="state_pred")
+        _plot_temporal_horizon_overlays(axs[0], t, state_out[:, :, 13], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[0], t, state_pred[:, :, 13], color="tab:green")
     else:
         axs[0].plot(t, state_out[:, 13], label="state_out")
         axs[0].plot(t, state_pred[:, 13], label="state_pred")
@@ -565,30 +658,39 @@ def plot_dataset(
     axs[0].set_ylabel("alpha 1 [rad]")
     axs[0].set_xlim(t[0], t[-1])
     axs[0].grid(True)
-    axs[1].plot(t, state_in[:, 14])
+    axs[1].plot(t, state_curr[:, 14])
+    axs[1].plot(t, state_ref[:, 14])
     if temporalize:
-        axs[1].plot(t, state_out[:, 0, 14], label="state_out")
-        axs[1].plot(t, state_pred[:, 0, 14], label="state_pred")
+        axs[1].plot(t, state_out[:, 0, 14])
+        axs[1].plot(t, state_pred[:, 0, 14])
+        _plot_temporal_horizon_overlays(axs[1], t, state_out[:, :, 14], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[1], t, state_pred[:, :, 14], color="tab:green")
     else:
         axs[1].plot(t, state_out[:, 14])
         axs[1].plot(t, state_pred[:, 14])
     axs[1].set_ylabel("alpha 2 [rad]")
     axs[1].set_xlim(t[0], t[-1])
     axs[1].grid(True)
-    axs[2].plot(t, state_in[:, 15])
+    axs[2].plot(t, state_curr[:, 15])
+    axs[2].plot(t, state_ref[:, 15])
     if temporalize:
-        axs[2].plot(t, state_out[:, 0, 15], label="state_out")
-        axs[2].plot(t, state_pred[:, 0, 15], label="state_pred")
+        axs[2].plot(t, state_out[:, 0, 15])
+        axs[2].plot(t, state_pred[:, 0, 15])
+        _plot_temporal_horizon_overlays(axs[2], t, state_out[:, :, 15], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[2], t, state_pred[:, :, 15], color="tab:green")
     else:
         axs[2].plot(t, state_out[:, 15])
         axs[2].plot(t, state_pred[:, 15])
     axs[2].set_ylabel("alpha 3 [rad]")
     axs[2].set_xlim(t[0], t[-1])
     axs[2].grid(True)
-    axs[3].plot(t, state_in[:, 16])
+    axs[3].plot(t, state_curr[:, 16])
+    axs[3].plot(t, state_ref[:, 16])
     if temporalize:
-        axs[3].plot(t, state_out[:, 0, 16], label="state_out")
-        axs[3].plot(t, state_pred[:, 0, 16], label="state_pred")
+        axs[3].plot(t, state_out[:, 0, 16])
+        axs[3].plot(t, state_pred[:, 0, 16])
+        _plot_temporal_horizon_overlays(axs[3], t, state_out[:, :, 16], color="tab:orange")
+        _plot_temporal_horizon_overlays(axs[3], t, state_pred[:, :, 16], color="tab:green")
     else:
         axs[3].plot(t, state_out[:, 16])
         axs[3].plot(t, state_pred[:, 16])
@@ -601,28 +703,28 @@ def plot_dataset(
     if use_moving_average_filter:
         fig, axs = plt.subplots(4, 1, sharex=True)
         axs[0].set_title("State In Filtered vs. Unfiltered (Servo Angle)")
-        axs[0].plot(t, state_in[:, 13], label="state_in")
+        axs[0].plot(t, state_curr[:, 13], label="state_curr")
         if use_moving_average_filter:
-            axs[0].plot(t, state_in_filtered[:, 13], label="state_in_filtered")
+            axs[0].plot(t, state_curr_filtered[:, 13], label="state_curr_filtered")
         axs[0].legend()
         axs[0].set_ylabel("alpha 1 [rad]")
         axs[0].set_xlim(t[0], t[-1])
         axs[0].grid(True)
-        axs[1].plot(t, state_in[:, 14])
+        axs[1].plot(t, state_curr[:, 14])
         if use_moving_average_filter:
-            axs[1].plot(t, state_in_filtered[:, 14])
+            axs[1].plot(t, state_curr_filtered[:, 14])
         axs[1].set_ylabel("alpha 2 [rad]")
         axs[1].set_xlim(t[0], t[-1])
         axs[1].grid(True)
-        axs[2].plot(t, state_in[:, 15])
+        axs[2].plot(t, state_curr[:, 15])
         if use_moving_average_filter:
-            axs[2].plot(t, state_in_filtered[:, 15])
+            axs[2].plot(t, state_curr_filtered[:, 15])
         axs[2].set_ylabel("alpha 3 [rad]")
         axs[2].set_xlim(t[0], t[-1])
         axs[2].grid(True)
-        axs[3].plot(t, state_in[:, 16])
+        axs[3].plot(t, state_curr[:, 16])
         if use_moving_average_filter:
-            axs[3].plot(t, state_in_filtered[:, 16])
+            axs[3].plot(t, state_curr_filtered[:, 16])
         axs[3].set_ylabel("alpha 4 [rad]")
         axs[3].set_xlim(t[0], t[-1])
         axs[3].grid(True)
@@ -633,16 +735,15 @@ def plot_dataset(
     # --- Thrust Command
     fig, axs = plt.subplots(2, 1, sharex=True)
     axs[0].set_title("Control Inputs")
+    axs[0].plot(t, control[:, 0], label="thrust_cmd_1")
+    axs[0].plot(t, control[:, 1], label="thrust_cmd_2")
+    axs[0].plot(t, control[:, 2], label="thrust_cmd_3")
+    axs[0].plot(t, control[:, 3], label="thrust_cmd_4")
     if temporalize:
-        axs[0].plot(t, control[:, 0, 0], label="thrust_cmd_1")
-        axs[0].plot(t, control[:, 0, 1], label="thrust_cmd_2")
-        axs[0].plot(t, control[:, 0, 2], label="thrust_cmd_3")
-        axs[0].plot(t, control[:, 0, 3], label="thrust_cmd_4")
-    else:
-        axs[0].plot(t, control[:, 0], label="thrust_cmd_1")
-        axs[0].plot(t, control[:, 1], label="thrust_cmd_2")
-        axs[0].plot(t, control[:, 2], label="thrust_cmd_3")
-        axs[0].plot(t, control[:, 3], label="thrust_cmd_4")
+        _plot_temporal_horizon_overlays(axs[0], t, control_pred[:, :, 0], color="tab:orange", is_control=True)
+        _plot_temporal_horizon_overlays(axs[0], t, control_pred[:, :, 1], color="tab:orange", is_control=True)
+        _plot_temporal_horizon_overlays(axs[0], t, control_pred[:, :, 2], color="tab:orange", is_control=True)
+        _plot_temporal_horizon_overlays(axs[0], t, control_pred[:, :, 3], color="tab:orange", is_control=True)
     if use_moving_average_filter:
         axs[0].plot(t, control_in_filtered[:, 0], label="thrust_cmd_1_filtered", linestyle="--")
         axs[0].plot(t, control_in_filtered[:, 1], label="thrust_cmd_2_filtered", linestyle="--")
@@ -654,16 +755,15 @@ def plot_dataset(
     axs[0].grid(True)
 
     # --- Servo Angle Command
+    axs[1].plot(t, control[:, 4], label="servo_cmd_1")
+    axs[1].plot(t, control[:, 5], label="servo_cmd_2")
+    axs[1].plot(t, control[:, 6], label="servo_cmd_3")
+    axs[1].plot(t, control[:, 7], label="servo_cmd_4")
     if temporalize:
-        axs[1].plot(t, control[:, 0, 4], label="servo_cmd_1")
-        axs[1].plot(t, control[:, 0, 5], label="servo_cmd_2")
-        axs[1].plot(t, control[:, 0, 6], label="servo_cmd_3")
-        axs[1].plot(t, control[:, 0, 7], label="servo_cmd_4")
-    else:
-        axs[1].plot(t, control[:, 4], label="servo_cmd_1")
-        axs[1].plot(t, control[:, 5], label="servo_cmd_2")
-        axs[1].plot(t, control[:, 6], label="servo_cmd_3")
-        axs[1].plot(t, control[:, 7], label="servo_cmd_4")
+        _plot_temporal_horizon_overlays(axs[1], t, control_pred[:, :, 4], color="tab:orange", is_control=True)
+        _plot_temporal_horizon_overlays(axs[1], t, control_pred[:, :, 5], color="tab:orange", is_control=True)
+        _plot_temporal_horizon_overlays(axs[1], t, control_pred[:, :, 6], color="tab:orange", is_control=True)
+        _plot_temporal_horizon_overlays(axs[1], t, control_pred[:, :, 7], color="tab:orange", is_control=True)
     if use_moving_average_filter:
         axs[1].plot(t, control_in_filtered[:, 4], label="servo_cmd_1_filtered", linestyle="--")
         axs[1].plot(t, control_in_filtered[:, 5], label="servo_cmd_2_filtered", linestyle="--")
@@ -676,11 +776,28 @@ def plot_dataset(
     plt.tight_layout()
     figures.append(fig)
 
-    # Network Inputs
     if temporalize:
-        fig, axs = plt.subplots(x.shape[2], 1, sharex=True, squeeze=False)
-        for dim in range(x.shape[2]):
-            axs[dim, 0].plot(t, x[:, 0, dim])
+        # Network Inputs
+        if x.shape[1] % N != 0:
+            raise ValueError(
+                f"Input x expected to be flattened as (T, N*k). Got x.shape={x.shape} and N={N}."
+            )
+        x_dim = int(x.shape[1] // N)
+        x_reshaped = x.reshape(x.shape[0], N, x_dim)
+        if use_moving_average_filter and x_raw is not None and x_filtered is not None:
+            x_raw_plot = x_raw
+            x_filtered_plot = x_filtered
+        else:
+            x_raw_plot = x_reshaped
+            x_filtered_plot = None
+
+        fig, axs = plt.subplots(x_dim, 1, sharex=True, squeeze=False)
+        for dim in range(x_dim):
+            axs[dim, 0].plot(t, x_raw_plot[:, 0, dim])
+            _plot_temporal_horizon_overlays(axs[dim, 0], t, x_raw_plot[:, :, dim], color="tab:red")
+            if x_filtered_plot is not None:
+                axs[dim, 0].plot(t, x_filtered_plot[:, 0, dim], label="filtered", color="tab:blue")
+                _plot_temporal_horizon_overlays(axs[dim, 0], t, x_filtered_plot[:, :, dim], color="tab:blue")
             if dim == 0:
                 axs[dim, 0].set_title("Network Inputs (filtered & pruned & transformed)")
             axs[dim, 0].set_xlim(t[0], t[-1])
@@ -689,13 +806,26 @@ def plot_dataset(
         figures.append(fig)
 
         # Labels
-        fig, axs = plt.subplots(y.shape[2], 1, sharex=True, squeeze=False)
-        for dim in range(y.shape[2]):
-            if use_moving_average_filter:
-                axs[dim, 0].plot(t, y_raw[:, 0, dim], color="tab:red")
-                axs[dim, 0].plot(t, y_filtered[:, 0, dim], label="filtered", color="tab:blue")
-            else:
-                axs[dim, 0].plot(t, y[:, 0, dim], color="tab:red")
+        if y.shape[1] % N != 0:
+            raise ValueError(
+                f"Temporal labels y are expected to be flattened as (T, N*k). Got y.shape={y.shape} and N={N}."
+            )
+        y_dim = int(y.shape[1] // N)
+        y_reshaped = y.reshape(y.shape[0], N, y_dim)
+        if use_moving_average_filter and y_raw is not None and y_filtered is not None:
+            y_raw_plot = y_raw
+            y_filtered_plot = y_filtered
+        else:
+            y_raw_plot = y_reshaped
+            y_filtered_plot = None
+
+        fig, axs = plt.subplots(y_dim, 1, sharex=True, squeeze=False)
+        for dim in range(y_dim):
+            axs[dim, 0].plot(t, y_raw_plot[:, 0, dim], color="tab:red")
+            _plot_temporal_horizon_overlays(axs[dim, 0], t, y_raw_plot[:, :, dim], color="tab:green")
+            if y_filtered_plot is not None:
+                axs[dim, 0].plot(t, y_filtered_plot[:, 0, dim], label="filtered", color="tab:blue")
+                _plot_temporal_horizon_overlays(axs[dim, 0], t, y_filtered_plot[:, :, dim], color="tab:green")
             if dim == 0:
                 axs[dim, 0].set_title("Labels (filtered & pruned & possibly transformed)")
             axs[dim, 0].set_xlim(t[0], t[-1])
@@ -703,29 +833,8 @@ def plot_dataset(
             axs[dim, 0].set_ylabel(f"D{dim}")
         figures.append(fig)
 
-        diff = state_out - state_pred
-        if ModelFitConfig.prop_long_horizon:
-            y_all = diff / T_step
-        else:
-            y_all = diff / np.expand_dims(dt, 1)
-
-        fig, axs = plt.subplots(state_in.shape[2], 2, sharex=True, figsize=(20, 5))
-        for dim in range(state_in.shape[2]):
-            axs[dim, 0].plot(t, diff[:, 0, dim], color="red")
-            if dim == 0:
-                axs[dim, 0].set_title("State Out - State Pred")
-            axs[dim, 0].set_xlim(t[0], t[-1])
-            axs[dim, 0].grid(True)
-
-        for dim in range(state_in.shape[2]):
-            axs[dim, 1].plot(t, y_all[:, 0, dim], color="green")
-            if dim == 0:
-                axs[dim, 1].set_title("(State Out - State Pred) / dt")
-            axs[dim, 1].set_xlim(t[0], t[-1])
-            axs[dim, 1].grid(True)
-        figures.append(fig)
-
     else:
+        # Network Inputs
         fig, axs = plt.subplots(x.shape[1], 1, sharex=True, squeeze=False)
         for dim in range(x.shape[1]):
             axs[dim, 0].plot(t, x[:, dim])
@@ -751,28 +860,6 @@ def plot_dataset(
             axs[dim, 0].set_ylabel(f"D{dim}")
         figures.append(fig)
 
-        diff = state_out - state_pred
-        if ModelFitConfig.prop_long_horizon:
-            y_all = diff / T_step
-        else:
-            y_all = diff / np.expand_dims(dt, 1)
-
-        fig, axs = plt.subplots(state_in.shape[1], 2, sharex=True, figsize=(20, 5))
-        for dim in range(state_in.shape[1]):
-            axs[dim, 0].plot(t, diff[:, dim], color="red")
-            if dim == 0:
-                axs[dim, 0].set_title("State Out - State Pred")
-            axs[dim, 0].set_xlim(t[0], t[-1])
-            axs[dim, 0].grid(True)
-
-        for dim in range(state_in.shape[1]):
-            axs[dim, 1].plot(t, y_all[:, dim], color="green")
-            if dim == 0:
-                axs[dim, 1].set_title("(State Out - State Pred) / dt")
-            axs[dim, 1].set_xlim(t[0], t[-1])
-            axs[dim, 1].grid(True)
-        figures.append(fig)
-
     plt.show()
 
     if save_file_path is not None and save_file_name is not None:
@@ -787,7 +874,7 @@ def plot_dataset(
 
 def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC, dist_dict=None, save=False):
     figures = []
-    state_in = rec_dict["state_in"]
+    state_curr = rec_dict["state_curr"]
     state_out = rec_dict["state_out"]
     state_pred = rec_dict["state_pred"]
     state_ref = rec_dict["state_ref"]
@@ -795,10 +882,10 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     timestamp = rec_dict["timestamp"]
 
     # Plot state features
-    fig, axs = plt.subplots(state_in.shape[1], 1, sharex=True, figsize=(20, 5), squeeze=False)
-    for dim in range(state_in.shape[1] - 1, -1, -1):
+    fig, axs = plt.subplots(state_curr.shape[1], 1, sharex=True, figsize=(20, 5), squeeze=False)
+    for dim in range(state_curr.shape[1] - 1, -1, -1):
         axs[dim, 0].plot(timestamp, state_ref[:, dim], label="state_ref", color="r", linestyle="--", alpha=0.8)
-        axs[dim, 0].plot(timestamp, state_in[:, dim], label="state_in")
+        axs[dim, 0].plot(timestamp, state_curr[:, dim], label="state_curr")
         axs[dim, 0].plot(timestamp, state_out[:, dim], label="state_out")
         axs[dim, 0].plot(timestamp, state_pred[:, dim], label="state_pred")
         axs[dim, 0].set_ylabel(f"D{dim}")
@@ -829,7 +916,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     # Plot in z feature
     fig = plt.figure(figsize=(20, 5))
     plt.plot(timestamp, state_ref[:, 2], label="state_ref", color="r", linestyle="--", alpha=0.8)
-    plt.plot(timestamp, state_in[:, 2], label="state_in")
+    plt.plot(timestamp, state_curr[:, 2], label="state_curr")
     plt.plot(timestamp, state_out[:, 2], label="state_out")
     plt.plot(timestamp, state_pred[:, 2], label="state_pred")
     plt.grid("on")
@@ -843,7 +930,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     # Plot in vz feature
     fig = plt.figure(figsize=(20, 5))
     plt.plot(timestamp, state_ref[:, 5], label="state_ref", color="r", linestyle="--", alpha=0.8)
-    plt.plot(timestamp, state_in[:, 5], label="state_in")
+    plt.plot(timestamp, state_curr[:, 5], label="state_curr")
     plt.plot(timestamp, state_out[:, 5], label="state_out")
     plt.plot(timestamp, state_pred[:, 5], label="state_pred")
     plt.grid("on")
@@ -876,8 +963,8 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     dt = np.expand_dims(rec_dict["dt"], 1)
     diff = state_out - state_pred
     y_true = diff / dt
-    fig, axs = plt.subplots(state_in.shape[1], 2, sharex=True, figsize=(20, 5))
-    for dim in range(state_in.shape[1] - 1, -1, -1):
+    fig, axs = plt.subplots(state_curr.shape[1], 2, sharex=True, figsize=(20, 5))
+    for dim in range(state_curr.shape[1] - 1, -1, -1):
         axs[dim, 0].plot(timestamp, diff[:, dim])
         axs[dim, 0].set_ylabel(f"D{dim}")
         if dim == 0:
@@ -885,7 +972,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
         axs[dim, 0].grid(True)
         axs[dim, 0].set_xlim(timestamp[0], timestamp[-1])
 
-    for dim in range(state_in.shape[1] - 1, -1, -1):
+    for dim in range(state_curr.shape[1] - 1, -1, -1):
         axs[dim, 1].plot(timestamp, y_true[:, dim], color="red")
         if dim == 0:
             axs[dim, 1].set_title("(State Out - State Pred) / dt")
@@ -898,11 +985,11 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     # Plot regression of neural network
     if neural_mpc.use_mlp:
         # Transform velocity of state to Body frame
-        state_b = state_in.copy()
+        state_b = state_curr.copy()
         if neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
-            for t in range(state_in.shape[0]):
-                v_b = v_dot_q(state_in[t, 3:6], quaternion_inverse(state_in[t, 6:10]))
-                state_b[t, :] = np.concatenate((state_in[t, :3], v_b, state_in[t, 6:]), axis=0)
+            for t in range(state_curr.shape[0]):
+                v_b = v_dot_q(state_curr[t, 3:6], quaternion_inverse(state_curr[t, 6:10]))
+                state_b[t, :] = np.concatenate((state_curr[t, :3], v_b, state_curr[t, 6:]), axis=0)
         state_b_torch = torch.from_numpy(state_b[:, neural_mpc.state_feats]).type(torch.float32).to(neural_mpc.device)
 
         control_in = control[:, neural_mpc.u_feats]
@@ -919,16 +1006,16 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
 
         # Transform velocity back to world frame
         if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
-            for t in range(state_in.shape[0]):
+            for t in range(state_curr.shape[0]):
                 if set([3, 4, 5]).issubset(set(neural_mpc.y_reg_dims)):
                     v_idx = np.where(neural_mpc.y_reg_dims == 3)[0][0]  # Assumed that v_x, v_y, v_z are consecutive
                     v_b = mlp_out[t, v_idx : v_idx + 3]
-                    v_w = v_dot_q(v_b.T, state_in[t, 6:10]).T
+                    v_w = v_dot_q(v_b.T, state_curr[t, 6:10]).T
                     mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 3 :]), axis=0)
                 elif set([4, 5]).issubset(set(neural_mpc.y_reg_dims)):
                     v_idx = np.where(neural_mpc.y_reg_dims == 4)[0][0]  # Assumed that v_y, v_z are consecutive
                     v_b = np.append(0, mlp_out[t, v_idx : v_idx + 2])
-                    v_w = v_dot_q(v_b.T, state_in[t, 6:10]).T
+                    v_w = v_dot_q(v_b.T, state_curr[t, 6:10]).T
                     mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 2 :]), axis=0)
                 elif set([5]).issubset(set(neural_mpc.y_reg_dims)):
                     # Predict only v_z so set v_x and v_y to 0 in Body frame and then transform to World frame
@@ -936,7 +1023,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
                     # Adjust mapping later on
                     v_idx = np.where(neural_mpc.y_reg_dims == 5)[0][0]
                     v_b = np.append(np.array([0, 0]), mlp_out[t, v_idx])
-                    v_w = v_dot_q(v_b.T, state_in[t, 6:10])[:, np.newaxis]
+                    v_w = v_dot_q(v_b.T, state_curr[t, 6:10])[:, np.newaxis]
                     mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 1 :]), axis=0)
 
         # Plot true labels vs. actual regression
@@ -1011,9 +1098,9 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
 
         # Simulate intermediate acceleration vector before integration
         dynamics = init_forward_prop(neural_mpc, return_continuous=True)
-        x_dot = np.empty(state_in.shape)
-        for t in range(state_in.shape[0]):
-            x_dot[t, :] = np.array(dynamics(x=state_in[t, :], u=control[t, :])["x_dot"]).squeeze()
+        x_dot = np.empty(state_curr.shape)
+        for t in range(state_curr.shape[0]):
+            x_dot[t, :] = np.array(dynamics(x=state_curr[t, :], u=control[t, :])["x_dot"]).squeeze()
         lin_acc = x_dot[:, 3:6]
         if sim_options["disturbances"]["cog_dist"]:
             lin_acc_dist = lin_acc + dist_dict["cog_dist"][1::2, :3] / neural_mpc.phys.mass

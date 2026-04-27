@@ -422,9 +422,9 @@ def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_d
         raise ValueError("state_feats and y_reg_dims cannot be empty lists.")
 
     if temporalize:
-        if (len(state_feats) + len(u_feats)) * (N + 1) != in_dim:
+        if (len(state_feats) + len(u_feats)) * N != in_dim:
             raise ValueError(
-                f"Total number of features {(len(state_feats) + len(u_feats)) * (N + 1)} does not match input dimension {in_dim}."
+                f"Total number of features {(len(state_feats) + len(u_feats)) * N} does not match input dimension {in_dim}."
             )
         if len(y_reg_dims) * N != out_dim:
             raise ValueError(
