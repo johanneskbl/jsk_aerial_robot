@@ -64,7 +64,7 @@ rosdep install -y -r --from-paths src --ignore-src --rosdistro noetic   # instal
 Run the following bash script that conveniently installs all packages and software, including ROS-O for Ubuntu 22.04 from https://ros.packages.techfak.net/. Then source the setup file:
 
 ```bash
-./jsk_aerial_robot_dev/configure.sh   # for configuration especially for ROS-O in jammy
+./jsk_aerial_robot/configure.sh   # for configuration especially for ROS-O in jammy
 source /opt/ros/one/setup.bash  # or .zsh if you are using zsh
 ```
 
@@ -80,7 +80,7 @@ Then, do the following:
 ```bash
 cd ~/<path_to_ws>
 wstool init src
-wstool merge -t src src/jsk_aerial_robot_dev/aerial_robot_${ROS_DISTRO}.rosinstall
+wstool merge -t src src/jsk_aerial_robot/aerial_robot_${ROS_DISTRO}.rosinstall
 wstool update -t src    # install unofficial packages
 rosdep install -y -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO      # install the dependencies/packages stated in package.xml
 ```
@@ -88,11 +88,11 @@ rosdep install -y -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO      
 ### 3. Install python packages and link them to acados
 Install required packages:
 ```bash
-pip install -r src/jsk_aerial_robot_dev/aerial_robot_control/scripts/requirements.txt
+pip install -r src/jsk_aerial_robot/aerial_robot_control/scripts/requirements.txt
 ```
 For VIM4, since  it's Ubuntu20.04 python3.8, pandas's version is incompatible, we should use different pkgs:
 ```bash
-pip install -r src/jsk_aerial_robot_dev/aerial_robot_control/scripts/requirementsVIM4.txt
+pip install -r src/jsk_aerial_robot/aerial_robot_control/scripts/requirementsVIM4.txt
 ```
 
 For the first run, **uncomment** these code in `aerial_robot_control/scripts/nmpc/gen_nmpc_code_all.sh`
@@ -116,7 +116,7 @@ MODELS=(
 ### 4. Build the workspace with `catkin`
 
 ```bash
-cd ~/path_to_ws
+cd ~/<path_to_ws>
 catkin build
 ```
 
