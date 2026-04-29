@@ -9,7 +9,7 @@
     <!-- ======================== -->
     <!-- Optional init (beetle)    -->
     <!-- ======================== -->
-    <group ns="$(arg robot_ns)" if="$(arg is_beetle)">
+    <group ns="$(arg robot_ns)">
         <node pkg="aerial_robot_control" type="viz_ext_wrench_ring.py" name="viz_ext_wrench_ring" output="screen"/>
     </group>
 

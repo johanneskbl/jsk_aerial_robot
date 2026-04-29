@@ -216,9 +216,12 @@ std::vector<double> nmpc::TiltMtServoThrustDistNMPC::meas2VecX(bool is_modified_
   geometry_msgs::Vector3 external_force_w;     // default: 0, 0, 0
   geometry_msgs::Vector3 external_torque_cog;  // default: 0, 0, 0
 
-  if (if_use_est_wrench_4_control_)
+  if (if_use_est_force_4_control_)
   {
     external_force_w = wrench_est_ptr_->getDistForceW();
+  }
+  if (if_use_est_torque_4_control_)
+  {
     external_torque_cog = wrench_est_ptr_->getDistTorqueCOG();
   }
 

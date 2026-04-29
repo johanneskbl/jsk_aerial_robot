@@ -1269,6 +1269,18 @@ void nmpc::TiltMtServoNMPC::printPhysicalParams()
 
   cout << "kq_kt_rate" << robot_model_->getMFRate() << endl;
   cout << "abs(kq_kt_rate)" << abs(robot_model_->getMFRate()) << endl;
+
+  // cout << "ee pose relative to CoG" <<
+  std::vector<double> contact_frame_p = { 0.0, 0.0, 0.0 };
+  std::vector<double> contact_frame_q = { 1.0, 0.0, 0.0, 0.0 };
+  if (robot_model_->hasFrame("ee_contact"))
+    robot_model_->getCoGtoFramePosQuat("ee_contact", contact_frame_p, contact_frame_q);
+  else
+    ROS_WARN_THROTTLE(5, "No frame named ee_contact in the robot model! The end-effector pose will be set to CoG.");
+
+  cout << "contact_frame_p: " << contact_frame_p[0] << ", " << contact_frame_p[1] << ", " << contact_frame_p[2] << endl;
+  cout << "contact_frame_q: " << contact_frame_q[0] << ", " << contact_frame_q[1] << ", " << contact_frame_q[2] << ", "
+       << contact_frame_q[3] << endl;
 }
 
 bool nmpc::TiltMtServoNMPC::isMulDOFJointTrajPtEqual(const trajectory_msgs::MultiDOFJointTrajectoryPoint& a,

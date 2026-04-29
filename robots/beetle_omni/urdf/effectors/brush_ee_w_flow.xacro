@@ -47,6 +47,13 @@
       <origin xyz="0 0 0.144" rpy="0 0 0"/>
     </joint>
 
+    <!--  3) Attach the ark_flow_sensor  -->
+    <xacro:ark_flow_sensor name="ark_flow" parent_link="ee_mount" robot_ns="${robot_ns}"/>
+
   </xacro:macro>
+
+
+  <!-- include shared sensors -->
+  <xacro:include filename="$(find beetle_omni)/urdf/sensors/ark_flow.xacro"/>
 
 </robot>

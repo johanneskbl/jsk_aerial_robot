@@ -753,10 +753,10 @@ def main(file_path, type, if_hand_teleop):
         plt.subplot(4, 2, 3)
 
         t = np.array(data_iterm["__time"]) - t_bias
-        fz_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/x"])
+        fx_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/x"])
         fy_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/y"])
         fz_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/z"])
-        plt.plot(t, fz_iterm, label="$f_{x}$", linestyle="-.")
+        plt.plot(t, fx_iterm, label="$f_{x}$", linestyle="-.")
         plt.plot(t, fy_iterm, label="$f_{y}$", linestyle="--")
         plt.plot(t, fz_iterm, label="$f_{z}$", linestyle="-")
 

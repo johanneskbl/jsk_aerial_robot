@@ -7,7 +7,7 @@ from .fake_sensor import FakeSensor
 from . import phys_param_beetle_omni as phys_omni
 
 
-class NMPCTiltQdServoImpedance(QDNMPCBase):
+class NMPCTiltQdServoImpedanceCoG(QDNMPCBase):
     """
     Controller Name: Tiltable Quadrotor NMPC including Servo Model as well as CoG Disturbance and Impedance Cost function
     The controller itself is constructed in base class. This file is used to define the properties
@@ -17,7 +17,7 @@ class NMPCTiltQdServoImpedance(QDNMPCBase):
 
     def __init__(self, build: bool = True, phys=phys_omni):
         # Model name
-        self.model_name = "tilt_qd_servo_dist_imp_mdl"
+        self.model_name = "tilt_qd_servo_dist_imp_cog_mdl"
         self.phys = phys
 
         self.tilt = True
@@ -43,47 +43,37 @@ class NMPCTiltQdServoImpedance(QDNMPCBase):
         # see https://docs.acados.org/python_interface/#acados_template.acados_ocp_cost.AcadosOcpCost for details
         # NONLINEAR_LS = error^T @ Q @ error; error = y - y_ref
         # qe = qr^* multiply q
-        q_wt_w, q_wt_x, q_wt_y, q_wt_z = self._quaternion_multiply(self.qw, self.qx, self.qy, self.qz,
-                                                                   self.ee_q[0], self.ee_q[1], self.ee_q[2], self.ee_q[3])
-
         qe_w, qe_x, qe_y, qe_z = self._quaternion_multiply(self.qwr, -self.qxr, -self.qyr, -self.qzr,
-                                                           q_wt_w, q_wt_x, q_wt_y, q_wt_z)
+                                                           self.qw, self.qx, self.qy, self.qz,)
 
-        rot_wb = self._get_rot_wb_ca(self.qw, self.qx, self.qy, self.qz)
-        rot_bw = rot_wb.T
-        skew_w = self._get_skew_symmetric_matrix(self.w)
-
-        rot_bt = self._get_rot_wb_ca(self.ee_q[0], self.ee_q[1], self.ee_q[2], self.ee_q[3])
-        rot_tb = rot_bt.T
-
-        skew_ee_p = self._get_skew_symmetric_matrix(self.ee_p)
+        # qe_x, qe_y, qe_z = quaternion_rotvec_casadi(qe_w, qe_x, qe_y, qe_z)
 
         state_y = ca.vertcat(
-            self.p + rot_wb @ self.ee_p,
-            self.v + rot_wb @ skew_w @ self.ee_p,
+            self.p,
+            self.v,
             self.qwr,
             qe_x + self.qxr,
             qe_y + self.qyr,
             qe_z + self.qzr,
-            rot_tb @ self.w,
+            self.w,
             self.a_s,
             # ca.times(lin_acc_w, self.mp) - self.fds_w
             - self.fds_w,
             # ca.times(ang_acc_b, self.mq) - rot_tb @ (self.tau_ds_b - skew_ee_p @ rot_bw @ self.fds_w)
-            - rot_tb @ (self.tau_ds_b - skew_ee_p @ rot_bw @ self.fds_w),
+            - self.tau_ds_b,
         )
 
         state_y_e = ca.vertcat(
-            self.p + rot_wb @ self.ee_p,
-            self.v + rot_wb @ skew_w @ self.ee_p,
+            self.p,
+            self.v,
             self.qwr,
             qe_x + self.qxr,
             qe_y + self.qyr,
             qe_z + self.qzr,
-            rot_tb @ self.w,
+            self.w,
             self.a_s,
             - self.fds_w,
-            - rot_tb @ (self.tau_ds_b - skew_ee_p @ rot_bw @ self.fds_w),
+            - self.tau_ds_b,
         )
 
         control_y = ca.vertcat(
@@ -211,6 +201,56 @@ class NMPCTiltQdServoImpedance(QDNMPCBase):
         ur[:, 3] = ft_ref[3]
 
         return xr, ur
+
+
+def quaternion_log_casadi(qe_w, qe_x, qe_y, qe_z, eps=1e-8):
+    """
+    Quaternion logarithm for unit quaternion qe = [w, x, y, z].
+
+    Input:
+        qe_w, qe_x, qe_y, qe_z : CasADi scalar symbols
+
+    Output:
+        e_log_x, e_log_y, e_log_z : CasADi scalar symbols
+        where log(qe) = [e_log_x, e_log_y, e_log_z]^T
+    """
+    # normalize
+    q_norm = ca.sqrt(qe_w**2 + qe_x**2 + qe_y**2 + qe_z**2)
+    w = qe_w / q_norm
+    x = qe_x / q_norm
+    y = qe_y / q_norm
+    z = qe_z / q_norm
+
+    # shortest-path representation: enforce w >= 0
+    sign = ca.if_else(w < 0, -1.0, 1.0)
+    w = sign * w
+    x = sign * x
+    y = sign * y
+    z = sign * z
+
+    v_norm = ca.sqrt(x**2 + y**2 + z**2)
+    angle_half = ca.atan2(v_norm, w)
+
+    scale = ca.if_else(v_norm > eps, angle_half / v_norm, 0.0)
+
+    e_log_x = scale * x
+    e_log_y = scale * y
+    e_log_z = scale * z
+
+    return e_log_x, e_log_y, e_log_z
+
+
+def quaternion_rotvec_casadi(qe_w, qe_x, qe_y, qe_z, eps=1e-8):
+    """
+    Return rotation vector error e_R = 2 * log(qe) = theta * u
+    """
+    e_log_x, e_log_y, e_log_z = quaternion_log_casadi(qe_w, qe_x, qe_y, qe_z, eps)
+
+    e_rot_x = 2.0 * e_log_x
+    e_rot_y = 2.0 * e_log_y
+    e_rot_z = 2.0 * e_log_z
+
+    return e_rot_x, e_rot_y, e_rot_z
 
 
 if __name__ == "__main__":
