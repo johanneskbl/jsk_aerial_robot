@@ -6,7 +6,8 @@ import numpy as np
 from typing import Tuple
 import tf_conversions as tf
 import rospy
-from std_msgs.msg import Float32
+from std_srvs.srv import Trigger
+from geometry_msgs.msg import WrenchStamped
 
 
 class BaseTraj:
@@ -55,63 +56,6 @@ class BaseTrajwFixedRotor(BaseTraj):
         ft_fixed = 7.0
         alpha_fixed = 0.0
         return rotor_id, ft_fixed, alpha_fixed
-
-
-class BaseTrajwSound(BaseTrajwFixedRotor):
-    def __init__(self, loop_num: int = np.inf):
-        super().__init__(loop_num)
-
-        # thrust of each musical note
-        self.note2thrust = {
-            "g4": 7.75,
-            "g4sharp": 8.83,
-            "a4": 9.96,
-            "a4sharp": 11.20,
-            "b4": 12.54,
-            "c5": 13.97,
-            "c5sharp": 15.56,
-            "d5": 17.22,
-            "d5sharp": 18.87,
-            "e5": 21.05,
-        }
-
-        self.freq_pub = rospy.Publisher("sound/fixed_rotor_frequency", Float32, queue_size=10)
-
-    def thrust_to_freq(self, f):
-        a = 0.0000161
-        b = 0.0327
-        c = -7.54 - f
-        disc = b**2 - 4 * a * c
-        if disc < 0:
-            rospy.logwarn(f"Invalid thrust value f={f}, cannot compute frequency")
-            return 0.0
-        return (-b + np.sqrt(disc)) / (2 * a)
-
-    def get_fixed_rotor(self, t: float):
-        rotor_id = 0
-
-        ft_fixed = self.compute_thrust_at_time(t)
-
-        freq = self.thrust_to_freq(ft_fixed)
-        self.freq_pub.publish(freq)
-
-        alpha_fixed = np.arccos(self.hover_thrust / ft_fixed)
-        self.use_fix_rotor_flag = True
-
-        return rotor_id, ft_fixed, alpha_fixed
-
-    def compute_thrust_at_time(self, t: float) -> float:
-        if self.sequence is None:
-            return self.hover_thrust
-
-        t_mod = t % self.period
-        idx = np.searchsorted(self.beat_times, t_mod, side="right") - 1
-
-        if idx < 0 or idx >= len(self.sequence):
-            return self.hover_thrust
-
-        note, _ = self.sequence[idx]
-        return self.note2thrust[note]
 
 
 class CircleTraj(BaseTraj):
@@ -857,3 +801,132 @@ class InfinitePitchNeg90deg(BaseTraj):
         roll_acc, pitch_acc, yaw_acc = 0.0, 0.0, 0.0
 
         return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+
+
+class PushWallTraj(BaseTraj):
+    def __init__(self, loop_num) -> None:
+        super().__init__(loop_num)
+        self.child_frame_id = "ee"
+        self.use_constant_ref = True
+
+        self.T = 30
+        self.x = 0.0
+
+        # calibrate wrench estimator once when this trajectory starts
+        self._is_calibrated = False
+
+        ext_wrench_body_frame_topic = f"/beetle1/ext_wrench_est/value"
+        self.ext_wrench_body_frame_sub = rospy.Subscriber(
+            ext_wrench_body_frame_topic, WrenchStamped, self._sub_ext_wrench_body_frame_callback
+        )
+        self.ext_wrench_body_frame_msg = WrenchStamped()
+
+        # ==== force to be used in contact ====
+        self.init_contact_force_sum = 0
+        self.init_contact_force_num = 0
+        self.init_contact_force = 0.0
+
+        self.x_final_target = 0.0
+
+    def get_3d_pt(self, t: float) -> Tuple[float, float, float, float, float, float, float, float, float]:
+        y, z, vx, vy, vz, ax, ay, az = 1.0, 1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+        t_period_wait_converge = 2.0
+        t_period_calibrate = 3.0
+        t_period_move_to_wall = 3.0  # s
+        t_period_keep_contact = 15.0  # s
+        t_period_move_back_wall = 3.0  # s
+
+        t_period_accum_force = 2.5  # s
+        t_period_apply_force = 10  # s
+        t_period_gradually_increase_force = 3  # s  # included in t_period_apply_force
+
+        target_distance = 1.1  # m
+
+        desired_force = 10  # N
+        K_p = 20  # hard-coded. Ensure that the outer side has the same value.
+
+        if t > t_period_wait_converge and not self._is_calibrated:
+            self._call_wrench_calibration()
+            self._is_calibrated = True
+
+        t_start_move_wall = t_period_wait_converge + t_period_calibrate
+        # when t is from 2 to 5, the position x is linearly increased
+        if t_start_move_wall + t_period_move_to_wall >= t > t_start_move_wall:
+            self.x = target_distance * (t - t_start_move_wall) / t_period_move_to_wall
+
+        t_reach_wall = t_start_move_wall + t_period_move_to_wall
+        if t_reach_wall + t_period_accum_force >= t > t_reach_wall:
+            if abs(self.ext_wrench_body_frame_msg.wrench.force.z) > 0.5:  # Note: body frame
+                self.init_contact_force_sum += self.ext_wrench_body_frame_msg.wrench.force.z
+                self.init_contact_force_num += 1
+
+        t_start_apply_extra_force = t_start_move_wall + t_period_move_to_wall + t_period_accum_force + 0.5
+        if t_start_apply_extra_force + t_period_apply_force >= t > t_start_apply_extra_force:
+            if self.init_contact_force == 0.0:
+                self.init_contact_force = -self.init_contact_force_sum / self.init_contact_force_num  # negative value
+                rospy.loginfo(f"Initial contact force: {self.init_contact_force:.2f} N")
+
+                self.x_final_target = target_distance + (desired_force - self.init_contact_force) / K_p
+                rospy.loginfo(f"Applying extra force. Current x: {self.x:.2f} m, x_final: {self.x_final_target} m")
+
+            if t_start_apply_extra_force + t_period_gradually_increase_force >= t:
+                self.x = (self.x_final_target - target_distance) * (
+                    t - t_start_apply_extra_force
+                ) / t_period_gradually_increase_force + target_distance
+            else:
+                self.x = self.x_final_target
+
+        if (
+            t_start_move_wall + t_period_move_to_wall + t_period_keep_contact
+            > t
+            > t_start_apply_extra_force + t_period_apply_force
+        ):
+            self.x = target_distance
+
+        # then x is linearly decreased
+        t_start_move_back = t_start_move_wall + t_period_move_to_wall + t_period_keep_contact
+        if t_start_move_back + t_period_move_back_wall >= t > t_start_move_back:
+            self.x = target_distance * (t_start_move_back + t_period_move_back_wall - t) / t_period_move_back_wall
+
+        return self.x, y, z, vx, vy, vz, ax, ay, az
+
+    def get_3d_orientation(
+        self, t: float
+    ) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
+        # Calculate the pitch angle based on time
+        pitch = np.pi / 2
+        roll = 0.0
+        yaw = np.pi / 4
+
+        (qx, qy, qz, qw) = tf.transformations.quaternion_from_euler(roll, pitch, yaw, axes="rxyz")
+
+        pitch_rate = 0.0
+        roll_rate = 0.0
+        yaw_rate = 0.0
+
+        roll_acc = 0.0
+        pitch_acc = 0.0
+        yaw_acc = 0.0
+
+        return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+
+    @staticmethod
+    def _call_wrench_calibration():
+        service_name = "/beetle1/controller/wrench_est/calibrate"
+
+        try:
+            rospy.loginfo(f"Waiting for service: {service_name}")
+            rospy.wait_for_service(service_name, timeout=3.0)
+
+            calibrate_srv = rospy.ServiceProxy(service_name, Trigger)
+            calibrate_srv()
+
+            rospy.loginfo("Wrench estimator calibration succeeded.")
+        except rospy.ROSException as e:
+            rospy.logwarn(f"Service wait timeout for {service_name}: {e}")
+        except rospy.ServiceException as e:
+            rospy.logwarn(f"Failed to call {service_name}: {e}")
+
+    def _sub_ext_wrench_body_frame_callback(self, msg):
+        self.ext_wrench_body_frame_msg = msg

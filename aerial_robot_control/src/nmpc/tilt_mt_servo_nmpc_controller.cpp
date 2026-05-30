@@ -59,8 +59,10 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
 
 void nmpc::TiltMtServoNMPC::activate()
 {
+  // these functions are put here to wait for the physical parameters to be updated
   initAllocMat();
   updateInertialParams();
+  calcFtThresh();
 
   if (is_print_phys_params_)
     printPhysicalParams();
@@ -145,8 +147,8 @@ void nmpc::TiltMtServoNMPC::initGeneralParams()
   ros::NodeHandle alloc_nh(control_nh, "alloc");
 
   getParam<int>(alloc_nh, "type", alloc_type_, 0);
-  getParam<double>(alloc_nh, "ft_thresh", ft_thresh_, 0.5);
-  if (ft_thresh_ <= 0.0)
+  getParam<double>(alloc_nh, "ft_thresh_bias", ft_thresh_bias_, 0.5);
+  if (ft_thresh_bias_ <= 0.0)
     throw std::runtime_error(
         "ft_thresh must be greater than zero! Please set a positive value for ft_thresh in the parameter server.");
 
@@ -318,6 +320,24 @@ void nmpc::TiltMtServoNMPC::setControlMode()
            set_control_mode_srv.request.is_body_rate);
 }
 
+void nmpc::TiltMtServoNMPC::calcFtThresh()
+{
+  int rotor_num = robot_model_->getRotorNum();  // For tilt-rotor, rotor_num = servo_num
+  const auto& rotor_p = robot_model_->getRotorsOriginFromCog<Eigen::Vector3d>();
+
+  double ft_thresh_max = 0.0;
+  for (int i = 0; i < rotor_num; i++)
+  {
+    Eigen::Vector3d p_b = rotor_p[i];
+
+    double ft_thresh = mass_ * gravity_const_ * abs(p_b.z()) / sqrt(p_b.x() * p_b.x() + p_b.y() * p_b.y());
+    if (ft_thresh > ft_thresh_max)
+      ft_thresh_max = ft_thresh;
+  }
+
+  ft_thresh_ = ft_thresh_max + ft_thresh_bias_;
+}
+
 void nmpc::TiltMtServoNMPC::initAllocMat()
 {
   /* get physical param */
@@ -369,9 +389,7 @@ void nmpc::TiltMtServoNMPC::initNMPCParams()
   acados_p[0] = 1.0;  // qw
   idx_p_quat_end_ = 3;
 
-  int idx;
-  // TODO: this condition is temporary for drones that don't pass in phys param (bi, tri, fix-qd)
-  if (mpc_solver_ptr_->NP_ > 4 + 6)  // 4 for quaternion, 6 for disturbances
+  if (mpc_solver_ptr_->NP_ > 4 + 6)  // 4 for quaternion, 6 for disturbances, now support quad, tri, bi
   {
     ROS_INFO("Set physical parameters for NMPC solver");
 
@@ -379,7 +397,7 @@ void nmpc::TiltMtServoNMPC::initNMPCParams()
     std::copy(phys_p.begin(), phys_p.end(), acados_p.begin() + idx_p_quat_end_ + 1);
     idx_p_phys_end_ = idx_p_quat_end_ + phys_p.size();
   }
-  else
+  else  // This condition is temporary for drones that don't pass in phys param (some experimental code)
   {
     idx_p_phys_end_ = idx_p_quat_end_;
   }
@@ -840,7 +858,7 @@ void nmpc::TiltMtServoNMPC::allocateToXUwOneFixedRotor(int fix_rotor_idx, double
   Eigen::VectorXd tgt_wrench_modified = ref_wrench_b - tgt_wrench_from_rotor;
 
   // 3) calculate the allocation matrix without this rotor, which is 6*6
-  if (fix_rotor_idx != rotor_idx_prev_)
+  if (fix_rotor_idx != fix_rotor_idx_prev_)
   {
     Eigen::MatrixXd alloc_mat_del_rotor(alloc_mat_.rows(), alloc_mat_.cols() - 2);
     int j = 0;
@@ -882,7 +900,7 @@ void nmpc::TiltMtServoNMPC::allocateToXUwOneFixedRotor(int fix_rotor_idx, double
   }
 
   // if the fixed rotor is the same with previous one, no need to recalculate the allocation matrix.
-  rotor_idx_prev_ = fix_rotor_idx;
+  fix_rotor_idx_prev_ = fix_rotor_idx;
 }
 
 /**
@@ -1251,6 +1269,18 @@ void nmpc::TiltMtServoNMPC::printPhysicalParams()
 
   cout << "kq_kt_rate" << robot_model_->getMFRate() << endl;
   cout << "abs(kq_kt_rate)" << abs(robot_model_->getMFRate()) << endl;
+
+  // cout << "ee pose relative to CoG" <<
+  std::vector<double> contact_frame_p = { 0.0, 0.0, 0.0 };
+  std::vector<double> contact_frame_q = { 1.0, 0.0, 0.0, 0.0 };
+  if (robot_model_->hasFrame("ee_contact"))
+    robot_model_->getCoGtoFramePosQuat("ee_contact", contact_frame_p, contact_frame_q);
+  else
+    ROS_WARN_THROTTLE(5, "No frame named ee_contact in the robot model! The end-effector pose will be set to CoG.");
+
+  cout << "contact_frame_p: " << contact_frame_p[0] << ", " << contact_frame_p[1] << ", " << contact_frame_p[2] << endl;
+  cout << "contact_frame_q: " << contact_frame_q[0] << ", " << contact_frame_q[1] << ", " << contact_frame_q[2] << ", "
+       << contact_frame_q[3] << endl;
 }
 
 bool nmpc::TiltMtServoNMPC::isMulDOFJointTrajPtEqual(const trajectory_msgs::MultiDOFJointTrajectoryPoint& a,

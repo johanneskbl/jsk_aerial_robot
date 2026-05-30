@@ -22,6 +22,7 @@
 #include "aerial_robot_control/wrench_est/utils.h"
 
 #include <sensor_msgs/JointState.h>
+#include <std_srvs/Trigger.h>
 #include "spinal/ESCTelemetryArray.h"
 #include "spinal/FourAxisCommand.h"
 
@@ -52,6 +53,9 @@ public:
   {
     WrenchEstBase::initialize(nh, robot_model, estimator, ctrl_loop_du);
     ros::NodeHandle wrench_est_nh(nh_, "controller/wrench_est");
+
+    // Force-stop service for external FSM interruption.
+    srv_force_stop_ = wrench_est_nh.advertiseService("calibrate", &WrenchEstActuatorMeasBase::triggerForceStopCb, this);
 
     // state machine mode switch
     ext_force_thresh_calib_.resize(3, 0.0);
@@ -331,6 +335,18 @@ private:
 
   // for thrust command
   ros::Subscriber sub_thrust_cmd_;
+
+  // force stop service
+  ros::ServiceServer srv_force_stop_;
+
+  bool triggerForceStopCb(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res)
+  {
+    (void)req;
+    enter(State::STOPPED);
+    res.success = true;
+    res.message = "Wrench estimator force-stopped to calibrate";
+    return true;
+  }
 
   // called when entering a new state.
   void enter(State next)

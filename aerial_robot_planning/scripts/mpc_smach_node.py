@@ -44,7 +44,8 @@ anal_traj_list = [
     for name, cls in inspect.getmembers(trajs, inspect.isclass)
     # optionally ensure the class is defined in trajs and not an imported library
     if cls.__module__ == "aerial_robot_planning.trajs"
-    and name not in {"BaseTraj", "BaseTrajwFixedRotor", "PitchContinuousRotationTraj"}
+    and "Base" not in name
+    and name not in {"PitchContinuousRotationTraj"}
 ]
 traj_register.register_anal_traj_list("trajs", anal_traj_list)
 
@@ -53,7 +54,9 @@ from aerial_robot_planning.voice import sound_trajs
 anal_sound_traj_list = [
     cls
     for name, cls in inspect.getmembers(sound_trajs, inspect.isclass)
-    if cls.__module__ == "aerial_robot_planning.voice.sound_trajs" and name not in {"BaseTrajwSound", "StringNoteTraj"}
+    if cls.__module__ == "aerial_robot_planning.voice.sound_trajs"
+    and "Base" not in name
+    and name not in {"StringNoteTraj"}
 ]
 traj_register.register_anal_traj_list("sound_trajs", anal_sound_traj_list)
 
@@ -69,6 +72,9 @@ from aerial_robot_planning.teleoperation.teleop_smach import create_teleop_state
 # === voice control ===
 from aerial_robot_planning.voice.voice_smach import create_voice_state_machine
 
+# === admittance ===
+from aerial_robot_planning.admittance.admittance_smach import create_admittance_state_machine
+
 
 ###############################################
 # SMACH States
@@ -83,7 +89,7 @@ class IdleState(smach.State):
     def __init__(self):
         smach.State.__init__(
             self,
-            outcomes=["go_init", "stay_idle", "shutdown", "go_teleop", "go_voice"],
+            outcomes=["go_init", "stay_idle", "shutdown", "go_teleop", "go_voice", "go_admittance"],
             input_keys=["robot_name"],
             output_keys=["robot_name", "traj_type", "loop_num"],
         )
@@ -100,6 +106,7 @@ class IdleState(smach.State):
                 print("\n===== Other Choices =====")
                 print("t: Teleoperation Mode")
                 print("v: Voice Mode")
+                print("a: Admittance Mode")
 
             traj_type_str = input(f"\nEnter trajectory number/letter above to select or 'q' to quit: ")
             if traj_type_str.lower() == "q":
@@ -110,6 +117,9 @@ class IdleState(smach.State):
 
             if traj_type_str.lower() == "v":
                 return "go_voice"
+
+            if traj_type_str.lower() == "a":
+                return "go_admittance"
 
             traj_index = int(traj_type_str)
             if not traj_register.is_traj_index_valid(traj_index):
@@ -255,7 +265,7 @@ class TrackState(smach.State):
 ###############################################
 def main(args):
     # Initialize a single ROS node for the entire SMACH-based system
-    rospy.init_node("mpc_smach_node")
+    rospy.init_node("mpc_smach_node", anonymous=True)
 
     # check if the robot_name exists in ROS
     if not rospy.has_param(args.robot_name):
@@ -286,6 +296,7 @@ def main(args):
                 "shutdown": "DONE",
                 "go_teleop": "TELEOP",
                 "go_voice": "VOICE",
+                "go_admittance": "ADMITTANCE",
             },
         )
 
@@ -308,6 +319,13 @@ def main(args):
             "VOICE",
             create_voice_state_machine(),
             transitions={"DONE_VOICE": "IDLE"},
+            remapping={"robot_name": "robot_name"},
+        )
+
+        smach.StateMachine.add(
+            "ADMITTANCE",
+            create_admittance_state_machine(),
+            transitions={"DONE_ADMITTANCE": "IDLE"},
             remapping={"robot_name": "robot_name"},
         )
 

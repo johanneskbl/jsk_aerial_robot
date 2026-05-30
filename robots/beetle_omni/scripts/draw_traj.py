@@ -52,9 +52,19 @@ def main(file_path, type, if_hand_teleop):
         data_xyz_ref["/beetle1/set_ref_traj/points[0]/transforms[0]/translation/y"] = 0.0
         data_xyz_ref["/beetle1/set_ref_traj/points[0]/transforms[0]/translation/z"] = 1.0
 
+    data_xyz_ref_nmpc = data[
+        [
+            "__time",
+            "/beetle1/nmpc/viz_ref/poses[0]/position/x",
+            "/beetle1/nmpc/viz_ref/poses[0]/position/y",
+            "/beetle1/nmpc/viz_ref/poses[0]/position/z",
+        ]
+    ]
+
     data_xyz = data_xyz.dropna()
     data_xyz_ref = data_xyz_ref.dropna()
     data_xyz_cog = data_xyz_cog.dropna()
+    data_xyz_ref_nmpc = data_xyz_ref_nmpc.dropna()
 
     # ======= rpy =========
     data_qwxyz = data[
@@ -830,6 +840,187 @@ def main(file_path, type, if_hand_teleop):
         plt.tight_layout()
         # make the subplots very compact
         fig.subplots_adjust(hspace=0.2)
+        plt.show()
+
+    elif type == 4:
+        plt.style.use(["science", "grid"])
+
+        plt.rcParams.update({"font.size": 14})
+        label_size = 14
+
+        color_px = "#0C5DA5"
+        color_force = "#FF2C00"
+        # color_force = "#f29619"  # the orange in scienceplots
+
+        line_width = 1.5
+
+        if "data_ext_pure" not in locals() or "data_iterm" not in locals():
+            print("No est. wrench data found!")
+            return
+
+        # use a common time bias so all curves share the same axis origin
+        t_bias = max(
+            data_xyz_cog["__time"].iloc[0],
+            data_xyz_ref_nmpc["__time"].iloc[0],
+            data_ext_pure["__time"].iloc[0],
+            data_iterm["__time"].iloc[0],
+        )
+
+        fig, ax_pos = plt.subplots(figsize=(7, 2))
+        ax_force = ax_pos.twinx()
+
+        # ----------------------------
+        # Left y-axis: position
+        # ----------------------------
+        t_ref = np.array(data_xyz_ref_nmpc["__time"]) - t_bias
+        x_ref = np.array(data_xyz_ref_nmpc["/beetle1/nmpc/viz_ref/poses[0]/position/x"])
+        line1 = ax_pos.plot(t_ref, x_ref, label="ref.", linestyle="--", color=color_px, linewidth=line_width)
+
+        t_real = np.array(data_xyz_cog["__time"]) - t_bias
+        z_real = np.array(data_xyz_cog["/beetle1/uav/cog/odom/pose/pose/position/x"])
+        line2 = ax_pos.plot(t_real, z_real, label="real", linestyle="-", color=color_px, linewidth=line_width)
+
+        ax_pos.set_ylabel("X [m]", fontsize=label_size)
+        ax_pos.set_xlabel("Time [s]", fontsize=label_size)
+
+        ax_pos.legend(framealpha=legend_alpha, loc="center left")
+
+        ax_pos.set_xlim(0, 30)
+        ax_pos.set_ylim(0.5, 1.65)
+
+        # ----------------------------
+        # Right y-axis: force
+        # ----------------------------
+        t_ext = np.array(data_ext_pure["__time"]) - t_bias
+        fx_ext = np.array(data_ext_pure["/beetle1/dist_w_f_cog_tq/ext/wrench/force/x"])
+        line3 = ax_force.plot(
+            t_ext, fx_ext, label="${^W\hat{f}_{de,x}}$", linestyle="-.", color=color_force, linewidth=line_width
+        )
+
+        t_iterm = np.array(data_iterm["__time"]) - t_bias
+        fz_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/x"])
+        line4 = ax_force.plot(
+            t_iterm, fz_iterm, label="${^W\hat{f}_{dm,x}}$", linestyle=":", color=color_force, linewidth=line_width
+        )
+
+        ax_force.set_ylabel("$^Wf$ [N]", fontsize=label_size)
+
+        ax_force.legend(framealpha=legend_alpha, loc="center right")
+
+        ax_force.set_ylim(-14, 1)
+
+        plt.tight_layout()
+        plt.show()
+
+    elif type == 5:
+        plt.style.use(["science", "grid"])
+
+        plt.rcParams.update({"font.size": 14})
+        label_size = 14
+
+        color_px = "#0C5DA5"
+        color_att = "#FF2C00"
+        # color_force = "#f29619"  # the orange in scienceplots
+
+        line_width = 1.5
+
+        t_bias = max(
+            data_xyz["__time"].iloc[0],
+            data_euler["__time"].iloc[0],
+        )
+
+        fig, ax_pos = plt.subplots(figsize=(7, 2))
+        ax_attitude = ax_pos.twinx()
+
+        t_pos = np.array(data_xyz["__time"]) - t_bias
+        x_pos = np.array(data_xyz["/beetle1/uav/ee_contact/odom/pose/pose/position/x"])
+        line1 = ax_pos.plot(t_pos, x_pos, label="X of ee", linestyle="-.", color=color_px, linewidth=line_width)
+
+        ax_pos.set_ylabel("X [m]", fontsize=label_size)
+        ax_pos.set_xlabel("Time [s]", fontsize=label_size)
+        ax_pos.legend(framealpha=legend_alpha, loc="center left")
+        ax_pos.set_ylim(-0.1, 0.4)
+
+        t_att = np.array(data_euler["__time"]) - t_bias
+        pitch_att = np.array(data_euler["pitch"])
+        line2 = ax_attitude.plot(
+            t_att, pitch_att * 180 / np.pi, label="Pitch of ee", linestyle="-", color=color_att, linewidth=line_width
+        )
+        ax_attitude.set_ylabel("Pitch [$^\\circ$]", fontsize=label_size)
+        ax_attitude.legend(framealpha=legend_alpha, loc="center right")
+
+        ax_attitude.set_ylim(-2, 13)
+
+        plt.tight_layout()
+        plt.show()
+
+    elif type == 6:
+        plt.style.use(["science", "grid"])
+
+        plt.rcParams.update({"font.size": 14})
+        label_size = 14
+
+        color_px = "#0C5DA5"
+        color_force = "#FF2C00"
+        # color_force = "#f29619"  # the orange in scienceplots
+
+        line_width = 1.5
+
+        if "data_ext_pure" not in locals() or "data_iterm" not in locals():
+            print("No est. wrench data found!")
+            return
+
+        # use a common time bias so all curves share the same axis origin
+        t_bias = max(
+            data_xyz_cog["__time"].iloc[0],
+            data_xyz_ref_nmpc["__time"].iloc[0],
+            data_ext_pure["__time"].iloc[0],
+            data_iterm["__time"].iloc[0],
+        )
+
+        fig, ax_pos = plt.subplots(figsize=(7, 2))
+        ax_force = ax_pos.twinx()
+
+        # ----------------------------
+        # Left y-axis: position
+        # ----------------------------
+        t_ref = np.array(data_xyz_ref_nmpc["__time"]) - t_bias
+        z_ref = np.array(data_xyz_ref_nmpc["/beetle1/nmpc/viz_ref/poses[0]/position/z"])
+        # generate z_ref_desired with the same shape with z_ref
+        z_ref_desired = np.ones_like(z_ref) * 0.0
+        # set the z_desired to 2.0 when t>2.28
+        z_ref_desired[t_ref >= 1.9] = 2.0
+
+        line1 = ax_pos.plot(t_ref, z_ref_desired, label="ref.", linestyle="--", color=color_px, linewidth=line_width)
+
+        t_real = np.array(data_xyz_cog["__time"]) - t_bias
+        z_real = np.array(data_xyz_cog["/beetle1/uav/cog/odom/pose/pose/position/z"])
+        line2 = ax_pos.plot(t_real, z_real, label="real", linestyle="-", color=color_px, linewidth=line_width)
+
+        ax_pos.set_ylabel("Z [m]", fontsize=label_size)
+        ax_pos.set_xlabel("Time [s]", fontsize=label_size)
+
+        ax_pos.legend(framealpha=legend_alpha, loc="center left")
+
+        ax_pos.set_xlim(0, 10)
+        ax_pos.set_ylim(-0.1, 2.3)
+
+        # ----------------------------
+        # Right y-axis: force
+        # ----------------------------
+        t_iterm = np.array(data_iterm["__time"]) - t_bias
+        fz_iterm = np.array(data_iterm["/beetle1/dist_w_f_cog_tq/iterm/wrench/force/z"])
+        line4 = ax_force.plot(
+            t_iterm, fz_iterm, label="${^W\hat{f}_{dm,z}}$", linestyle="-.", color=color_force, linewidth=line_width
+        )
+
+        ax_force.set_ylabel("$^Wf$ [N]", fontsize=label_size)
+
+        ax_force.legend(framealpha=legend_alpha, loc="center right")
+
+        ax_force.set_ylim(-2.1, 0.5)
+
+        plt.tight_layout()
         plt.show()
 
     else:

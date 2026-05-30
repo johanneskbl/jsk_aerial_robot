@@ -112,8 +112,9 @@ protected:
 
   // For singularity points
   int alloc_type_ = 0;
+  double ft_thresh_bias_;
   double ft_thresh_;
-  int rotor_idx_prev_ = -1;
+  int fix_rotor_idx_prev_ = -1;
   Eigen::MatrixXd alloc_mat_del_rotor_inv_;
 
   // For fixing rotor
@@ -128,6 +129,8 @@ protected:
   void initGeneralParams() override;
   void initNMPCCostW() override;
   void initNMPCConstraints() override;
+
+  void calcFtThresh();
 
   void setControlMode();
   virtual inline void initActuatorStates()

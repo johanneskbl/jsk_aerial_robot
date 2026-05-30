@@ -15,7 +15,7 @@ MODELS=(
 #    NMPCTiltQdServoThrustDist
 #    NMPCTiltQdServoThrustImpedance
 #    NMPCTiltTriServo
-#    NMPCTiltBiServo
+#    NMPCTiltBiServoDist
 #    NMPCTiltBi2OrdServo
 #    MHEWrenchEstAccMom
 )
