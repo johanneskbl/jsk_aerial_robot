@@ -20,13 +20,6 @@ Then, follow the instructions below:
 cmake -DACADOS_WITH_QPOASES=ON -DACADOS_WITH_DAQP=ON -DACADOS_WITH_QPDUNES=ON -DACADOS_WITH_OSQP=ON ..
 ```
 
-### 2. Install l4casadi
-[l4casadi](https://github.com/Tim-Salzmann/l4casadi/tree/main)
-```bash
-sudo apt install nvidia-cuda-toolkit
-pip install l4casadi==2.0.0 --no-build-isolation
-```
-
 ### 2. Install the code base and the necessary ROS related packages ...
 
 Setup the folder architecture and clone the repo **with the specific branch**:
@@ -95,7 +88,7 @@ For VIM4, since  it's Ubuntu20.04 python3.8, pandas's version is incompatible, w
 pip install -r src/jsk_aerial_robot/aerial_robot_control/scripts/requirementsVIM4.txt
 ```
 
-For the first run, **uncomment** these code in `aerial_robot_control/scripts/nmpc/gen_nmpc_code_all.sh`
+For the first run, **uncomment** these lines in `aerial_robot_control/scripts/nmpc/gen_nmpc_code_all.sh`
 ```bash
 MODELS=(
     NMPCFixQdAngvelOut
@@ -111,6 +104,12 @@ MODELS=(
     NMPCTiltBi2OrdServo
     MHEWrenchEstAccMom
 )
+```
+and these lines in `aerial_robot_control/scripts/neural_mpc/gen_neural_controller.py`
+```python
+controller_list.append("nominal")
+controller_list.append("neural_plus")
+controller_list.append("neural_minus")
 ```
 
 ### 4. Build the workspace with `catkin`
