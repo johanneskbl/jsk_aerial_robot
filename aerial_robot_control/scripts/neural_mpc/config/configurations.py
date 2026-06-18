@@ -211,7 +211,7 @@ class EnvConfig:
         "use_nominal_simulator": False,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 60,
+        "max_sim_time": 20,
         "world_radius": 2,
         "seed": 897,
     }

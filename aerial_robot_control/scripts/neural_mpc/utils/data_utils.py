@@ -287,9 +287,9 @@ def make_blank_dict(target_dim, state_dim, control_dim):
         "dt": np.zeros((0, 1)),
         "comp_time": np.zeros((0, 1)),
         "state_ref": np.zeros((0, state_dim)),
-        "state_in": np.zeros((0, state_dim)),
+        "state_curr": np.zeros((0, state_dim)),
         "state_out": np.zeros((0, state_dim)),
-        "state_prop": np.zeros((0, state_dim)),
+        "state_pred": np.zeros((0, state_dim)),
         "control": np.zeros((0, control_dim)),
     }
     if target_dim is not None:
@@ -299,12 +299,12 @@ def make_blank_dict(target_dim, state_dim, control_dim):
 
 def write_recording_data(rec_dict, rec_file):
     # # Current target was reached - remove incomplete recordings
-    if len(rec_dict["state_in"]) > len(rec_dict["state_out"]):
+    if len(rec_dict["state_curr"]) > len(rec_dict["state_out"]):
         raise ValueError("Recording dictionary is not consistent.")
     #     rec_dict["timestamp"] = rec_dict["timestamp"][:-1]
     #     rec_dict["comp_time"] = rec_dict["comp_time"][:-1]
     #     rec_dict["target"] = rec_dict["target"][:-1]
-    #     rec_dict["state_in"] = rec_dict["state_in"][:-1]
+    #     rec_dict["state_curr"] = rec_dict["state_curr"][:-1]
     #     rec_dict["control"] = rec_dict["control"][:-1]
 
     rec_dict_json = dict()

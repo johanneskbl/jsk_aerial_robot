@@ -342,7 +342,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 )
                 rec_dict["comp_time"] = np.append(rec_dict["comp_time"], comp_time)
                 rec_dict["state_ref"] = np.append(rec_dict["state_ref"], state_ref[0:1, :], axis=0)  # Assuming constant ref
-                rec_dict["state_in"] = np.append(rec_dict["state_in"], state_curr[np.newaxis, :], axis=0)
+                rec_dict["state_curr"] = np.append(rec_dict["state_curr"], state_curr[np.newaxis, :], axis=0)
                 rec_dict["control"] = np.append(rec_dict["control"], u_cmd[np.newaxis, :], axis=0)
 
             # --- Plot realtime ---
@@ -473,7 +473,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                     T_prop_step=T_prop_step,
                 )
                 state_prop = state_prop[-1, :]  # Get last predicted state
-                rec_dict["state_prop"] = np.append(rec_dict["state_prop"], state_prop[np.newaxis, :], axis=0)
+                rec_dict["state_pred"] = np.append(rec_dict["state_pred"], state_prop[np.newaxis, :], axis=0)
 
             # --- Log trajectory for real-time plot ---
             if run_options["real_time_plot"]:
