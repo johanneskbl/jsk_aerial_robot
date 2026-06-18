@@ -181,7 +181,6 @@ class LemniscateTrajOmniOpposite(LemniscateTrajOmni):
         return qw, -qx, qy, qz, -roll_rate, pitch_rate, yaw_rate, -roll_acc, pitch_acc, yaw_acc
 
 
-
 class SetPointTraj(BaseTraj):
     def __init__(self, loop_num) -> None:
         super().__init__(loop_num)

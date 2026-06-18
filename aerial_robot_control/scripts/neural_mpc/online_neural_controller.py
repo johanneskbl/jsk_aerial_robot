@@ -111,8 +111,20 @@ class NeuralMPC(RecedingHorizonBase):
             print(
                 f"Successfully loaded MLP model {model_options['neural_model_name']}, {model_options['neural_model_instance']}."
             )
+
+
+            #Online MLP
+            nx_mlp_in = len(eval(self.mlp_metadata["ModelFitConfig"]["state_feats"])) \
+            + len(eval(self.mlp_metadata["ModelFitConfig"]["u_feats"]))
+            ny_mlp_out = len(np.array(eval(self.mlp_metadata["ModelFitConfig"]["y_reg_dims"])))
+            self.online_mlp = OnlineMLP(input_dim=nx_mlp_in, output_dim=ny_mlp_out, hidden_dim=32)
+            self.replay_buffer = ReplayBuffer(max_seconds=15, freq_hz=100)
+            self.online_learner = OnlineLearner(self.online_mlp, self.replay_buffer)
+            self.online_learner_thread = threading.Thread(target=self.online_learner.run, daemon=True)
+            self.online_learner_thread.start()
         else:
             self.use_mlp = False
+
 
         # Clean up so the build process doesn't depend on previously generated files
         delete_previous_solver_files(self.model_name)
@@ -129,7 +141,7 @@ class NeuralMPC(RecedingHorizonBase):
         self.parameters = self._acados_model.p
 
     # fmt: off
-    def create_acados_model(self) -> AcadosModel:
+    def create_acados_model(self) -> AcadosModel: #TODO: Add a neural network and put the weights of the neural as variable in acados
         """
         Define generic state-space, acados model parameters, control inputs for kinematics of a omnidirectional quadrotor.
         Calculate transformation matrix from robot's architecture to compute internal wrench.
@@ -514,7 +526,7 @@ class NeuralMPC(RecedingHorizonBase):
                     # TODO regularize output by confidence (std)
                     mlp_out, std = self.neural_model(mlp_in)
 
-                                        
+                
                 # Write model options into MLP metadata to be used in C++
                 # NOTE: The parameters are stored DURING BUILD TIME and read AT RUNTIME
                 store_additional_metadata(
@@ -546,6 +558,10 @@ class NeuralMPC(RecedingHorizonBase):
                 else:
                     raise KeyError("Selected regression dimensions not expected.")
 
+            #online MLP
+            parameters = self._append_online_mlp_weights(self.online_mlp, parameters)
+            mlp_online_out = self._build_online_mlp_casadi(mlp_in, self.online_weights_sym, self.online_mlp)
+
             # === Fuse dynamics ===
             # Map output of MLP to the state space
             M = get_output_mapping(
@@ -553,13 +569,13 @@ class NeuralMPC(RecedingHorizonBase):
             )
 
             # Combine nominal dynamics with neural dynamics
-            if self.model_options["minus_neural"]:
-                ds -= M @ mlp_out
-            elif self.model_options["plus_neural"]:
-                ds += M @ mlp_out
+           
+            if self.model_options["plus_neural"]:
+                ds += M @ (mlp_out + mlp_online_out)
+            elif self.model_options.get("minus_neural", False):
+                ds -= M @ (mlp_out + mlp_online_out)
             else:
-                raise ValueError("Either 'minus_neural' or 'plus_neural' must be set to True in model options when using Neural MPC.")
-
+                raise ValueError("Either 'minus_neural' or 'plus_neural' must be set to True.")
             # === Time-dependent control law ===
             # Add a symbolic counter to the state vector
             # Assume last state entry is reserved for step_count
@@ -668,6 +684,33 @@ class NeuralMPC(RecedingHorizonBase):
         model.p = parameters
 
         return model
+
+    def _append_online_mlp_weights(self, online_mlp, parameters):
+        n_weights = sum(p.numel() for p in online_mlp.parameters())
+        self.online_weights_sym = ca.MX.sym("online_weights", n_weights)
+        self.online_weights_start_idx = parameters.size()[0]
+        parameters = ca.vertcat(parameters, self.online_weights_sym)
+        self.online_weights_end_idx = parameters.size()[0]
+        return parameters
+
+    def _build_online_mlp_casadi(self, x, weights_flat, mlp_ref):
+        """Reconstruit le forward pass CasADi avec poids symboliques"""
+        idx = 0
+        h = x
+        for layer in mlp_ref.net:
+            if isinstance(layer, nn.Linear):
+                fan_in, fan_out = layer.in_features, layer.out_features
+                n_w = fan_out * fan_in
+                n_b = fan_out
+
+                W = ca.reshape(weights_flat[idx:idx+n_w], fan_out, fan_in)
+                b = weights_flat[idx+n_w:idx+n_w+n_b]
+                idx += n_w + n_b
+
+                h = W @ h + b
+            elif isinstance(layer, nn.Tanh):
+                h = ca.tanh(h)
+        return h
 
     def get_cost_function(self, lin_acc_w=None, ang_acc_b=None):
         #### ONLY FOR NMPCServo() FOR NOW ####
@@ -1125,7 +1168,7 @@ class NeuralMPC(RecedingHorizonBase):
         return solver
     # fmt: on
 
-    def track(self, ocp_solver, xr, ur, u_prev):
+    def track(self, ocp_solver, xr, ur, u_prev, x_current):
         """
         Tracks a trajectory defined by xr and ur, where xr is the reference state and ur is the reference control input.
         :param xr: Reference state trajectory (N+1, state_dim)
@@ -1159,6 +1202,19 @@ class NeuralMPC(RecedingHorizonBase):
             self.acados_parameters[
                 ocp_solver.N, self.external_state_ref_start_idx : self.external_state_ref_end_idx
             ] = xr[ocp_solver.N, :]
+
+
+        # Online MLP — injection des poids et mise à jour du replay buffer
+        if self.use_mlp:
+            online_weights = self.online_learner.get_weights_flat()
+            for j in range(ocp_solver.N + 1):
+                self.acados_parameters[
+                    j,
+                    self.online_weights_start_idx:self.online_weights_end_idx
+                ] = online_weights
+            tracking_error = x_current - xr[0, :]
+            self.replay_buffer.push(x_current, u_prev, tracking_error)
+
 
     def append_delay(self, delay: int = 0):
         """
