@@ -187,38 +187,38 @@ class EnvConfig:
         "cost_function_type": "NONLINEAR_LS",  # "NONLINEAR_LS" or "EXTERNAL"
         "solver_type": "PARTIAL_CONDENSING_HPIPM",  # TODO actually implement this
         "terminal_cost": True,  # TODO actually implement this
-        "include_floor_bounds": False,
+        "include_floor_bounds": False,  # Not in C++ implemented; also unnecessarily makes it heavier
         "include_soft_constraints": True,
-        "include_quaternion_constraint": False,
-        "include_delta_u": False,
-        "include_energy_cost": False,
+        "include_quaternion_constraint": False,  # Not in C++ implemented; also unnecessarily makes it heavier (works better without)
+        "include_delta_u": False,  # TODO implement
+        "include_energy_cost": False,  # TODO implement
     }
 
     dataset_options = {"ds_name_suffix": "dataset_neural_sim_nominal_control"}  # "compare_nominal_neural_sim"}
     sim_options = {
-        # Choice of disturbances modeled in our Simplified Simulator
         "disturbances": {
             "cog_dist": False,  # Disturbance forces and torques on CoG
             "cog_dist_model": "mu = 1 / (abs(z)+1)**2 * cog_dist_factor * max_thrust * 4 | std = 0",
             "cog_dist_factor": 0.2,  # 0.1
             "motor_noise": False,  # Asymmetric noise in the rotor thrust and servo angles
-            "drag": False,  # 2nd order polynomial aerodynamic drag effect
-            "payload": False,  # Payload force in the Z axis
+            "drag": False,  # 2nd order polynomial aerodynamic drag effect TODO implement
+            "payload": False,  # External force in world z-axis TODO implement
         },
         "use_nominal_simulator": False,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 20,
-        "world_radius": 2,
+        "max_sim_time": 20,  # [s] of simulated time
+        "world_radius": 2,  # [m]
         "seed": 897,
     }
 
     # Run options
     run_options = {
-        "real_machine": True,
+        "recording": False,
     }
 
     # Trajectory tracking options
+    # Options: "step", "hover", "takeoff", "smooth_takeoff", "circle", "helix", "lemniscate_I", "lemniscate_II", "roll", "pitch"
     run_options.update(
         {
             "trajectories": [
@@ -229,7 +229,7 @@ class EnvConfig:
                 "lemniscate_II",
                 "roll",
                 "pitch",
-            ],  # "step", "hover", "takeoff", "smooth_takeoff", "circle", "helix", "lemniscate_I", "lemniscate_II", "roll", "pitch"
+            ],
             "trajectory_length": 15.0,
         }
     )
@@ -242,13 +242,6 @@ class EnvConfig:
             "initial_state": None,
             "initial_guess": None,
             "aggressive": False,
-        }
-    )
-
-    # Recording options
-    run_options.update(
-        {
-            "recording": False,
         }
     )
 
@@ -273,13 +266,9 @@ class EnvConfig:
     if sim_options["use_real_world_simulator"]:
         for value in sim_options["disturbances"].values():
             if value == True:
-                raise ValueError("Simulated disturbances not meaningful when using real world simulator.")
-    if solver_options["cost_function_type"] == "NONLINEAR_LS" and solver_options["include_energy_cost"]:
-        raise ValueError("NONLINEAR_LS cost function does not support energy cost as it is an additional term.")
-    # if run_options["real_machine"]:
-    #     for value in sim_options["disturbances"].values():
-    #         if value == True:
-    #             raise ValueError("No simulated disturbances allowed on real machine.")
+                raise ValueError("Simulated disturbances most likely not meaningful when using real world simulator since this flag intends to simulate real-world conditions.")
+    if solver_options["cost_function_type"] == "NONLINEAR_LS" and (solver_options["include_delta_u"] or solver_options["include_energy_cost"]):
+        raise ValueError("NONLINEAR_LS cost function does not support additional terms, need to use custom cost function.")
 
 
 class NetworkConfig:
@@ -362,7 +351,7 @@ class NetworkConfig:
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Energy regularization
-    energy_lambda = 0.0 #1e3  # for relative 1e3 / for absolute 1e-5  # Set to 0.0 to disable
+    energy_lambda = 1e3  # for relative 1e3 / for absolute 1e-5  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon

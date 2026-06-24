@@ -243,19 +243,21 @@ class TrajectoryDataset(Dataset):
         # y[:, 6:10] = q_e / np.expand_dims(dt, 1)
         # =============================================================
 
+        # For plotting to compare to after filtering
+        if NetworkConfig.temporalize:
+            for i in range(-1, self.N-1):
+                if i == -1:
+                    self.x_raw = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
+                else:
+                    self.x_raw = np.concatenate((self.x_raw, state_pred[:, i, self.state_feats], control_pred[:, i, self.u_feats]), axis=1, dtype=np.float32)
+        else:
+            self.x_raw = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
+        self.y_raw = y[..., self.y_reg_dims].copy()
+
         # Data filtering
         # NOTE: Apply after computing residual dynamics to have more significant smoothing effect
         # If applied before, the effectiveness of the smoothing is drastically reduced
         if ModelFitConfig.use_moving_average_filter:
-            if NetworkConfig.temporalize:
-                for i in range(-1, self.N-1):
-                    if i == -1:
-                        self.x_raw = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
-                    else:
-                        self.x_raw = np.concatenate((self.x_raw, state_pred[:, i, self.state_feats], control_pred[:, i, self.u_feats]), axis=1, dtype=np.float32)
-            else:
-                self.x_raw = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
-            self.y_raw = y[..., self.y_reg_dims].copy()
             
             print(f"[DATASET] Applying moving average filter with window size {ModelFitConfig.window_size} to network input and labels.")
             state_curr = moving_average_filter(state_curr, window_size=ModelFitConfig.window_size)
