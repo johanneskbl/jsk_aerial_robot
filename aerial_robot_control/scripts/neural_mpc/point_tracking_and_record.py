@@ -57,9 +57,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
     N = neural_mpc.N
     T_horizon = neural_mpc.T_horizon
     T_samp = neural_mpc.T_samp  # Time step for the control loop
-    T_step = neural_mpc.T_step  # Time step in MPC (= T_horizon / N)
-    # reference_over_sampling = 1     # TODO what is this?
-    # control_period = T_horizon / (N * reference_over_sampling)    # The time period between two control inputs
 
     # Sanity check: The optimization should be faster or equal than the duration of the optimization time step
     assert T_samp <= T_horizon / N
@@ -70,8 +67,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
         # Use neural model trained on real world data as simulator
         sim_model_options = model_options.copy()
         sim_model_options["only_use_nominal"] = False
-        sim_model_options["plus_neural"] = True
-        sim_model_options["minus_neural"] = False
         sim_model_options["neural_model_instance"] = sim_options["sim_neural_model_instance"]
         sim_neural_mpc = NeuralMPC(
             model_options=sim_model_options,
@@ -125,7 +120,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
     for _ in range(20):
         u_temp = ocp_solver.solve_for_x0(state_curr)
         sim_solver.simulate(x=state_curr_sim, u=u_temp, p=sim_solver.acados_sim.parameter_values)
-    x_l = []
 
     # --- Initial guess ---
     # TODO Provide a new initial guess when changing target
@@ -156,7 +150,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
     recording = run_options["recording"]
     if recording:
         # Create an empty dict or get a pre-recorded dict and filepath to store
-        # TODO actually able to use a pre-recorded dict? And if so make it overwriteable
         model_options["state_dim"] = nx
         model_options["control_dim"] = nu
         model_options["include_quaternion_constraint"] = neural_mpc.include_quaternion_constraint
@@ -297,12 +290,9 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
 
             # --- Plot realtime ---
             if run_options["real_time_plot"]:
-                raise NotImplementedError("Rethink.")
+                raise NotImplementedError("Overthink.")
                 # Note: Simulation is without disturbance here !
-                #########################################
-                # TODO OVERTHINK THIS!!!
                 state_traj = simulate_trajectory(ocp_solver, sim_solver, state_curr)
-                #########################################
                 draw_robot(
                     art_pack,
                     targets,
@@ -413,8 +403,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 j = 0
                 simulation_time = 0.0
 
-                # Remove initial guess
-                # initial_guess = None
+                # TODO Make new initial guess for next target based on next target?
 
                 # Generate new target
                 if run_options["preset_targets"] is None:
@@ -450,13 +439,6 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
             if recording or plot:
                 # State after simulation
                 rec_dict["state_out"] = np.append(rec_dict["state_out"], state_curr_sim[np.newaxis, :], axis=0)
-
-                ###################### OLD ###########################
-                # if T_samp != T_step:
-                #     raise ValueError("T_samp and T_step must be equal for prediction to make any sense since.")
-                # NOTE this gets the state after T_step = 0.1 but the curr state is only passed for T_samp = 0.01
-                # state_prop = ocp_solver.get(1, "x") # Predicted state by the controller at next sampling time
-                ######################################################
 
                 # Compute next state prediction through more precise and undisturbed integration
                 state_prop = forward_prop(

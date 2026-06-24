@@ -39,13 +39,6 @@ class NeuralMPC(RecedingHorizonBase):
         else:
             identifier = "neural"
             identifier2 = ""
-            if "minus_neural" in model_options:
-                if model_options["minus_neural"]:
-                    identifier2 = "_minus"
-
-            if "plus_neural" in model_options:
-                if model_options["plus_neural"]:
-                    identifier2 = "_plus"
 
         if use_as_simulator:
             identifier3 = "_sim"
@@ -57,10 +50,8 @@ class NeuralMPC(RecedingHorizonBase):
         # Read controller parameters from configuration file in the robot's package
         if model_options["only_use_nominal"]:
             yaml_file_name = "BeetleOmniNMPCNominalServo"
-        elif model_options["plus_neural"]:
-            yaml_file_name = "BeetleOmniNMPCNeuralServoPlus"
         else:
-            yaml_file_name = "BeetleOmniNMPCNeuralServoMinus"
+            yaml_file_name = "BeetleOmniNMPCNeuralServo"
         self.read_params("controller", "nmpc", "beetle_omni", f"{yaml_file_name}.yaml")
         self.T_samp = self.params["T_samp"]  # Sampling time for the MPC controller, time step between two steps
         self.T_horizon = self.params["T_horizon"]  # Time horizon for optimization loop in MPC controller
@@ -550,12 +541,7 @@ class NeuralMPC(RecedingHorizonBase):
             )
 
             # Combine nominal dynamics with neural dynamics
-            if self.model_options["minus_neural"]:
-                ds -= M @ mlp_out
-            elif self.model_options["plus_neural"]:
-                ds += M @ mlp_out
-            else:
-                raise ValueError("Either 'minus_neural' or 'plus_neural' must be set to True in model options when using Neural MPC.")
+            ds += M @ mlp_out
 
             # === Time-dependent control law ===
             # Add a symbolic counter to the state vector

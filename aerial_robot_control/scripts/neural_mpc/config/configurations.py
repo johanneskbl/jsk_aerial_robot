@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-import numpy as np
 
 
 class DirectoryConfig:
@@ -43,8 +42,6 @@ class EnvConfig:
     model_options.update(
         {
             "only_use_nominal": False,
-            "plus_neural": True,
-            "minus_neural": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp" or "temporal_residual_mlp"
             "neural_model_instance": "neuralmodel_209",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
@@ -265,8 +262,6 @@ class EnvConfig:
         }
     )
 
-    if model_options["minus_neural"] and model_options["plus_neural"]:
-        raise ValueError("Conflict in options.")
     if model_options["linearize_mlp"] and model_options["use_l4casadi"]:
         raise ValueError("Conflict in options.")
     if (model_options["linearize_mlp"] or model_options["use_l4casadi"]) and model_options["linearize_order"] not in [1, 2]:

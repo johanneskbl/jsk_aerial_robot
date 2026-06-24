@@ -1,5 +1,5 @@
-mpc_solver_name: aerial_robot_control::mpc_solver::TiltQdNeuralServoMinusMdlMPCSolver
-aerial_robot_control_name: aerial_robot_control/neural_mpc_controller/tilt_mt/neural_servo_minus_mpc
+mpc_solver_name: aerial_robot_control::mpc_solver::TiltQdNeuralServoMdlMPCSolver
+aerial_robot_control_name: aerial_robot_control/neural_mpc_controller/tilt_mt/neural_servo_mpc
 
 controller:
   nmpc:
@@ -11,9 +11,9 @@ controller:
     w_max: 6  # 1 rad/s ~ 57 deg/s
     w_min: -6
 
-    v_max: 1
-    v_min: -1
-    vel_limit_takeoff: 0.1
+    v_max: 0.5
+    v_min: -0.5
+    vel_limit_takeoff: 0.5
 
     thrust_max: 30  # N
     thrust_min: 0  # N
@@ -50,7 +50,7 @@ controller:
     # Rac_d: 1  # 250  # difference of ac
     # ==== Default ====
     Qp_xy: 300  # 500 (sim)
-    Qp_z: 400  # 500 (sim)
+    Qp_z: 100  # 400 # 500 (sim)
     Qv_xy: 10
     Qv_z: 10
     Qq_xy: 300  # 0.1 (sim)
