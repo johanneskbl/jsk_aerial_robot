@@ -130,8 +130,11 @@ class QDNMPCReferenceGenerator:
         :return xr: Reference for the state x
         :return ur: Reference for the input u
         """
-        if len(target_xyz) != 3 and target_rpy is not None and len(target_rpy) != 3:
-            raise ValueError("Target state should be given in xyz and rpy.")
+
+        if len(target_xyz) != 3 or \
+            (target_rpy is not None and len(target_rpy) != 3) or \
+            (target_qwxyz is not None and len(target_qwxyz) != 4):
+            raise ValueError("Target state should be given in xyz and rpy/qwxyz.")
 
         if target_qwxyz is None:
             roll = target_rpy[0]
@@ -141,14 +144,19 @@ class QDNMPCReferenceGenerator:
             qwxyz = tf.quaternion_from_euler(roll, pitch, yaw, axes="sxyz")
             target_qwxyz = np.array([qwxyz]).squeeze()
 
-        # Convert [0,0,gravity] to Body frame
+        # Hovering wrench: Convert [0,0,gravity] to Body frame
         q_inv = tf.quaternion_conjugate(target_qwxyz)
         rot_inv = tf.quaternion_matrix(q_inv)
         fg_w = np.array([0, 0, self.mass * self.gravity, 0])  # World frame
         fg_b = rot_inv @ fg_w  # Body frame
         target_wrench = np.array([[fg_b.item(0), fg_b.item(1), fg_b.item(2), 0, 0, 0]]).T
 
-        # A faster method if alloc_mat is dynamic:  x, _, _, _ = np.linalg.lstsq(alloc_mat, target_wrench, rcond=None) [same behaviour]
+        target_body_forces = target_wrench[:3]
+        target_body_torques = target_wrench[3:]
+        # print("target_body_forces: \n", target_body_forces)
+        # print("target_body_torques: \n", target_body_torques)
+
+        # A faster method if alloc_mat is dynamic:  x, _, _, _ = np.linalg.lstsq(alloc_mat, target_wrench, rcond=None)
         target_force = self.alloc_mat_pinv @ target_wrench
 
         # Compute reference values for thrust
@@ -171,11 +179,72 @@ class QDNMPCReferenceGenerator:
         a_ref = self._ensure_servo_angles_continuity(a_ref, self.a_ref_prev)
         self.a_ref_prev = a_ref
 
+        # Set reference values for servo angle & thrust velocities 
+        ad_ref = [0.0, 0.0, 0.0, 0.0]  # Reference servo angle derivative
+        ftd_ref = [0.0, 0.0, 0.0, 0.0]  # Reference thrust derivative
+
+        # Bring servo angle velocities SMOOTHLY to zero x
+        # for i in range(4):
+        #     ad_ref[i] = -1.0 * current_angles[i]
+
         # Assemble reference trajectories in controller file since their definition is
         # closely related to the cost function
-        xr, ur = self.nmpc.get_reference(target_xyz, target_qwxyz, ft_ref, a_ref)
-
+        if self.nmpc.include_differential_allocation:
+            xr, ur = self.nmpc.get_reference(
+                target_xyz,
+                target_qwxyz,
+                ft_ref,
+                a_ref,
+                target_body_forces,
+                target_body_torques,
+                ad_ref,
+                ftd_ref,
+            )
+        else:
+            xr, ur = self.nmpc.get_reference(target_xyz, target_qwxyz, ft_ref, a_ref)
         return xr, ur
+
+    def compute_differential_allocation_matrix(self, current_angles, current_forces):
+        """
+        Compute the differential allocation matrix at the current reference.
+
+        :param current_angles: Current servo angles
+        :param current_forces: Current forces
+        :return alloc_mat_diff: Differential allocation matrix
+        """
+        # TODO: Understand and verify this (especially if indexing is correct)
+        # Compute current body wrench from current servo angles and forces
+        actuators_jacobian = np.zeros((8, 8))
+        for i in range(4):
+            actuators_jacobian[2 * i, 2 * i] = current_forces[i] * np.cos(current_angles[i])
+            actuators_jacobian[2 * i + 1, 2 * i] = - current_forces[i] * np.sin(current_angles[i])
+            actuators_jacobian[2 * i, 2 * i + 1] = np.sin(current_angles[i])
+            actuators_jacobian[2 * i + 1, 2 * i + 1] = np.cos(current_angles[i])
+
+        alloc_mat_diff = self.alloc_mat @ actuators_jacobian
+
+        return alloc_mat_diff
+
+    def compute_current_body_wrench(self, current_angles, current_forces):
+        """
+        Compute current body wrench from current servo angles and forces.
+
+        :param current_angles: Current servo angles
+        :param current_forces: Current forces
+        :return current_body_wrench: Current body wrench
+        """
+        # TODO: Understand and verify this (especially if indexing is correct)
+        # Compute current force and torque from current servo angles and forces
+        allocation_matrix_input = np.zeros((8, 1))
+        for i in range(4):
+            allocation_matrix_input[2 * i, 0] = current_forces[i] * np.sin(current_angles[i])
+            allocation_matrix_input[2 * i + 1, 0] = current_forces[i] * np.cos(current_angles[i])
+
+        # Compute current body wrench from current force and torque
+        current_body_wrench = self.alloc_mat @ allocation_matrix_input
+
+        return current_body_wrench
+
 
     def get_pose_from_trajectory(self, traj: str, t: float, T: float = 10.0):
         """

@@ -23,6 +23,9 @@ from nmpc_tilt_mt.archive.tilt_qd_servo_w_cog_end_dist import NMPCTiltQdServoWCo
 # - Conside servo angle derivative as state
 from nmpc_tilt_mt.tilt_qd.tilt_qd_servo_diff import NMPCTiltQdServoDiff
 
+# - Consider second order servo angle and thrust models and optimize w.r.t. theit velocities
+from ..differential_mpc.tilt_qd_servo_thrust_diff import NMPCTiltQdServoThrustDiff
+
 # - Consider the absolute servo angle command in cost
 from nmpc_tilt_mt.archive.tilt_qd_servo_old_cost import NMPCTiltQdServoOldCost
 
@@ -55,6 +58,10 @@ def main(args):
             nmpc = NMPCTiltQdThrust(phys=phys_art)
         elif args.model == 3:
             nmpc = NMPCTiltQdServoThrust(phys=phys_art)
+        elif args.model == 4:
+            nmpc = NMPCTiltQdServoThrustDiff(phys=phys_omni)
+            a_c_int = np.zeros(4)
+            ft_c_integ = np.zeros(4)
 
         elif args.model == 21:
             nmpc = NMPCTiltQdServoDist(phys=phys_omni)
@@ -68,7 +75,7 @@ def main(args):
             nmpc = NMPCTiltQdServoOldCost()
         elif args.model == 93:
             nmpc = NMPCTiltQdServoDiff()
-            alpha_integ = np.zeros(4)
+            a_c_int = np.zeros(4)
         elif args.model == 94:
             nmpc = NMPCTiltQdServoDragDist()
         elif args.model == 95:
@@ -126,6 +133,8 @@ def main(args):
             sim_nmpc = NMPCTiltQdServoThrust(phys=sim_phy)  # Consider both the servo delay and the thrust delay
         elif args.sim_model == 1:
             sim_nmpc = NMPCTiltQdServoThrustDrag(phys=sim_phy)  # Also consider drag in wrench formulation
+        elif args.sim_model == 2:
+            sim_nmpc = NMPCTiltQdServoThrustDiff(phys=sim_phy)  # Consider differential servo and thrust models
         else:
             raise ValueError(f"Invalid sim model {args.sim_model}.")
 
@@ -221,13 +230,16 @@ def main(args):
 
         # --------- Update state estimation ---------
         # Assemble state from simulation and disturbance estimation
-        if nmpc.include_cog_dist_model:
+        if nmpc.include_cog_dist_model and nmpc.include_differential_allocation:
+            x_now = np.zeros(nx)
+            x_now[: nx - 12] = deepcopy(x_now_sim[: nx - 12])
+        elif nmpc.include_cog_dist_model or nmpc.include_differential_allocation:
             x_now = np.zeros(nx)
             x_now[: nx - 6] = deepcopy(x_now_sim[: nx - 6])
         else:
             x_now = deepcopy(x_now_sim[:nx])  # The dimension of x_now may be smaller than x_now_sim
 
-        # Access from less indices
+        # Access thrust state from less indices
         if (nmpc.include_thrust_model and not nmpc.include_servo_model) and (
             sim_nmpc.include_servo_model and sim_nmpc.include_thrust_model
         ):
@@ -238,8 +250,17 @@ def main(args):
             elif args.arch == "qd":
                 x_now[13:17] = deepcopy(x_now_sim[17:21])
 
+        # Update the body wrench state
+        if nmpc.include_differential_allocation:
+            tilt_angles = x_now[13:17]
+            thrusts = x_now[17:21]
+            current_body_wrench = reference_generator.compute_current_body_wrench(
+                tilt_angles, thrusts
+            )
+            x_now[21:27] = current_body_wrench.flatten()
+
         # --------- Update control target ---------
-        target_xyz = np.array([[0.3, 0.6, 1.0]]).T
+        target_xyz = np.array([[0.0, 0.0, 1.0]]).T
         target_rpy = np.array([[0.0, 0.0, 0.0]]).T
 
         if args.plot_type == 2:
@@ -250,9 +271,9 @@ def main(args):
             if 2.0 <= t_now < 6:
                 target_xyz = np.array([[0.3, 0.6, 1.0]]).T
 
-                roll = 30.0 / 180.0 * np.pi
-                pitch = 60.0 / 180.0 * np.pi
-                yaw = 90.0 / 180.0 * np.pi
+                roll = 90.0 / 180.0 * np.pi
+                pitch = 0.0 / 180.0 * np.pi
+                yaw = 0.0 / 180.0 * np.pi
                 target_rpy = np.array([[roll, pitch, yaw]]).T
 
             # if 3.0 <= t_now < 5.5:
@@ -267,13 +288,23 @@ def main(args):
             #     yaw = 0.0 / 180.0 * np.pi
             #     target_rpy = np.array([[roll, pitch, yaw]]).T
 
-            if t_now >= 6:
+            if 6 <= t_now < 12:
                 assert t_sqp_end <= 3.0
-                target_xyz = np.array([[1.0, 1.0, 1.0]]).T
-                target_rpy = np.array([[0.0, 0.0, 0.0]]).T
+                target_xyz = np.array([[0.3, 0.6, 1.0]]).T
+                roll = 0.0 / 180.0 * np.pi
+                pitch = 90.0 / 180.0 * np.pi
+                yaw = 0.0 / 180.0 * np.pi
+                target_rpy = np.array([[roll, pitch, yaw]]).T
+
+            if t_now >= 12:
+                target_xyz = np.array([[0.3, 0.6, 1.0]]).T
+                roll = 0.0 / 180.0 * np.pi
+                pitch = 180.0 / 180.0 * np.pi
+                yaw = 0.0 / 180.0 * np.pi
+                target_rpy = np.array([[roll, pitch, yaw]]).T
 
         # Compute reference trajectory from target pose
-        xr, ur = reference_generator.compute_trajectory(target_xyz, target_rpy)
+        xr, ur = reference_generator.compute_trajectory(target_xyz, target_rpy=target_rpy)
 
         if args.plot_type == 2:
             if nx > 13:
@@ -295,10 +326,10 @@ def main(args):
 
         # --------- Update solver ---------
         comp_time_start = time.time()
-
         if t_ctl >= ts_ctrl:
             t_ctl = 0.0
 
+            # Set reference and parameters for nonlinear quaternion error
             # 0 ~ N-1
             for j in range(ocp_solver.N):
                 yr = np.concatenate((xr[j, :], ur[j, :]))
@@ -306,7 +337,6 @@ def main(args):
                 quaternion_r = xr[j, 6:10]
                 nmpc.acados_parameters[0:4] = quaternion_r
                 ocp_solver.set(j, "p", nmpc.acados_parameters)  # For nonlinear quaternion error
-
             # N
             yr = xr[ocp_solver.N, :]
             ocp_solver.set(ocp_solver.N, "yref", yr)  # Final state of x, no u
@@ -329,10 +359,47 @@ def main(args):
             if type(nmpc) is NMPCTiltQdNoServoAcCost:
                 nmpc.update_a_prev(u_cmd.item(4), u_cmd.item(5), u_cmd.item(6), u_cmd.item(7))
 
-            # Use servo angle derivative as state and therefore integrate servo angle command
+            # Nullspace control for differential allocation
+            # TODO: Understand and verify this (especially if indexing is correct)
+            if nmpc.include_differential_allocation:
+                current_servo_angle = x_now[13:17]
+                current_thrust = x_now[17:21]
+                differential_allocation_mat = (
+                    reference_generator.compute_differential_allocation_matrix(
+                        current_servo_angle, current_thrust
+                    )
+                )
+                try:
+                    # Compute nullspace projection matrix
+                    differential_allocation_mat_pinv = np.linalg.pinv(differential_allocation_mat)
+                    nullspace_projection = np.eye(8) - differential_allocation_mat_pinv @ differential_allocation_mat
+                    controls = np.concatenate((current_thrust, current_servo_angle))
+                    # u_cmd -= nullspace_projection @ controls
+                except np.linalg.LinAlgError:
+                    print("Singular allocation matrix encountered. Skipping nullspace optimization for this step.")
+
+            # Integrate servo angle velocity command translating to the servo angle command
             if nmpc.include_servo_derivative:
-                alpha_integ += u_cmd[4:] * ts_ctrl
-                u_cmd[4:] = alpha_integ  # convert from delta input to real input
+                a_c_int += u_cmd[4:8] * nmpc.phys.t_servo  # TODO use time constant or sampling time?
+                u_cmd[4:8] = a_c_int  # convert from delta input to real input
+
+            # Integrate thrust velocity command translating to the thrust command
+            if nmpc.include_thrust_derivative:
+                ft_c_integ += u_cmd[0:4] * nmpc.phys.t_rotor
+                u_cmd[0:4] = ft_c_integ
+
+            # tilt_rate_limit = 4.0  # rad/s
+            # u_cmd[4:8] = np.clip(
+            #     u_cmd[4:8],
+            #     -tilt_rate_limit * 0.0480 + current_servo_angle,
+            #     tilt_rate_limit * 0.0480 + current_servo_angle,
+            # )
+            # thrust_rate_limit = 50.0  # N/s
+            # u_cmd[0:4] = np.clip(
+            #     u_cmd[0:4],
+            #     -thrust_rate_limit * 0.0942 + current_thrust,
+            #     thrust_rate_limit * 0.0942 + current_thrust,
+            # )
 
         # --------- Update simulation ---------
         sim_solver.set("x", x_now_sim)
