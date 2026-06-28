@@ -32,8 +32,8 @@ class TrajectoryDataset(Dataset):
         self.N = neural_mpc.N
 
         self.prepare_data()
-        if ModelFitConfig.prune and (NetworkConfig.delay_horizon == 0 and not NetworkConfig.temporalize):
-            # Don't prune when using delayed or temporal networks with history since pruning causes incontinuities
+        if ModelFitConfig.prune and NetworkConfig.delay_horizon == 0:
+            # Don't prune when using delayed networks with history since pruning causes incontinuities
             self.prune()
         if NetworkConfig.delay_horizon > 0:
             self.append_history()
@@ -52,7 +52,6 @@ class TrajectoryDataset(Dataset):
                 self.state_pred,
                 self.state_ref,
                 self.control,
-                self.control_pred if NetworkConfig.temporalize else None,
                 self.T_step,
                 self.state_in_filtered if ModelFitConfig.use_moving_average_filter else None,
                 self.control_filtered if ModelFitConfig.use_moving_average_filter else None,
@@ -74,16 +73,7 @@ class TrajectoryDataset(Dataset):
     def prepare_data(self):
         state = undo_jsonify(self.df["state"].to_numpy())
         control = undo_jsonify(self.df["control"].to_numpy())
-        if NetworkConfig.temporalize:
-            # Parse temporalized predictions and controls
-            state_pred = np.zeros((state.shape[0], self.N, state.shape[1]))
-            control_pred = np.zeros((state.shape[0], self.N - 1, control.shape[1]))
-            for i in range(1, self.N + 1):
-                state_pred[:, i-1, :] = undo_jsonify(self.df[f"state_pred_{i}"].to_numpy())
-                if i < self.N:
-                    control_pred[:, i-1, :] = undo_jsonify(self.df[f"control_pred_{i}"].to_numpy())
-        else:
-            state_pred = undo_jsonify(self.df["state_pred_1"].to_numpy())
+        state_pred = undo_jsonify(self.df["state_pred_1"].to_numpy())
         state_ref = undo_jsonify(self.df["state_ref"].to_numpy())
         dt = self.df["dt"].to_numpy()
         timestamp = self.df["timestamp"].to_numpy()
@@ -111,8 +101,6 @@ class TrajectoryDataset(Dataset):
         control = control[:-P, :]
         dt = dt[:-P]
         timestamp = timestamp[:-P]
-        if NetworkConfig.temporalize:
-            control_pred = control_pred[:-P, :, :]
 
         # Remove invalid entries (dt = 0)
         invalid = np.where(dt == 0)
@@ -123,57 +111,16 @@ class TrajectoryDataset(Dataset):
         control = np.delete(control, invalid, axis=0)
         dt = np.delete(dt, invalid, axis=0)
         timestamp = np.delete(timestamp, invalid, axis=0)
-        if NetworkConfig.temporalize:
-            control_pred = np.delete(control_pred, invalid, axis=0)
-
-        # Assemble a multi-step horizon label matrix
-        if NetworkConfig.temporalize:
-            # Create new state_out that is filled with the next N state_outs at each time step t
-            idx_trunc = (self.N - 1) * P  # Indices to truncate from the end of state_out to ensure we have enough future steps to fill over the entire horizon
-            state_out_over_horizon = np.zeros((state_out.shape[0] - idx_trunc, self.N, state_out.shape[1]))
-            for t in range(state_out.shape[0] - idx_trunc):
-                time_curr = timestamp[t]
-                t_prev = t - 1  # Initialize t_prev to the previous index to check for duplicate timestamps
-                for i in range(self.N):
-                    time_next = time_curr + i * P_step  # Get the timestamp corresponding to the state_out at node i
-                    t_next = (np.abs(timestamp - time_next)).argmin()  # Convert to corrsponding index
-                    # t_next = t + i * P
-                    if t_prev == t_next:
-                        raise ValueError(f"WARNING: Duplicate timestamp found: t_prev == t_next -> {t_prev} == {t_next} at index {t}.")
-                    state_out_over_horizon[t, i, :] = state_out[t_next, :]
-
-                    t_prev = t_next
-            state_out = state_out_over_horizon
-            # Adjust to size of state_out
-            state_curr = state_curr[:-idx_trunc, :]
-            state_pred = state_pred[:-idx_trunc, :, :]
-            state_ref = state_ref[:-idx_trunc, :]
-            control = control[:-idx_trunc, :]
-            control_pred = control_pred[:-idx_trunc, :, :]
-            dt = dt[:-idx_trunc]
-            timestamp = timestamp[:-idx_trunc]
         state_raw = state_curr.copy()
 
         # Sanity check
-        if NetworkConfig.temporalize:
-            if state_pred.shape[1] != self.N:
-                raise ValueError(f"Expected {self.N} prediction steps in state_pred but got {state_pred.shape[1]}.")
-            if control_pred.shape[1] != self.N - 1:
-                raise ValueError(f"Expected {self.N-1} prediction steps in control_pred but got {control_pred.shape[1]}.")
-            if state_curr.shape[0] != state_out.shape[0] \
-            or state_curr.shape[0] != state_pred.shape[0] \
-            or state_curr.shape[0] != state_ref.shape[0] \
-            or state_curr.shape[0] != control.shape[0] \
-            or state_curr.shape[0] != control_pred.shape[0]:
-                raise ValueError("Inconsistent shapes in the dataset.")
-        else:
-            if (
-                state_curr.shape != state_out.shape \
-             or state_curr.shape != state_pred.shape \
-             or state_curr.shape != state_ref.shape \
-             or state_curr.shape[0] != control.shape[0]
-            ):
-                raise ValueError("Inconsistent shapes in the dataset.")
+        if (
+            state_curr.shape != state_out.shape \
+            or state_curr.shape != state_pred.shape \
+            or state_curr.shape != state_ref.shape \
+            or state_curr.shape[0] != control.shape[0]
+        ):
+            raise ValueError("Inconsistent shapes in the dataset.")
 
         # Transform velocity to body frame
         def velocity_mapping(state_sequence):
@@ -188,23 +135,14 @@ class TrajectoryDataset(Dataset):
             return np.concatenate((p_traj, v_b_traj, q_traj, other_traj), axis=1)
 
         if ModelFitConfig.input_transform:
-            if NetworkConfig.temporalize and not ModelFitConfig.label_transform:
-                raise ValueError("Here we transform curr state but for temporal networks we also use pred in input so it also needs to be transformed!")
             state_curr = velocity_mapping(state_curr)
             state_ref = velocity_mapping(state_ref)
         else:
             # Don't transform input but let network learn in world frame directly
             pass
         if ModelFitConfig.label_transform:
-            if NetworkConfig.temporalize:
-                if not ModelFitConfig.input_transform:
-                    raise ValueError("Here we transform pred but for temporal networks we also use it in input so also curr state needs to be transformed!")
-                for i in range(state_pred.shape[1]):
-                    state_pred[:, i, :] = velocity_mapping(state_pred[:, i, :])
-                    state_out[:, i, :] = velocity_mapping(state_out[:, i, :])
-            else:
-                state_pred = velocity_mapping(state_pred)
-                state_out = velocity_mapping(state_out)
+            state_pred = velocity_mapping(state_pred)
+            state_out = velocity_mapping(state_out)
         else:
             # Don't transform labels but let network predict in world frame directly
             pass
@@ -214,7 +152,7 @@ class TrajectoryDataset(Dataset):
         if ModelFitConfig.prop_long_horizon:
             y = (state_out - state_pred) / self.T_step
         else:
-            y = (state_out - state_pred) / np.expand_dims(dt, 2 if NetworkConfig.temporalize else 1)
+            y = (state_out - state_pred) / np.expand_dims(dt, 1)
 
         # Nonlinear quaternion error computation
         # NOTE: The difference between two quaternions can be computed by q_diff = q2 quaternion-multiply inverse(q1)
@@ -244,14 +182,7 @@ class TrajectoryDataset(Dataset):
         # =============================================================
 
         # For plotting to compare to after filtering
-        if NetworkConfig.temporalize:
-            for i in range(-1, self.N-1):
-                if i == -1:
-                    self.x_raw = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
-                else:
-                    self.x_raw = np.concatenate((self.x_raw, state_pred[:, i, self.state_feats], control_pred[:, i, self.u_feats]), axis=1, dtype=np.float32)
-        else:
-            self.x_raw = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
+        self.x_raw = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
         self.y_raw = y[..., self.y_reg_dims].copy()
 
         # Data filtering
@@ -261,28 +192,16 @@ class TrajectoryDataset(Dataset):
             
             print(f"[DATASET] Applying moving average filter with window size {ModelFitConfig.window_size} to network input and labels.")
             state_curr = moving_average_filter(state_curr, window_size=ModelFitConfig.window_size)
-            if NetworkConfig.temporalize:
-                for i in range(y.shape[1]):
-                    state_pred[:, i, :] = moving_average_filter(state_pred[:, i, :], window_size=ModelFitConfig.window_size)
-                    y[:, i, :] = moving_average_filter(y[:, i, :], window_size=ModelFitConfig.window_size)
-            else:
-                y = moving_average_filter(y, window_size=ModelFitConfig.window_size)
+            y = moving_average_filter(y, window_size=ModelFitConfig.window_size)
             if ModelFitConfig.control_filtering:
                 control = moving_average_filter(control, window_size=ModelFitConfig.window_size)
-                if NetworkConfig.temporalize:
-                    for i in range(control_pred.shape[1]):
-                        control_pred[:, i, :] = moving_average_filter(control_pred[:, i, :], window_size=ModelFitConfig.window_size)
             if ModelFitConfig.plot_dataset:
                 self.state_in_filtered = state_curr.copy()
                 self.control_filtered = control.copy()
                 self.y_filtered = y[..., self.y_reg_dims].copy()
         elif ModelFitConfig.use_moving_average_filter_only_label:
             print(f"[DATASET] Applying moving average filter with window size {ModelFitConfig.window_size} to labels only.")
-            if NetworkConfig.temporalize:
-                for i in range(y.shape[1]):
-                    y[:, i, :] = moving_average_filter(y[:, i, :], window_size=ModelFitConfig.window_size)
-            else:
-                y = moving_average_filter(y, window_size=ModelFitConfig.window_size)
+            y = moving_average_filter(y, window_size=ModelFitConfig.window_size)
         if ModelFitConfig.use_low_pass_filter:
             # Sampling frequency
             fs = 1.0 / np.mean(dt)
@@ -302,47 +221,23 @@ class TrajectoryDataset(Dataset):
                 state_curr[:, dim] = low_pass_filter(state_curr[:, dim], cutoff=cutoff_input, fs=fs)
             for dim in range(control.shape[1]):
                 control[:, dim] = low_pass_filter(control[:, dim], cutoff=cutoff_input, fs=fs)
-            if NetworkConfig.temporalize:
-                for i in range(y.shape[1]):
-                    for dim in self.y_reg_dims:
-                        y[:, i, dim] = low_pass_filter(y[:, i, dim], cutoff=cutoff_acc, fs=fs)
-                    for dim in range(control.shape[1]):
-                        control_pred[:, i, dim] = low_pass_filter(control_pred[:, i, dim], cutoff=cutoff_input, fs=fs)
-            else:
-                for dim in self.y_reg_dims:
-                    y[:, dim] = low_pass_filter(y[:, dim], cutoff=cutoff_acc, fs=fs)
+            for dim in self.y_reg_dims:
+                y[:, dim] = low_pass_filter(y[:, dim], cutoff=cutoff_acc, fs=fs)
 
         # Store data
         self.state_raw = state_raw
         self.state_curr = state_curr
-        self.state_out = state_out if not NetworkConfig.temporalize else state_out_over_horizon
+        self.state_out = state_out
         self.state_pred = state_pred
         self.state_ref = state_ref
         self.control = control
         self.dt = dt
         self.timestamp = timestamp
-        if NetworkConfig.temporalize:
-            self.control_pred = control_pred
 
-        # Assemble network input - WE USE CURRENT STATE AND LAST CONTROL COMMAND AS WELL AS THE PREDICTION HORIZON UNTIL N-1 OF LAST OPTIMIZATION
-        if NetworkConfig.temporalize:
-            for i in range(-1, self.N-1):
-                if i == -1:
-                    self.x = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
-                else:
-                    self.x = np.concatenate((self.x, state_pred[:, i, self.state_feats], control_pred[:, i, self.u_feats]), axis=1, dtype=np.float32)
-
-        else:
-            self.x = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
+        # Assemble network input
+        self.x = np.concatenate((state_curr[:, self.state_feats], control[:, self.u_feats]), axis=1, dtype=np.float32)
         # Store labels
-        if NetworkConfig.temporalize:
-            # Flatten by appending the labels for each stage after another
-            # Reshape to [[y_t0_n0_d0, y_t0_n0_d1, ..., y_t0_n0_dk, y_t0_n1_d0, ..., y_t0_n1_dk, ..., y_t0_nN_d0, ..., y_t0_nN_dk],
-            #             [y_t1_n0_d0, y_t1_n0_d1, ..., y_t1_n0_dk, y_t1_n1_d0, ..., y_t1_n1_dk, ..., y_t1_nN_d0, ..., y_t1_nN_dk], ...]
-            # with t time steps, n nodes and k label dims
-            self.y = y[:, :, self.y_reg_dims].reshape(y.shape[0], -1, order="C").astype(np.float32)
-        else:
-            self.y = y[:, self.y_reg_dims].astype(np.float32)
+        self.y = y[:, self.y_reg_dims].astype(np.float32)
 
     def prune(self):
         """
@@ -383,7 +278,7 @@ class TrajectoryDataset(Dataset):
 
     def append_history(self):
         """
-        Append previous states and controls to the input features for temporal networks.
+        Append previous states and controls to the input features for delayed networks.
         Creates sliding windows of historical data with zero-padding for initial samples.
 
         :param delay: Number of historical time steps to include
@@ -429,5 +324,5 @@ class TrajectoryDataset(Dataset):
         self.y_mean = np.mean(self.y, axis=0)
         self.y_std = np.std(self.y, axis=0)
         # Sanity check since we divide by x_std in normalization
-        # if np.any(self.x_std == 0):
-        #     raise ValueError("Input features have zero standard deviation, cannot normalize.")
+        if np.any(self.x_std == 0):
+            raise ValueError("Input features have zero standard deviation, cannot normalize.")

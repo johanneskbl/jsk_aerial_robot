@@ -263,11 +263,62 @@ def set_delayed_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver, histor
 def set_delayed_states_as_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
     raise NotImplementedError("TODO.")
 
-def set_temporal_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
-    raise NotImplementedError("TODO.")
+def set_temporal_states_as_params(neural_mpc, ocp_solver: AcadosOcpSolver):
+    for j in range(ocp_solver.N):
+        # Get state and control input for node j from past solver solution
+        state_in_j = ocp_solver.get(j, "x")
+        controls_j = ocp_solver.get(j, "u")
 
-def set_temporal_states_as_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolver, history_y: np.ndarray, u_cmd: np.ndarray):
-    raise NotImplementedError("TODO.")
+        # Construct MLP input
+        if neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
+            v_b = v_dot_q(state_in_j[3:6], quaternion_inverse(state_in_j[6:10]))
+            state_in_j = np.concatenate([state_in_j[:3], v_b, state_in_j[6:]])
+        mlp_in = np.concatenate([state_in_j[neural_mpc.state_feats], controls_j[neural_mpc.u_feats]])
+        mlp_in_torch = torch.from_numpy(mlp_in).type(torch.float32).to(neural_mpc.device)
+
+        # Forward pass for node j
+        mlp_out = neural_mpc.neural_model.forward(mlp_in_torch).cpu().detach().numpy()
+
+        # Output transform
+        if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
+            if set([3, 4, 5]).issubset(set(neural_mpc.y_reg_dims)):
+                a_idx = np.where(neural_mpc.y_reg_dims == 3)[0][0]  # Assumed that v_x, v_y, v_z are consecutive
+                a_b = mlp_out[a_idx : a_idx + 3]
+                a_w = v_dot_q(a_b, state_in_j[6:10])
+                mlp_out = np.concatenate([mlp_out[:a_idx, :], a_w, mlp_out[a_idx + 3 :, :]], axis=0)
+            else:
+                raise KeyError("Selected regression dimensions not expected.")
+
+        # Set acados parameters in OCP solver
+        neural_mpc.acados_parameters[j, neural_mpc.temporalize_start_idx : neural_mpc.temporalize_end_idx] = mlp_out.flatten()
+
+
+def set_temporal_states_as_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolver, u_cmd: np.ndarray):
+    # Get state and control input for node j from past solver solution
+    state_in = sim_solver.get("x")
+
+    # Construct MLP input
+    if sim_neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
+        v_b = v_dot_q(state_in[3:6], quaternion_inverse(state_in[6:10]))
+        state_in = np.concatenate([state_in[:3], v_b, state_in[6:]])
+    mlp_in = np.concatenate([state_in[sim_neural_mpc.state_feats], u_cmd[sim_neural_mpc.u_feats]])
+    mlp_in_torch = torch.from_numpy(mlp_in).type(torch.float32).to(sim_neural_mpc.device)
+
+    # Forward pass for node j
+    mlp_out = sim_neural_mpc.neural_model.forward(mlp_in_torch).cpu().detach().numpy()
+
+    # Output transform
+    if sim_neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
+        if set([3, 4, 5]).issubset(set(sim_neural_mpc.y_reg_dims)):
+            a_idx = np.where(sim_neural_mpc.y_reg_dims == 3)[0][0]  # Assumed that v_x, v_y, v_z are consecutive
+            a_b = mlp_out[a_idx : a_idx + 3]
+            a_w = v_dot_q(a_b, state_in[6:10])
+            mlp_out = np.concatenate([mlp_out[:a_idx, :], a_w, mlp_out[a_idx + 3 :, :]], axis=0)
+        else:
+            raise KeyError("Selected regression dimensions not expected.")
+
+    # Set acados parameters in OCP solver
+    sim_neural_mpc.acados_parameters[:, sim_neural_mpc.temporalize_start_idx : sim_neural_mpc.temporalize_end_idx] = mlp_out.flatten()
 
 
 def get_output_mapping(state_dim, y_reg_dims, label_transform=False, only_vz=False):
@@ -409,7 +460,7 @@ def cross_check_params(mpc_params, mlp_metadata):
             raise ValueError("Step time used in dataset for training the neural model doesn't match the MPC parameters.")
 
 
-def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_dims, in_dim, out_dim, delay, temporalize, N):
+def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_dims, in_dim, out_dim, delay):
     """
     Simple check to ensure that the features and regression dimensions are valid.
     """
@@ -419,24 +470,14 @@ def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_d
     if len(state_feats) == 0 or len(y_reg_dims) == 0:
         raise ValueError("state_feats and y_reg_dims cannot be empty lists.")
 
-    if temporalize:
-        if (len(state_feats) + len(u_feats)) * N != in_dim:
-            raise ValueError(
-                f"Total number of features {(len(state_feats) + len(u_feats)) * N} does not match input dimension {in_dim}."
-            )
-        if len(y_reg_dims) * N != out_dim:
-            raise ValueError(
-                f"Total number of regression dimensions {len(y_reg_dims) * N} does not match output dimension {out_dim}."
-            )
-    else:
-        if (len(state_feats) + len(u_feats)) * (delay + 1) != in_dim:
-            raise ValueError(
-                f"Total number of features {(len(state_feats) + len(u_feats)) * (delay + 1)} does not match input dimension {in_dim}."
-            )
-        if len(y_reg_dims) != out_dim:
-            raise ValueError(
-                f"Total number of regression dimensions {len(y_reg_dims)} does not match output dimension {out_dim}."
-            )
+    if (len(state_feats) + len(u_feats)) * (delay + 1) != in_dim:
+        raise ValueError(
+            f"Total number of features {(len(state_feats) + len(u_feats)) * (delay + 1)} does not match input dimension {in_dim}."
+        )
+    if len(y_reg_dims) != out_dim:
+        raise ValueError(
+            f"Total number of regression dimensions {len(y_reg_dims)} does not match output dimension {out_dim}."
+        )
 
     if delay > 0:
         if "delay" not in model_name:
@@ -447,14 +488,4 @@ def sanity_check_features_and_reg_dims(model_name, state_feats, u_feats, y_reg_d
         if "delay" in model_name:
             raise ValueError(
                 "Delay horizon is not set but model name contains 'delay'. Please use a non-delayed model."
-            )
-    if temporalize:
-        if "temporal" not in model_name:
-            raise ValueError(
-                "Temporalization is set but model name does not contain 'temporal'. Please use a temporalized model."
-            )
-    else:
-        if "temporal" in model_name:
-            raise ValueError(
-                "Temporalization is not set but model name contains 'temporal'. Please use a non-temporalized model."
             )

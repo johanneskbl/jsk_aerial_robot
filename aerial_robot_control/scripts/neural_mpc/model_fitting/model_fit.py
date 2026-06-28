@@ -115,7 +115,7 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
     in_dim = train_dataset.x.shape[1]
     out_dim = train_dataset.y.shape[1]
     sanity_check_features_and_reg_dims(
-        NetworkConfig.model_name, state_feats, u_feats, y_reg_dims, in_dim, out_dim, NetworkConfig.delay_horizon, NetworkConfig.temporalize, N
+        NetworkConfig.model_name, state_feats, u_feats, y_reg_dims, in_dim, out_dim, NetworkConfig.delay_horizon
     )
 
     if test:
@@ -172,16 +172,8 @@ def main(test: bool = False, plot: bool = False, save: bool = True):
 
     # === Loss function ===
     weight = torch.tensor(NetworkConfig.loss_weight).to(device)
-    if NetworkConfig.temporalize:
-        if len(NetworkConfig.loss_weight) * N != out_dim:
-            raise ValueError(
-                f"Loss weight with size {len(NetworkConfig.loss_weight) * N} does not match output dimension {out_dim}."
-            )
-        
-        weight = weight.repeat(N)  # Repeat the weight for each time step in the horizon
-    else:
-        if len(NetworkConfig.loss_weight) != out_dim:
-            raise ValueError(f"Loss weight with size {len(NetworkConfig.loss_weight)} doesn't match output dimension {out_dim}!")
+    if len(NetworkConfig.loss_weight) != out_dim:
+        raise ValueError(f"Loss weight with size {len(NetworkConfig.loss_weight)} doesn't match output dimension {out_dim}!")
     if NetworkConfig.model_type == "MLP":
         loss_function = l2_loss_function
     if NetworkConfig.energy_lambda > 0.0:

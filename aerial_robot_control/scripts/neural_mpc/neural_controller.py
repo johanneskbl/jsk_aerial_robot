@@ -439,7 +439,7 @@ class NeuralMPC(RecedingHorizonBase):
             # Assemble MLP input from selected state and control features
             mlp_in = ca.vertcat(state_in[self.state_feats], controls[self.u_feats])
 
-            if "delay" in self.mlp_metadata["NetworkConfig"]["model_name"]:
+            if self.mlp_metadata["NetworkConfig"]["delay_horizon"] > 0:
                 # Use previous (i.e. delayed) states and controls time steps as input to the MLP
                 delay = self.mlp_metadata["NetworkConfig"]["delay_horizon"]  # Delay as number of previous time steps
                 state_prev, controls_prev = self.append_delay(delay)
@@ -496,6 +496,14 @@ class NeuralMPC(RecedingHorizonBase):
                         self.l4casadi_start_idx = parameters.size()[0]
                         parameters = ca.vertcat(parameters, self.learned_dyn_model.get_sym_params())
                         self.l4casadi_end_idx = parameters.size()[0]
+                    
+                    elif self.model_options["refactor_mlp"]:
+                        # Call MLP outside of acados and pass the output as a parameter to the acados model
+                        mlp_out = ca.MX.sym("mlp_out", self.y_reg_dims.shape[0])
+                        self.temporalize_start_idx = parameters.size()[0]
+                        parameters = ca.vertcat(parameters, mlp_out)
+                        self.temporalize_end_idx = parameters.size()[0]
+
                     else:
                         mlp_out = self.neural_model.ca_forward(mlp_in)
                 elif self.mlp_metadata["NetworkConfig"]["model_type"] == "VAE":
@@ -542,27 +550,6 @@ class NeuralMPC(RecedingHorizonBase):
 
             # Combine nominal dynamics with neural dynamics
             ds += M @ mlp_out
-
-            # === Time-dependent control law ===
-            # Add a symbolic counter to the state vector
-            # Assume last state entry is reserved for step_count
-            # step_count = ca.MX.sym("step_count", 1)
-            # self.state = ca.vertcat(self.state, step_count)
-            # Adjust nominal_dynamics and mlp_out to match new state size
-            # nominal_dynamics = self.nominal_model.f_expl_expr[:-1]  # exclude counter from nominal dynamics
-            # Define switching time in steps (e.g., 2 seconds / T_samp)
-            # switch_steps = int(2.0 / self.T_samp)
-
-            # Use CasADi's if_else for switching
-            # height_limit = 5.0  # m
-            # k = 1.0  # steepness, increase if you want faster switching
-            # alpha = 0.5 * (ca.tanh(k * (self.state[2] - height_limit)) + 1)  # ~0 when z<0.1, ~1 when z>0.1
-            # f_total = nominal_dynamics + alpha * (M @ mlp_out)
-            # f_total = ca.if_else(
-            #     height_limit < self.state[2],
-            #     nominal_dynamics,
-            #     f_total
-            # )
         else:
             # Only use nominal dynamics
             pass

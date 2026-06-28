@@ -42,7 +42,7 @@ class EnvConfig:
     model_options.update(
         {
             "only_use_nominal": False,
-            "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp" or "temporal_residual_mlp"
+            "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp"
             "neural_model_instance": "neuralmodel_209",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
@@ -180,6 +180,7 @@ class EnvConfig:
             "linearize_order": 1,  # Order of Taylor Expansion (first or second)
             "use_l4casadi": False,  # Set order with "linearize_order"
             "use_gpu": False,  # Call neural model and its Jacobian & Hessian batched on GPU for MLP linearization (currently not set for L4casadi)
+            "refactor_mlp": False,  # Call MLP outside of acados and pass the output as a parameter to the acados model
         }
     )
 
@@ -207,7 +208,7 @@ class EnvConfig:
         "use_nominal_simulator": False,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 20,  # [s] of simulated time
+        "max_sim_time": 100,  # [s] of simulated time
         "world_radius": 2,  # [m]
         "seed": 897,
     }
@@ -288,11 +289,6 @@ class NetworkConfig:
     delay_horizon = 0  # Number of time steps into the past to consider (set to 0 to only use current state)
     if delay_horizon > 0:
         model_name = f"delay_{model_name}"
-
-    # Predict entire horizon at once
-    temporalize = True
-    if temporalize:
-        model_name = f"temporal_{model_name}"
 
     # Number of neurons in each hidden layer
     if model_type == "MLP":

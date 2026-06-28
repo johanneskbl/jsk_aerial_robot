@@ -301,8 +301,12 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 set_l4casadi_params(neural_mpc, ocp_solver)
 
             # --- Prepare delayed neural network input ---
-            if neural_mpc.use_mlp and "delay" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
+            if neural_mpc.use_mlp and neural_mpc.mlp_metadata["NetworkConfig"]["delay_horizon"] > 0:
                 set_delayed_states_as_params(neural_mpc, ocp_solver, history, u_cmd)
+
+            # -- Prepare temporal neural network input ---
+            if neural_mpc.use_mlp and model_options["refactor_mlp"]:
+                set_temporal_states_as_params(neural_mpc, ocp_solver)
 
             # --- Set parameters in OCP solver ---
             for j in range(ocp_solver.N + 1):
@@ -415,6 +419,10 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                 if sim_neural_mpc.use_mlp and "delay" in sim_neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
                     raise NotImplementedError("Implement.")
                     set_delayed_states_as_params(sim_neural_mpc, sim_solver, history, u_cmd)
+
+                # -- Prepare temporal neural network input ---
+                if sim_neural_mpc.use_mlp and sim_model_options["refactor_mlp"]:
+                    set_temporal_states_as_params_sim(sim_neural_mpc, sim_solver, u_cmd)
 
                 # --- Set parameters in OCP solver ---
                 # sim_solver.set("p", sim_neural_mpc.acados_parameters[0, :])
