@@ -702,15 +702,39 @@ void nmpc::TiltMtNominalServoMPC::setXrUrRef(const tf::Vector3& ref_pos_i, const
   allocateToXU(ref_pos_i, ref_vel_i, ref_quat_ib, ref_omega_b, ref_wrench_b, x, u);
 
   /* set values */
-  if (horizon_idx == -1)
+  if (navigator_->getNaviState() == aerial_robot_navigation::TAKEOFF_STATE)
   {
-    for (int i = 0; i <= NN; i++)
+    // During takeoff, set the reference over the entire horizon
+    if (horizon_idx == -1)
     {
-      std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * i);
-      if (i < NN)
-        std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * i);
+      for (int i = 0; i <= NN; i++)
+      {
+        std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * i);
+        if (i < NN)
+          std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * i);
+      }
+      return;
     }
-    return;
+  }
+  else
+  {
+    // Aim: gently add the new reference point to the end of the horizon, 
+    // and shift the previous reference points forward
+    // - x: NN + 1, u: NN
+    // - for 0 ~ NN-2 x and u, shift
+    // - copy x to x: NN-1 and NN, copy u to u: NN-1
+    for (int i = 0; i < NN - 1; i++)
+    {
+      // shift one step
+      std::copy(x_u_ref_.x.data.begin() + NX * (i + 1), x_u_ref_.x.data.begin() + NX * (i + 2),
+                x_u_ref_.x.data.begin() + NX * i);
+      std::copy(x_u_ref_.u.data.begin() + NU * (i + 1), x_u_ref_.u.data.begin() + NU * (i + 2),
+                x_u_ref_.u.data.begin() + NU * i);
+    }
+    std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * (NN - 1));
+    std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * (NN - 1));
+
+    std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * NN);
   }
 
   if (horizon_idx < 0 || horizon_idx > NN)
