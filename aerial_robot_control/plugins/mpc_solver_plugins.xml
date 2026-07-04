@@ -34,12 +34,17 @@
         <description>Nonlinear Model Predictive Control with Tilt Bi 2nd Order Servo Model.</description>
     </class>
 
-    <!-- nominal nmpc -->
+    <!-- differential mpc -->
+    <class type="aerial_robot_control::mpc_solver::TiltQdServoThrustDiffMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
+        <description>Nonlinear Model Predictive Control with Tilt Qd Servo Thrust Model and Differential Controls.</description>
+    </class>
+
+    <!-- nominal servo mpc -->
     <class type="aerial_robot_control::mpc_solver::TiltQdNominalServoMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
         <description>Model Predictive Control with only nominal Tilt Qd Servo Model.</description>
     </class>
 
-    <!-- neural nmpc -->
+    <!-- neural mpc -->
     <class type="aerial_robot_control::mpc_solver::TiltQdNeuralServoMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
         <description>Neural Model Predictive Control with Tilt Qd Servo Model with Neural Dynamics.</description>
     </class>

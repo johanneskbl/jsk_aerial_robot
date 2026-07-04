@@ -127,7 +127,8 @@ void nmpc::TiltMtServoNMPC::reset()
   mpc_solver_ptr_->resetSolverByX0U0(x_vec, u_vec);
 
   /* reset control input */
-  flight_cmd_.base_thrust = std::vector<float>(motor_num_, 0.0);
+  for (int i = 0; i < motor_num_; ++i)
+    flight_cmd_.base_thrust[i] = 0.0f;
 
   gimbal_ctrl_cmd_.name.clear();
   gimbal_ctrl_cmd_.position.clear();

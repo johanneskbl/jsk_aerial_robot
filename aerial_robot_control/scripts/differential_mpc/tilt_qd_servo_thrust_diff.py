@@ -2,8 +2,8 @@
 # -*- encoding: ascii -*-
 import numpy as np
 import casadi as ca
-from ..nmpc.nmpc_tilt_mt.tilt_qd.qd_nmpc_base import QDNMPCBase
-from ..nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_omni as phys_omni
+from nmpc.nmpc_tilt_mt.tilt_qd.qd_nmpc_base import QDNMPCBase
+from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_omni as phys_omni
 
 
 class NMPCTiltQdServoThrustDiff(QDNMPCBase):
@@ -29,7 +29,7 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         self.include_cog_dist_parameter = False  # TODO seperation between model and parameter necessary?)
         self.include_impedance = False
 
-        self.include_differential_allocation = True
+        self.include_differential_allocation = False
 
         # Read parameters from configuration file in the robot's package
         self.read_params(
@@ -37,7 +37,7 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         )
 
         # Create acados model & solver and generate c code
-        super().__init__(build)
+        super().__init__(method="differential_mpc", build=True)
 
     def get_cost_function(self, lin_acc_w=None, ang_acc_b=None, nullspace_proj=None):
         # fmt: off
@@ -96,13 +96,14 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
                 raise ValueError("Currently, this controller requires both servo and thrust derivatives to be included in the model.")
 
         # - Nullspace projection
-        # Target actuator states (bring prop speed to 0)
-        target_gain = 0.6
-        thrust_target = 0.0
-        actuators_target = -ca.vertcat(self.ft_s - thrust_target, 0,0,0,0)
-        time_constant_matrix = ca.diag(ca.vertcat([self.phys.t_rotor]*4, [self.phys.t_servo]*4))
+        if self.include_differential_allocation:
+            # Target actuator states (bring prop speed to 0)
+            target_gain = 0.6
+            thrust_target = 0.0
+            actuators_target = -ca.vertcat(self.ft_s - thrust_target, 0,0,0,0)
+            time_constant_matrix = ca.diag(ca.vertcat([self.phys.t_rotor]*4, [self.phys.t_servo]*4))
 
-        control_y = ca.simplify(target_gain * ca.mtimes(ca.mtimes(time_constant_matrix, nullspace_proj), actuators_target) - control_y)
+            control_y = ca.simplify(target_gain * ca.mtimes(ca.mtimes(time_constant_matrix, nullspace_proj), actuators_target) - control_y)
 
         return state_y, state_y_e, control_y
         # fmt: on
@@ -272,9 +273,3 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
             ur[:, 7] = ad_ref[3]
 
         return xr, ur
-
-
-if __name__ == "__main__":
-    print(
-        "Please run the gen_nmpc_code.py in the nmpc folder to generate the code for this controller."
-    )

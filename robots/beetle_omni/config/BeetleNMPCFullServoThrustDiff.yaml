@@ -1,6 +1,5 @@
 mpc_solver_name: aerial_robot_control::mpc_solver::TiltQdServoThrustDiffMdlMPCSolver
-aerial_robot_control_name: aerial_robot_control/nmpc_controller/tilt_mt/servo_thrust_diff_nmpc
-
+aerial_robot_control_name: aerial_robot_control/differential_mpc_controller/tilt_mt/servo_thrust_diff_mpc
 
 controller:
   nmpc:
@@ -18,8 +17,14 @@ controller:
     thrust_max: 23   # N
     thrust_min: 0  # N
 
+    thrust_vel_max: 1e3  # N/s
+    thrust_vel_min: -1e3  # N/s
+
     a_max: 3.15  # 180 deg + a little bit
     a_min: -3.15
+
+    a_vel_max: 4e1  # rad/s
+    a_vel_min: -4e1  # rad/s
 
     Qp_xy: 300
     Qp_z: 400
@@ -29,13 +34,11 @@ controller:
     Qq_z: 600
     Qw_xy: 5
     Qw_z: 5
-    Qa: 0
-    Qt: 0
-    Qfu: 0 # Generated body force
-    Qtau: 0 # Generated body torque
+    Qa: 1
+    Qt: 1
+    # Qfu: 0 # Generated body force
+    # Qtau: 0 # Generated body torque
 
-    # Rt_c: 0.1 # Thrust state
-    # Ra_c: 10.0 # Servo angle state
     Rtd_c: 0.1  # Thrust velocity
     Rad_c: 10.0 # Servo angle velocity
 

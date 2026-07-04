@@ -23,9 +23,12 @@
 // #include "aerial_robot_control/nmpc/tilt_bi_servo_mdl/nmpc_solver.h"
 // #include "aerial_robot_control/nmpc/tilt_bi_2_ord_servo_mdl/nmpc_solver.h"
 
-// Neural NMPC
-#include "aerial_robot_control/neural_mpc/tilt_qd_nominal_servo_mdl/nmpc_solver.h"
-#include "aerial_robot_control/neural_mpc/tilt_qd_neural_servo_mdl/nmpc_solver.h"
+// Differential MPC
+#include "aerial_robot_control/differential_mpc/tilt_qd_servo_thrust_diff_mdl/mpc_solver.h"
+
+// Neural MPC
+#include "aerial_robot_control/neural_mpc/tilt_qd_nominal_servo_mdl/mpc_solver.h"
+#include "aerial_robot_control/neural_mpc/tilt_qd_neural_servo_mdl/mpc_solver.h"
 
 // PLUGINLIB_EXPORT_CLASS(aerial_robot_control::mpc_solver::FixQdMdlMPCSolver,
 //                        aerial_robot_control::mpc_solver::BaseMPCSolver)
@@ -48,6 +51,9 @@ PLUGINLIB_EXPORT_CLASS(aerial_robot_control::mpc_solver::TiltQdServoThrustDistIm
 //                        aerial_robot_control::mpc_solver::BaseMPCSolver)
 // PLUGINLIB_EXPORT_CLASS(aerial_robot_control::mpc_solver::TiltBi2OrdServoMdlMPCSolver,
 //                        aerial_robot_control::mpc_solver::BaseMPCSolver)
+
+PLUGINLIB_EXPORT_CLASS(aerial_robot_control::mpc_solver::TiltQdServoThrustDiffMdlMPCSolver,
+                       aerial_robot_control::mpc_solver::BaseMPCSolver)
 
 PLUGINLIB_EXPORT_CLASS(aerial_robot_control::mpc_solver::TiltQdNominalServoMdlMPCSolver,
                        aerial_robot_control::mpc_solver::BaseMPCSolver)

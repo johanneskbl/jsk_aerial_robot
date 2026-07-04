@@ -882,30 +882,34 @@ class QDNMPCBase(RecedingHorizonBase):
             ocp.constraints.idxbu = np.append(ocp.constraints.idxbu, [4, 5, 6, 7])
 
         # -- Lower Input Bound
-        if not self.include_differential_allocation:
+        if not self.include_thrust_derivative:
             ocp.constraints.lbu = np.array(
                 [self.params["thrust_min"],
                  self.params["thrust_min"],
                  self.params["thrust_min"],
                  self.params["thrust_min"]])
+        else:
+            # The control input is the thrust velocity
+            ocp.constraints.lbu = np.array(
+                [self.params["thrust_vel_min"],
+                 self.params["thrust_vel_min"],
+                 self.params["thrust_vel_min"],
+                 self.params["thrust_vel_min"]])
 
-            if self.tilt:
+        if self.tilt:
+            if not self.include_servo_derivative:
                 ocp.constraints.lbu = np.append(ocp.constraints.lbu,
                     [self.params["a_min"],
-                    self.params["a_min"],
-                    self.params["a_min"],
-                    self.params["a_min"]])
-        else:
-            # For differential allocation, the control inputs are the thrust and servo angles velocities.
-            ocp.constraints.lbu = np.array(
-                [-1e3,
-                 -1e3,
-                 -1e3,
-                 -1e3,
-                 -4e1,
-                 -4e1,
-                 -4e1,
-                 -4e1])
+                     self.params["a_min"],
+                     self.params["a_min"],
+                     self.params["a_min"]])
+            else:
+                # The control input is the servo angle velocity
+                ocp.constraints.lbu = np.append(ocp.constraints.lbu,
+                    [self.params["a_vel_min"],
+                     self.params["a_vel_min"],
+                     self.params["a_vel_min"],
+                     self.params["a_vel_min"]])
 
         # -- Upper Input Bound
         if not self.include_differential_allocation:
@@ -914,24 +918,28 @@ class QDNMPCBase(RecedingHorizonBase):
                  self.params["thrust_max"],
                  self.params["thrust_max"],
                  self.params["thrust_max"]])
+        else:
+            # The control input is the thrust velocity
+            ocp.constraints.ubu = np.array(
+                [self.params["thrust_vel_max"],
+                 self.params["thrust_vel_max"],
+                 self.params["thrust_vel_max"],
+                 self.params["thrust_vel_max"]])
 
-            if self.tilt:
+        if self.tilt:
+            if not self.include_servo_derivative:
                 ocp.constraints.ubu = np.append(ocp.constraints.ubu,
                     [self.params["a_max"],
                      self.params["a_max"],
                      self.params["a_max"],
                      self.params["a_max"]])
-        else:
-            # For differential allocation, the control inputs are the thrust and servo angles velocities.
-            ocp.constraints.ubu = np.array(
-                [1e3,
-                 1e3,
-                 1e3,
-                 1e3,
-                 4e1,
-                 4e1,
-                 4e1,
-                 4e1])
+            else:
+                # The control input is the servo angle velocity
+                ocp.constraints.ubu = np.append(ocp.constraints.ubu,
+                    [self.params["a_vel_max"],
+                     self.params["a_vel_max"],
+                     self.params["a_vel_max"],
+                     self.params["a_vel_max"]])
 
         # Nonlinear constraints to have min_thrust_rate <= (ft_c - ft_s) / self.t_rotor <= max_thrust_rate
         # TODO: Understand and verify this (especially if indexing is correct)

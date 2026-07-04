@@ -88,7 +88,12 @@ add_custom_target(gen_acados_code ALL
 add_custom_target(gen_acados_code_neural ALL
   COMMAND python3 ${PROJECT_SOURCE_DIR}/scripts/neural_mpc/gen_neural_controller.py
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/scripts/neural_mpc/
-  COMMENT "Generating acados code for NMPC models"
+  COMMENT "Generating acados code for neural MPC models"
+)
+add_custom_target(gen_acados_code_differential ALL
+  COMMAND python3 ${PROJECT_SOURCE_DIR}/scripts/differential_mpc/gen_differential_controller.py
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/scripts/differential_mpc/
+  COMMENT "Generating acados code for differential MPC models"
 )
 
 ### wrench estimation plugin
@@ -103,7 +108,7 @@ catkin_install_python(PROGRAMS
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-### mpc solver plugin
+### MPC solver plugin
 add_library(mpc_solver_plugins src/nmpc/mpc_solver_plugins.cpp)
 target_link_libraries(mpc_solver_plugins ${catkin_LIBRARIES} acados
         # ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/fix_qd_thrust_out_mdl/c_generated_code/libacados_ocp_solver_fix_qd_thrust_out_mdl.so
@@ -120,8 +125,10 @@ target_link_libraries(mpc_solver_plugins ${catkin_LIBRARIES} acados
         # Neural controllers
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/neural_mpc/tilt_qd_nominal_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_nominal_servo_mdl.so
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/neural_mpc/tilt_qd_neural_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_neural_servo_mdl.so
+        # Differential controller
+        ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/differential_mpc/tilt_qd_servo_thrust_diff_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_servo_thrust_diff_mdl.so
 )
-add_dependencies(mpc_solver_plugins gen_acados_code gen_acados_code_neural)
+add_dependencies(mpc_solver_plugins gen_acados_code gen_acados_code_neural gen_acados_code_differential)
 
 ### flight control plugin
 add_library(flight_control_pluginlib
@@ -144,6 +151,8 @@ add_library(flight_control_pluginlib
   # Neural controllers
   src/neural_mpc/tilt_mt_nominal_servo_mpc_controller.cpp
   src/neural_mpc/tilt_mt_neural_servo_mpc_controller.cpp
+  # Differential controller
+  src/differential_mpc/tilt_mt_servo_thrust_diff_mpc_controller.cpp
 )
 # target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} ${TORCH_LIBRARIES} control_utils mpc_solver_plugins wrench_est_plugins)
 target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils mpc_solver_plugins wrench_est_plugins)
