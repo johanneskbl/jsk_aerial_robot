@@ -17,6 +17,9 @@ import tikzplotlib
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # DON'T REMOVE THIS LINE, IT IS NEEDED FOR 3D PLOTTING
 import matplotlib.animation as animation
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from matplotlib.lines import Line2D
+from matplotlib.colors import Normalize
 
 from config.configurations import DirectoryConfig, ModelFitConfig, NetworkConfig
 from utils.geometry_utils import v_dot_q, quaternion_to_euler, quaternion_inverse, q_dot_q
@@ -48,7 +51,7 @@ def initialize_plotter(world_rad, n_properties):
     fig.show()
 
     mng = plt.get_current_fig_manager()
-    mng.resize(*mng.window.maxsize())
+#    mng.resize(*mng.window.maxsize())
 
     # Create 3D renderer object
     ax = fig.add_subplot(111, projection="3d")
@@ -872,6 +875,53 @@ def plot_dataset(
             )
 
 
+def _compute_mlp_output(rec_dict: dict, neural_mpc) -> np.ndarray:
+    """
+    Run the neural model forward pass on a recorded dataset.
+    Returns mlp_out of shape (T, len(y_reg_dims)) with output-space units.
+    Mirrors the computation inside plot_trajectory.
+    """
+    state_curr = rec_dict["state_curr"]
+    control    = rec_dict["control"]
+
+    state_b = state_curr.copy()
+    if neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
+        for t in range(state_curr.shape[0]):
+            v_b = v_dot_q(state_curr[t, 3:6], quaternion_inverse(state_curr[t, 6:10]))
+            state_b[t, :] = np.concatenate((state_curr[t, :3], v_b, state_curr[t, 6:]), axis=0)
+
+    state_b_torch  = torch.from_numpy(state_b[:, neural_mpc.state_feats]).type(torch.float32).to(neural_mpc.device)
+    control_torch  = torch.from_numpy(control[:, neural_mpc.u_feats]).type(torch.float32).to(neural_mpc.device)
+    mlp_in         = torch.cat((state_b_torch, control_torch), dim=1)
+
+    neural_mpc.neural_model.eval()
+    if neural_mpc.mlp_metadata["NetworkConfig"]["model_type"] == "MLP":
+        mlp_out = neural_mpc.neural_model(mlp_in).cpu().detach().numpy()
+    elif neural_mpc.mlp_metadata["NetworkConfig"]["model_type"] == "VAE":
+        mlp_out, _, _ = neural_mpc.neural_model(mlp_in)
+        mlp_out = mlp_out.cpu().detach().numpy()
+
+    if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
+        for t in range(state_curr.shape[0]):
+            if set([3, 4, 5]).issubset(set(neural_mpc.y_reg_dims)):
+                v_idx = np.where(neural_mpc.y_reg_dims == 3)[0][0]
+                v_b   = mlp_out[t, v_idx : v_idx + 3]
+                v_w   = v_dot_q(v_b.T, state_curr[t, 6:10]).T
+                mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 3:]), axis=0)
+            elif set([4, 5]).issubset(set(neural_mpc.y_reg_dims)):
+                v_idx = np.where(neural_mpc.y_reg_dims == 4)[0][0]
+                v_b   = np.append(0, mlp_out[t, v_idx : v_idx + 2])
+                v_w   = v_dot_q(v_b.T, state_curr[t, 6:10]).T
+                mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 2:]), axis=0)
+            elif set([5]).issubset(set(neural_mpc.y_reg_dims)):
+                v_idx = np.where(neural_mpc.y_reg_dims == 5)[0][0]
+                v_b   = np.append(np.array([0, 0]), mlp_out[t, v_idx])
+                v_w   = v_dot_q(v_b.T, state_curr[t, 6:10])[:, np.newaxis]
+                mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 1:]), axis=0)
+
+    return mlp_out
+
+
 def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC, dist_dict=None, save=False):
     figures = []
     state_curr = rec_dict["state_curr"]
@@ -895,7 +945,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
         axs[dim, 0].grid(True)
         axs[dim, 0].set_xlim(timestamp[0], timestamp[-1])
     mng = plt.get_current_fig_manager()
-    mng.resize(*mng.window.maxsize())
+    # mng.resize(*mng.window.maxsize())
     figures.append(fig)
 
     # Plot control features
@@ -910,7 +960,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
         axs[dim, 0].grid(True)
         axs[dim, 0].set_xlim(timestamp[0], timestamp[-1])
     mng = plt.get_current_fig_manager()
-    mng.resize(*mng.window.maxsize())
+    # mng.resize(*mng.window.maxsize())
     figures.append(fig)
 
     # Plot in z feature
@@ -924,7 +974,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     plt.legend()
     plt.xlim(timestamp[0], timestamp[-1])
     mng = plt.get_current_fig_manager()
-    mng.resize(*mng.window.maxsize())
+#    mng.resize(*mng.window.maxsize())
     figures.append(fig)
 
     # Plot in vz feature
@@ -938,7 +988,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     plt.legend()
     plt.xlim(timestamp[0], timestamp[-1])
     mng = plt.get_current_fig_manager()
-    mng.resize(*mng.window.maxsize())
+#    mng.resize(*mng.window.maxsize())
     figures.append(fig)
 
     # Plot computation time
@@ -956,7 +1006,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
     plt.grid()
     plt.xlim(timestamp[0], timestamp[-1])
     mng = plt.get_current_fig_manager()
-    mng.resize(*mng.window.maxsize())
+#    mng.resize(*mng.window.maxsize())
     figures.append(fig)
 
     # Plot labels for neural network regression
@@ -979,55 +1029,12 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
         axs[dim, 1].grid(True)
         axs[dim, 1].set_xlim(timestamp[0], timestamp[-1])
     mng = plt.get_current_fig_manager()
-    mng.resize(*mng.window.maxsize())
+#    mng.resize(*mng.window.maxsize())
     figures.append(fig)
 
     # Plot regression of neural network
     if neural_mpc.use_mlp:
-        # Transform velocity of state to Body frame
-        state_b = state_curr.copy()
-        if neural_mpc.mlp_metadata["ModelFitConfig"]["input_transform"]:
-            for t in range(state_curr.shape[0]):
-                v_b = v_dot_q(state_curr[t, 3:6], quaternion_inverse(state_curr[t, 6:10]))
-                state_b[t, :] = np.concatenate((state_curr[t, :3], v_b, state_curr[t, 6:]), axis=0)
-        state_b_torch = torch.from_numpy(state_b[:, neural_mpc.state_feats]).type(torch.float32).to(neural_mpc.device)
-
-        control_in = control[:, neural_mpc.u_feats]
-        control_torch = torch.from_numpy(control_in).type(torch.float32).to(neural_mpc.device)
-
-        mlp_in = torch.cat((state_b_torch, control_torch), dim=1)
-        # Forward call MLP
-        neural_mpc.neural_model.eval()
-        if neural_mpc.mlp_metadata["NetworkConfig"]["model_type"] == "MLP":
-            mlp_out = neural_mpc.neural_model(mlp_in).cpu().detach().numpy()
-        elif neural_mpc.mlp_metadata["NetworkConfig"]["model_type"] == "VAE":
-            mlp_out, _, std = neural_mpc.neural_model(mlp_in)
-            mlp_out = mlp_out.cpu().detach().numpy()
-
-        # Transform velocity back to world frame
-        if neural_mpc.mlp_metadata["ModelFitConfig"]["label_transform"]:
-            for t in range(state_curr.shape[0]):
-                if set([3, 4, 5]).issubset(set(neural_mpc.y_reg_dims)):
-                    v_idx = np.where(neural_mpc.y_reg_dims == 3)[0][0]  # Assumed that v_x, v_y, v_z are consecutive
-                    v_b = mlp_out[t, v_idx : v_idx + 3]
-                    v_w = v_dot_q(v_b.T, state_curr[t, 6:10]).T
-                    mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 3 :]), axis=0)
-                elif set([4, 5]).issubset(set(neural_mpc.y_reg_dims)):
-                    v_idx = np.where(neural_mpc.y_reg_dims == 4)[0][0]  # Assumed that v_y, v_z are consecutive
-                    v_b = np.append(0, mlp_out[t, v_idx : v_idx + 2])
-                    v_w = v_dot_q(v_b.T, state_curr[t, 6:10]).T
-                    mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 2 :]), axis=0)
-                elif set([5]).issubset(set(neural_mpc.y_reg_dims)):
-                    # Predict only v_z so set v_x and v_y to 0 in Body frame and then transform to World frame
-                    # The predicted v_z therefore also has influence on the x and y velocities in World frame
-                    # Adjust mapping later on
-                    v_idx = np.where(neural_mpc.y_reg_dims == 5)[0][0]
-                    v_b = np.append(np.array([0, 0]), mlp_out[t, v_idx])
-                    v_w = v_dot_q(v_b.T, state_curr[t, 6:10])[:, np.newaxis]
-                    mlp_out[t, :] = np.concatenate((mlp_out[t, :v_idx], v_w, mlp_out[t, v_idx + 1 :]), axis=0)
-
-        # Plot true labels vs. actual regression
-        y = mlp_out
+        y = _compute_mlp_output(rec_dict, neural_mpc)
         fig, axs = plt.subplots(y.shape[1], 1, sharex=True, figsize=(10, 5), squeeze=False)
         for i, dim in enumerate(neural_mpc.y_reg_dims):
             axs[i, 0].plot(timestamp, y[:, i])  # , label="y_regressed")
@@ -1040,7 +1047,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
             axs[i, 0].set_xlim(timestamp[0], timestamp[-1])
         axs[0, 0].set_title("Model Output")  # vs. Labels")
         mng = plt.get_current_fig_manager()
-        mng.resize(*mng.window.maxsize())
+    #    mng.resize(*mng.window.maxsize())
         figures.append(fig)
 
         # Plot loss per dimension
@@ -1061,7 +1068,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
             axs[i, 0].set_xlim(timestamp[0], timestamp[-1])
         axs[0, 0].set_title("Neural Model Loss per Dimension")
         mng = plt.get_current_fig_manager()
-        mng.resize(*mng.window.maxsize())
+    #    mng.resize(*mng.window.maxsize())
         figures.append(fig)
 
         # Plot total loss and RMSE
@@ -1093,7 +1100,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
         plt.grid("on")
         plt.xlim(timestamp[0], timestamp[-1])
         mng = plt.get_current_fig_manager()
-        mng.resize(*mng.window.maxsize())
+    #    mng.resize(*mng.window.maxsize())
         figures.append(fig)
 
         # Simulate intermediate acceleration vector before integration
@@ -1121,7 +1128,7 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
             axs[i, 0].grid(True)
             axs[i, 0].set_xlim(timestamp[0], timestamp[-1])
         mng = plt.get_current_fig_manager()
-        mng.resize(*mng.window.maxsize())
+    #    mng.resize(*mng.window.maxsize())
         figures.append(fig)
 
     if save:
@@ -1130,6 +1137,465 @@ def plot_trajectory(model_options, sim_options, rec_dict, neural_mpc: NeuralMPC,
         for i, fig in enumerate(figures):
             fig.savefig(os.path.join(save_dir, f"simulation_results_fig{i}.png"), dpi=500, bbox_inches="tight")
     halt = 1
+
+
+def _rolling_mean(x: np.ndarray, window: int = 50) -> np.ndarray:
+    """Causal rolling mean — avoids look-ahead. Edges use a shrinking window."""
+    out = np.empty_like(x)
+    for k in range(len(x)):
+        w = min(k + 1, window)
+        out[k] = x[max(0, k - w + 1) : k + 1].mean()
+    return out
+
+
+def _colored_line_3d(ax, x, y, z, colors, lw=1.4, alpha=0.90):
+    """Draw a 3D polyline with per-segment RGBA colors for temporal gradient visualization.
+
+    Each segment between consecutive points receives the color at the corresponding
+    index of `colors`, allowing a smooth temporal gradient along the trajectory.
+    Requires at least 2 points; returns None otherwise.
+    """
+    if len(x) < 2:
+        return None
+    pts  = np.array([x, y, z]).T.reshape(-1, 1, 3)
+    segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+    lc   = Line3DCollection(segs, colors=colors[: len(segs)], linewidth=lw, alpha=alpha)
+    ax.add_collection3d(lc)
+    return lc
+
+
+def plot_trajectory_comparison(
+    model_options, sim_options,
+    rec_static: dict, rec_online: dict,
+    neural_mpc_static, neural_mpc_online,
+    rec_nominal: dict = None,
+    neural_mpc_nominal=None,
+    dist_dict_static: dict = None,
+    dist_dict_online: dict = None,
+    dist_dict_nominal: dict = None,
+    save: bool = False,
+):
+    """
+    Comparison between Nominal MPC, a static (frozen) MLP, and an online-trained MLP controller.
+
+    All simulations must use the same trajectory seed so time axes are comparable.
+
+    Figures produced
+    ----------------
+    1. Trajectory Overview
+       Left  — 3D flight paths (reference, optional nominal MPC, static MLP, online MLP).
+       Right — Euclidean 3D position error ‖e‖ over time with rolling mean.
+    2. Per-Axis Position Tracking
+       Left column  — actual position vs. reference (x, y, z).
+       Right column — absolute per-axis tracking error with rolling mean.
+    3. Neural Network Residual Correction  (only when both MLP controllers have an MLP)
+       One row per output dimension: static (frozen) vs. online (adapting) NN output,
+       plus the short-horizon true residual label for reference.
+    4. NN Correction Magnitude & Divergence  (only when both MLP controllers have an MLP)
+       Top — total correction amplitude ‖[ax, ay, az]‖ for each method.
+       Bottom — pointwise divergence ‖static − online‖ showing where adaptation occurs.
+
+    How to read the plots
+    ---------------------
+    * A smaller error in Figure 2 means better trajectory tracking.
+    * In Figure 3, if the online curve converges toward the gray label curve, the
+      online NN is learning to cancel the true unmodelled disturbance.
+    * In Figure 4 (bottom), a growing divergence over time means the online NN is
+      genuinely adapting, not just producing noise.
+    """
+    # ── Palette & geometry ────────────────────────────────────────────────
+    C_REF     = '#1a1a1a'   # near-black — reference trajectory
+    C_NOMINAL = '#7f7f7f'   # medium gray — nominal MPC (no MLP)
+    C_STATIC  = '#1f77b4'   # matplotlib blue  — static MLP
+    C_ONLINE  = '#ff7f0e'   # matplotlib orange — online MLP
+    C_LABEL   = '#888888'   # gray — true residual label
+
+    show_nominal = (rec_nominal is not None)
+    LW_MAIN  = 1.4
+    LW_MEAN  = 2.4
+    LW_REF   = 1.8
+    A_RAW    = 0.28
+    ROLL_W   = 50          # causal rolling-mean window (steps)
+    FS_TITLE = 12
+    FS_LABEL = 10
+    FS_TICK  = 9
+    FS_LEG   = 9
+
+    def _style(ax, grid_alpha=0.22):
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.grid(True, alpha=grid_alpha)
+        ax.tick_params(labelsize=FS_TICK)
+
+    _rm = lambda v: _rolling_mean(v, ROLL_W)
+
+    figures = []
+
+    # ── Time axis (relative, starting at 0) ──────────────────────────────
+    ts_s = rec_static['timestamp']
+    ts_o = rec_online['timestamp']
+    T_s  = ts_s - ts_s[0]
+    T_o  = ts_o - ts_o[0]
+
+    # ── Key signals: use state_curr (the observed state at each step) ─────
+    pos_s = rec_static['state_curr'][:, :3]   # (T_s, 3) actual xyz
+    ref_s = rec_static['state_ref'][:, :3]    # (T_s, 3) reference xyz
+    pos_o = rec_online['state_curr'][:, :3]
+    ref_o = rec_online['state_ref'][:, :3]
+
+    # ── Error metrics ─────────────────────────────────────────────────────
+    err_s_xyz = pos_s - ref_s
+    err_o_xyz = pos_o - ref_o
+    err_s_abs = np.abs(err_s_xyz)             # per-axis absolute error
+    err_o_abs = np.abs(err_o_xyz)
+    err_s_3d  = np.linalg.norm(err_s_xyz, axis=1)   # Euclidean 3D error
+    err_o_3d  = np.linalg.norm(err_o_xyz, axis=1)
+
+    rmse_s = np.sqrt(np.mean(err_s_3d ** 2))
+    rmse_o = np.sqrt(np.mean(err_o_3d ** 2))
+    mae_s  = np.mean(err_s_3d)
+    mae_o  = np.mean(err_o_3d)
+    d_rmse = (rmse_s - rmse_o) / max(rmse_s, 1e-12) * 100  # positive = online better
+    d_mae  = (mae_s  - mae_o)  / max(mae_s,  1e-12) * 100
+
+    rmse_per_axis_s = [np.sqrt(np.mean(err_s_abs[:, i] ** 2)) for i in range(3)]
+    rmse_per_axis_o = [np.sqrt(np.mean(err_o_abs[:, i] ** 2)) for i in range(3)]
+
+    # ── Optional nominal MPC metrics ──────────────────────────────────────
+    if show_nominal:
+        ts_n  = rec_nominal['timestamp']
+        T_n   = ts_n - ts_n[0]
+        pos_n = rec_nominal['state_curr'][:, :3]
+        ref_n = rec_nominal['state_ref'][:, :3]
+        err_n_xyz      = pos_n - ref_n
+        err_n_abs      = np.abs(err_n_xyz)
+        err_n_3d       = np.linalg.norm(err_n_xyz, axis=1)
+        rmse_n         = np.sqrt(np.mean(err_n_3d ** 2))
+        mae_n          = np.mean(err_n_3d)
+        rmse_per_axis_n = [np.sqrt(np.mean(err_n_abs[:, i] ** 2)) for i in range(3)]
+
+    AX_POS = ['x  [m]', 'y  [m]', 'z  [m]']
+    AX_ERR = ['|eₓ|  [m]', '|eᵧ|  [m]', '|e_z|  [m]']
+    AX_LTR = ['x', 'y', 'z']
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Figure 1 — Trajectory Overview: 3D path  +  Euclidean error
+    # ══════════════════════════════════════════════════════════════════════
+    fig = plt.figure(figsize=(18, 7))
+    n_methods = 2 + (1 if show_nominal else 0)
+    _nom_lbl = '  | gray solid = Nominal MPC' if show_nominal else ''
+    fig.suptitle(
+        f'Figure 1 — Trajectory Overview  ({n_methods} methods)\n'
+        f'Left: 3D flight paths  (dashed = reference{_nom_lbl} | cold gradient = Static MLP | warm gradient = Online MLP)\n'
+        'Color gradient encodes time: light = early → dark = late  ·  Nominal shown in solid gray (no adaptation)\n'
+        'Right: Euclidean 3D position error  ‖e‖₂ = √(eₓ² + eᵧ² + e_z²) over time — lower is better',
+        fontsize=FS_TITLE, fontweight='bold',
+    )
+
+    # 3D trajectory — downsample to keep the plot readable
+    stride    = max(1, len(pos_s) // 3000)
+    pos_s_ds  = pos_s[::stride]
+    pos_o_ds  = pos_o[::stride]
+
+    # Temporal color gradients.
+    # Static MLP: cold palette (Blues), Online MLP: warm palette (YlOrRd).
+    # Range starts at 0.25 / 0.20 to avoid near-white at the trajectory start.
+    t_cold    = np.linspace(0.25, 1.00, max(len(pos_s_ds) - 1, 1))
+    t_warm    = np.linspace(0.20, 1.00, max(len(pos_o_ds) - 1, 1))
+    c_cold    = plt.cm.Blues(t_cold)
+    c_warm    = plt.cm.YlOrRd(t_warm)
+
+    ax3 = fig.add_subplot(1, 2, 1, projection='3d')
+
+    # Reference: single color, dashed
+    ax3.plot(*ref_s[::stride].T, color=C_REF, lw=LW_REF, ls='--', alpha=0.55)
+
+    # Nominal MPC: flat gray solid line (no gradient — no adaptation over time)
+    if show_nominal:
+        pos_n_ds = pos_n[::stride]
+        ax3.plot(pos_n_ds[:, 0], pos_n_ds[:, 1], pos_n_ds[:, 2],
+                 color=C_NOMINAL, lw=LW_MAIN, alpha=0.75)
+        ax3.scatter(*pos_n_ds[0],  color=C_NOMINAL, s=55,             zorder=5)
+        ax3.scatter(*pos_n_ds[-1], color=C_NOMINAL, s=80, marker='*', zorder=5)
+
+    # Temporal-gradient trajectories
+    _colored_line_3d(ax3, pos_s_ds[:, 0], pos_s_ds[:, 1], pos_s_ds[:, 2],
+                     c_cold, lw=LW_MAIN, alpha=0.90)
+    _colored_line_3d(ax3, pos_o_ds[:, 0], pos_o_ds[:, 1], pos_o_ds[:, 2],
+                     c_warm, lw=LW_MAIN, alpha=0.90)
+
+    # Circle = start, star = end of simulation
+    ax3.scatter(*pos_s_ds[0],  color=plt.cm.Blues(0.25),  s=55,              zorder=5)
+    ax3.scatter(*pos_s_ds[-1], color=plt.cm.Blues(1.00),  s=80, marker='*',  zorder=5)
+    ax3.scatter(*pos_o_ds[0],  color=plt.cm.YlOrRd(0.20), s=55,              zorder=5)
+    ax3.scatter(*pos_o_ds[-1], color=plt.cm.YlOrRd(1.00), s=80, marker='*',  zorder=5)
+
+    # Force axis limits because Line3DCollection does not trigger autoscaling
+    _all_xyz_parts = [pos_s_ds, pos_o_ds, ref_s[::stride]]
+    if show_nominal:
+        _all_xyz_parts.append(pos_n_ds)
+    all_xyz = np.vstack(_all_xyz_parts)
+    ax3.set_xlim(all_xyz[:, 0].min(), all_xyz[:, 0].max())
+    ax3.set_ylim(all_xyz[:, 1].min(), all_xyz[:, 1].max())
+    ax3.set_zlim(max(all_xyz[:, 2].min(), 0), all_xyz[:, 2].max())
+
+    ax3.set_xlabel('x [m]', fontsize=FS_LABEL, labelpad=5)
+    ax3.set_ylabel('y [m]', fontsize=FS_LABEL, labelpad=5)
+    ax3.set_zlabel('z [m]', fontsize=FS_LABEL, labelpad=5)
+    ax3.tick_params(labelsize=FS_TICK)
+    ax3.set_title('3D Flight Trajectory\n● = start   ★ = end',
+                  fontsize=FS_TITLE - 1, pad=8)
+
+    # Colorbars: one per MLP gradient, stacked to the right of the 3D axis
+    sm_cold = plt.cm.ScalarMappable(cmap=plt.cm.Blues,  norm=Normalize(vmin=0.25, vmax=1.0))
+    sm_cold.set_array([])
+    sm_warm = plt.cm.ScalarMappable(cmap=plt.cm.YlOrRd, norm=Normalize(vmin=0.20, vmax=1.0))
+    sm_warm.set_array([])
+
+    cb_cold = fig.colorbar(sm_cold, ax=ax3, shrink=0.40, pad=0.02, fraction=0.020)
+    cb_cold.set_ticks([0.25, 1.00])
+    cb_cold.set_ticklabels(['early', 'late'], fontsize=7)
+    cb_cold.set_label('Static MLP — time', fontsize=8)
+
+    cb_warm = fig.colorbar(sm_warm, ax=ax3, shrink=0.40, pad=0.14, fraction=0.020)
+    cb_warm.set_ticks([0.20, 1.00])
+    cb_warm.set_ticklabels(['early', 'late'], fontsize=7)
+    cb_warm.set_label('Online MLP — time', fontsize=8)
+
+    # Legend with representative mid-gradient colors
+    _leg_handles = [
+        Line2D([0], [0], color=C_REF,               ls='--', lw=LW_REF,        alpha=0.55, label='Reference'),
+    ]
+    if show_nominal:
+        _leg_handles.append(
+            Line2D([0], [0], color=C_NOMINAL,        ls='-',  lw=LW_MAIN + 1.0, alpha=0.75, label='Nominal MPC  (no NN)')
+        )
+    _leg_handles += [
+        Line2D([0], [0], color=plt.cm.Blues(0.65),   ls='-',  lw=LW_MAIN + 1.0,            label='Static MLP  (cold: light→dark blue)'),
+        Line2D([0], [0], color=plt.cm.YlOrRd(0.60),  ls='-',  lw=LW_MAIN + 1.0,            label='Online MLP  (warm: yellow→dark red)'),
+    ]
+    ax3.legend(handles=_leg_handles, fontsize=FS_LEG, loc='upper left')
+
+    # Euclidean error over time
+    ax_e = fig.add_subplot(1, 2, 2)
+    if show_nominal:
+        ax_e.plot(T_n, err_n_3d, color=C_NOMINAL, alpha=A_RAW, lw=1)
+        ax_e.plot(T_n, _rm(err_n_3d), color=C_NOMINAL, lw=LW_MEAN,
+                  label=f'Nominal MPC  RMSE = {rmse_n:.4f} m   MAE = {mae_n:.4f} m')
+        ax_e.axhline(rmse_n, color=C_NOMINAL, ls=':', lw=1.1, alpha=0.50)
+    ax_e.plot(T_s, err_s_3d, color=C_STATIC, alpha=A_RAW, lw=1)
+    ax_e.plot(T_o, err_o_3d, color=C_ONLINE, alpha=A_RAW, lw=1)
+    ax_e.plot(T_s, _rm(err_s_3d), color=C_STATIC, lw=LW_MEAN,
+              label=f'Static MLP   RMSE = {rmse_s:.4f} m   MAE = {mae_s:.4f} m')
+    online_lbl = f'Online MLP   RMSE = {rmse_o:.4f} m   MAE = {mae_o:.4f} m'
+    if abs(d_rmse) > 0.05:
+        sign = '↑' if d_rmse > 0 else '↓'
+        online_lbl += f'\n               {sign} {abs(d_rmse):.1f}% RMSE  /  {abs(d_mae):.1f}% MAE vs. static'
+    ax_e.plot(T_o, _rm(err_o_3d), color=C_ONLINE, lw=LW_MEAN, label=online_lbl)
+    ax_e.axhline(rmse_s, color=C_STATIC, ls=':', lw=1.1, alpha=0.50)
+    ax_e.axhline(rmse_o, color=C_ONLINE, ls=':', lw=1.1, alpha=0.50)
+    ax_e.set_xlabel('Time  [s]', fontsize=FS_LABEL)
+    ax_e.set_ylabel('3D position error  [m]', fontsize=FS_LABEL)
+    ax_e.set_title(
+        '3D Euclidean Position Error over Time\n'
+        'Thin = raw signal   ·   Thick = causal 50-step rolling mean\n'
+        'Dotted lines = mean error over the full run',
+        fontsize=FS_TITLE - 1,
+    )
+    ax_e.legend(fontsize=FS_LEG, framealpha=0.9)
+    ax_e.set_xlim(T_s[0], T_s[-1])
+    _style(ax_e)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.80])
+    figures.append(fig)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Figure 2 — Per-Axis Position Tracking & Absolute Error
+    # ══════════════════════════════════════════════════════════════════════
+    fig, axes = plt.subplots(3, 2, figsize=(18, 10), sharex='col')
+    fig.suptitle(
+        'Figure 2 — Per-Axis Position Tracking\n'
+        'Left column: drone position vs. commanded reference  ·  '
+        'Right column: absolute tracking error per axis\n'
+        'Thin line = instantaneous error   ·   Thick line = causal 50-step rolling mean   ·  '
+        'RMSE annotated in each legend',
+        fontsize=FS_TITLE, fontweight='bold',
+    )
+
+    for i, (pos_lbl, err_lbl, ax_c) in enumerate(zip(AX_POS, AX_ERR, AX_LTR)):
+        ax_l = axes[i, 0]
+        ax_r = axes[i, 1]
+
+        # Left: position tracking
+        ax_l.plot(T_s, ref_s[:, i], color=C_REF,     lw=LW_REF,  ls='--', alpha=0.70, label='Reference')
+        if show_nominal:
+            ax_l.plot(T_n, pos_n[:, i], color=C_NOMINAL, lw=LW_MAIN, alpha=0.75, label='Nominal MPC')
+        ax_l.plot(T_s, pos_s[:, i], color=C_STATIC,  lw=LW_MAIN, alpha=0.90, label='Static MLP')
+        ax_l.plot(T_o, pos_o[:, i], color=C_ONLINE,  lw=LW_MAIN, alpha=0.90, label='Online MLP')
+        ax_l.set_ylabel(pos_lbl, fontsize=FS_LABEL)
+        _style(ax_l)
+        if i == 0:
+            ax_l.legend(fontsize=FS_LEG)
+            ax_l.set_title('Position vs. Reference', fontsize=FS_TITLE - 1)
+
+        # Right: absolute error
+        r_s = rmse_per_axis_s[i]
+        r_o = rmse_per_axis_o[i]
+        d_i = (r_s - r_o) / max(r_s, 1e-12) * 100
+        sign_i = '↑' if d_i > 0 else '↓'
+        if show_nominal:
+            r_n = rmse_per_axis_n[i]
+            ax_r.plot(T_n, err_n_abs[:, i], color=C_NOMINAL, alpha=A_RAW, lw=1)
+            ax_r.plot(T_n, _rm(err_n_abs[:, i]), color=C_NOMINAL, lw=LW_MEAN,
+                      label=f'Nominal  RMSE = {r_n:.4f} m')
+        ax_r.plot(T_s, err_s_abs[:, i], color=C_STATIC, alpha=A_RAW, lw=1)
+        ax_r.plot(T_o, err_o_abs[:, i], color=C_ONLINE, alpha=A_RAW, lw=1)
+        ax_r.plot(T_s, _rm(err_s_abs[:, i]), color=C_STATIC, lw=LW_MEAN,
+                  label=f'Static   RMSE = {r_s:.4f} m')
+        ax_r.plot(T_o, _rm(err_o_abs[:, i]), color=C_ONLINE, lw=LW_MEAN,
+                  label=f'Online  RMSE = {r_o:.4f} m'
+                        + (f'  {sign_i} {abs(d_i):.1f}%' if abs(d_i) > 0.05 else ''))
+        ax_r.set_ylabel(err_lbl, fontsize=FS_LABEL)
+        ax_r.legend(fontsize=FS_LEG)
+        _style(ax_r)
+        if i == 0:
+            ax_r.set_title('Absolute Error per Axis', fontsize=FS_TITLE - 1)
+
+    axes[-1, 0].set_xlabel('Time  [s]', fontsize=FS_LABEL)
+    axes[-1, 1].set_xlabel('Time  [s]', fontsize=FS_LABEL)
+    fig.tight_layout(rect=[0, 0, 1, 0.90])
+    figures.append(fig)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # Figures 3 & 4 — NN output (only when both controllers use an MLP)
+    # ══════════════════════════════════════════════════════════════════════
+    if neural_mpc_static.use_mlp and neural_mpc_online.use_mlp:
+        mlp_s = _compute_mlp_output(rec_static, neural_mpc_static)   # (T_s, n_y)
+        mlp_o = _compute_mlp_output(rec_online, neural_mpc_online)   # (T_o, n_y)
+
+        # Short-horizon true residual label: (actual_next − nominal_next) / dt
+        # Units: [m/s²] for velocity state dimensions (y_reg_dims = [3,4,5])
+        dt_s     = np.expand_dims(rec_static['dt'], 1)      # (T_s, 1)
+        dt_o     = np.expand_dims(rec_online['dt'], 1)
+        y_true_s = (rec_static['state_out'] - rec_static['state_pred']) / dt_s   # (T_s, nx)
+        y_true_o = (rec_online['state_out'] - rec_online['state_pred']) / dt_o
+
+        n_y  = len(neural_mpc_static.y_reg_dims)
+        _dim_lbl = {3: 'aₓ  [m/s²]', 4: 'aᵧ  [m/s²]', 5: 'a_z  [m/s²]'}
+        out_lbls = [_dim_lbl.get(int(d), f'output[{d}]  [m/s²]')
+                    for d in neural_mpc_static.y_reg_dims]
+
+        # ── Figure 3 — NN Residual Correction Output ──────────────────────
+        fig, axes = plt.subplots(n_y, 1, figsize=(16, 3.8 * n_y + 2),
+                                 sharex=True, squeeze=False)
+        fig.suptitle(
+            'Figure 3 — Neural Network Residual Correction Output\n'
+            'The NN adds acceleration corrections [m/s²] to the nominal MPC dynamics\n'
+            'to compensate unmodelled aerodynamic effects (drag, ground effect, etc.)\n'
+            'Gray = short-horizon true label (Δv / Δt)   ·   Blue = static NN (frozen weights)   ·   '
+            'Orange = online NN (final trained weights, retrospective)\n'
+            'If the orange curve converges toward gray, online adaptation is capturing '
+            'the true disturbance.',
+            fontsize=FS_TITLE, fontweight='bold',
+        )
+        for i, (dim, lbl) in enumerate(zip(neural_mpc_static.y_reg_dims, out_lbls)):
+            ax = axes[i, 0]
+            ax.plot(T_s, y_true_s[:, dim], color=C_LABEL, lw=1.0, alpha=0.55,
+                    label='True residual  (Δv / Δt)')
+            ax.plot(T_s, mlp_s[:, i], color=C_STATIC, lw=LW_MAIN, alpha=0.90,
+                    label=f'Static MLP   μ={np.mean(mlp_s[:, i]):+.4f}   σ={np.std(mlp_s[:, i]):.4f}')
+            ax.plot(T_o, mlp_o[:, i], color=C_ONLINE, lw=LW_MAIN, alpha=0.90,
+                    label=f'Online MLP   μ={np.mean(mlp_o[:, i]):+.4f}   σ={np.std(mlp_o[:, i]):.4f}')
+            ax.axhline(0, color='#aaaaaa', lw=0.7, ls='--', alpha=0.60)
+            ax.set_ylabel(lbl, fontsize=FS_LABEL)
+            ax.legend(fontsize=FS_LEG)
+            _style(ax)
+        axes[-1, 0].set_xlabel('Time  [s]', fontsize=FS_LABEL)
+        axes[-1, 0].set_xlim(T_s[0], T_s[-1])
+        fig.tight_layout(rect=[0, 0, 1, 0.88])
+        figures.append(fig)
+
+        # ── Figure 4 — NN Correction Magnitude & Divergence ───────────────
+        norm_s = np.linalg.norm(mlp_s, axis=1)      # ‖correction‖ for static
+        norm_o = np.linalg.norm(mlp_o, axis=1)      # ‖correction‖ for online
+        # Divergence: truncate to the shorter run in case of minor length mismatch
+        n_cmp = min(len(mlp_s), len(mlp_o))
+        diff  = np.linalg.norm(mlp_s[:n_cmp] - mlp_o[:n_cmp], axis=1)
+        T_cmp = T_s[:n_cmp]
+
+        # RMSE vs true label (short-horizon proxy)
+        loss_s = np.square(y_true_s[:, neural_mpc_static.y_reg_dims] - mlp_s)
+        loss_o = np.square(y_true_o[:, neural_mpc_online.y_reg_dims] - mlp_o)
+        rmse_nn_s = np.sqrt(np.mean(loss_s, axis=1))
+        rmse_nn_o = np.sqrt(np.mean(loss_o, axis=1))
+        rmse_nn_improv = (np.mean(rmse_nn_s) - np.mean(rmse_nn_o)) / max(np.mean(rmse_nn_s), 1e-12) * 100
+
+        fig, axes4 = plt.subplots(3, 1, figsize=(16, 11), sharex=True)
+        fig.suptitle(
+            'Figure 4 — NN Correction Amplitude, RMSE vs. Label & Adaptation Divergence\n'
+            'Top: overall magnitude of the correction vector ‖[aₓ, aᵧ, a_z]‖\n'
+            'Middle: RMSE between NN output and the short-horizon true residual label (lower = better fit)\n'
+            'Bottom: ‖static − online‖ — how much the online NN diverges from the static baseline\n'
+            'Thin = raw   ·   Thick = causal 50-step rolling mean   ·   Dotted = run mean',
+            fontsize=FS_TITLE, fontweight='bold',
+        )
+
+        # Top: correction amplitude
+        ax_top = axes4[0]
+        ax_top.plot(T_s, norm_s, color=C_STATIC, alpha=A_RAW, lw=1)
+        ax_top.plot(T_o, norm_o, color=C_ONLINE, alpha=A_RAW, lw=1)
+        ax_top.plot(T_s, _rm(norm_s), color=C_STATIC, lw=LW_MEAN,
+                    label=f'Static MLP   mean = {np.mean(norm_s):.4f} m/s²')
+        ax_top.plot(T_o, _rm(norm_o), color=C_ONLINE, lw=LW_MEAN,
+                    label=f'Online MLP   mean = {np.mean(norm_o):.4f} m/s²')
+        ax_top.axhline(np.mean(norm_s), color=C_STATIC, ls=':', lw=1.1, alpha=0.50)
+        ax_top.axhline(np.mean(norm_o), color=C_ONLINE, ls=':', lw=1.1, alpha=0.50)
+        ax_top.set_ylabel('‖correction‖  [m/s²]', fontsize=FS_LABEL)
+        ax_top.legend(fontsize=FS_LEG)
+        _style(ax_top)
+
+        # Middle: RMSE vs true label
+        ax_mid = axes4[1]
+        ax_mid.plot(T_s, rmse_nn_s, color=C_STATIC, alpha=A_RAW, lw=1)
+        ax_mid.plot(T_o, rmse_nn_o, color=C_ONLINE, alpha=A_RAW, lw=1)
+        ax_mid.plot(T_s, _rm(rmse_nn_s), color=C_STATIC, lw=LW_MEAN,
+                    label=f'Static MLP   mean RMSE = {np.mean(rmse_nn_s):.4f} m/s²')
+        online_rmse_lbl = f'Online MLP   mean RMSE = {np.mean(rmse_nn_o):.4f} m/s²'
+        if abs(rmse_nn_improv) > 0.05:
+            sign_r = '↑' if rmse_nn_improv > 0 else '↓'
+            online_rmse_lbl += f'  {sign_r} {abs(rmse_nn_improv):.1f}% vs. static'
+        ax_mid.plot(T_o, _rm(rmse_nn_o), color=C_ONLINE, lw=LW_MEAN, label=online_rmse_lbl)
+        ax_mid.axhline(np.mean(rmse_nn_s), color=C_STATIC, ls=':', lw=1.1, alpha=0.50)
+        ax_mid.axhline(np.mean(rmse_nn_o), color=C_ONLINE, ls=':', lw=1.1, alpha=0.50)
+        ax_mid.set_ylabel('RMSE vs. label  [m/s²]', fontsize=FS_LABEL)
+        ax_mid.legend(fontsize=FS_LEG)
+        _style(ax_mid)
+
+        # Bottom: divergence between the two NNs
+        ax_bot = axes4[2]
+        ax_bot.plot(T_cmp, diff, color='#777777', alpha=A_RAW, lw=1)
+        ax_bot.plot(T_cmp, _rm(diff), color='#333333', lw=LW_MEAN,
+                    label=f'‖static − online‖   mean = {np.mean(diff):.4f} m/s²')
+        ax_bot.axhline(np.mean(diff), color='#333333', ls=':', lw=1.1, alpha=0.50)
+        ax_bot.set_xlabel('Time  [s]', fontsize=FS_LABEL)
+        ax_bot.set_ylabel('‖static − online‖  [m/s²]', fontsize=FS_LABEL)
+        ax_bot.legend(fontsize=FS_LEG)
+        _style(ax_bot)
+
+        ax_bot.set_xlim(T_s[0], T_s[-1])
+        fig.tight_layout(rect=[0, 0, 1, 0.88])
+        figures.append(fig)
+
+    if save:
+        save_dir = DirectoryConfig.SIMULATION_DIR
+        safe_mkdir_recursive(save_dir)
+        for i, fig in enumerate(figures):
+            fig.savefig(
+                os.path.join(save_dir, f'comparison_fig{i + 1}.png'),
+                dpi=300, bbox_inches='tight',
+            )
+
+    return figures
 
 
 def plot_fitting(total_losses, inference_times, learning_rates, save_file_path=None, save_file_name=None):
@@ -1276,7 +1742,7 @@ def plot_disturbances(dist_dict, save=False):
         plt.legend()
         plt.tight_layout()
         mng = plt.get_current_fig_manager()
-        mng.resize(*mng.window.maxsize())
+    #    mng.resize(*mng.window.maxsize())
         figures.append(fig)
 
     # Motor noise
@@ -1288,7 +1754,7 @@ def plot_disturbances(dist_dict, save=False):
         plt.grid()
         plt.tight_layout()
         mng = plt.get_current_fig_manager()
-        mng.resize(*mng.window.maxsize())
+    #    mng.resize(*mng.window.maxsize())
         figures.append(fig)
 
     if save:

@@ -9,11 +9,6 @@ from utils.geometry_utils import quaternion_inverse, v_dot_q
 from utils.model_utils import load_model, get_output_mapping, get_device
 from utils.model_utils import cross_check_params
 
-try:
-    import l4casadi as l4c
-except ImportError:
-    l4c = None
-
 # Tiltable-Quadrotor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from nmpc.nmpc_tilt_mt.rh_base import RecedingHorizonBase
@@ -84,7 +79,11 @@ class NeuralMPC(RecedingHorizonBase):
 
         # Include disturbance parameters in model
         # NOTE: ONLY FOR SIMULATOR USAGE
-        self.include_cog_dist_parameter = sim_options["disturbances"]["cog_dist"]
+        # extra_mass also needs the CoG slot to inject its constant gravity force.
+        self.include_cog_dist_parameter = (
+            sim_options["disturbances"]["cog_dist"] or
+            sim_options["disturbances"].get("extra_mass", False)
+        )
         self.include_motor_noise_parameter = sim_options["disturbances"]["motor_noise"]
 
         # Solver options

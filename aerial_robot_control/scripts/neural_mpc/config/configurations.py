@@ -43,10 +43,9 @@ class EnvConfig:
     model_options.update(
         {
             "only_use_nominal": False,
-            "plus_neural": True,
-            "minus_neural": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp" or "temporal_residual_mlp"
             "neural_model_instance": "neuralmodel_209",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            "online_neural_mpc": False,  # Whether to train the neural model online
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
@@ -197,7 +196,22 @@ class EnvConfig:
         "include_energy_cost": False,
     }
 
-    dataset_options = {"ds_name_suffix": "dataset_neural_sim_nominal_control"}  # "compare_nominal_neural_sim"}
+    dataset_options = {
+        "ds_name_suffix": "dataset_neural_sim_nominal_control",
+        # Online dataset parameters
+        "buffer_size":     5000,   # max (X, Y) pairs stored in the circular training buffer
+        "min_samples":     200,    # minimum matured samples before training starts
+        "batch_size":      64,     # mini-batch size for each gradient step
+        "window_size":     1,      # sliding-window context length; 1 = single-step (no context)
+        "weighted_decay":  0.001,  # exponential decay factor for recency-weighted sampling
+        # Online trainer hyperparameters
+        "lr":              1e-2,   # Adam learning rate
+        "grad_clip_norm":  1.0,    # max gradient L2 norm (0 = disabled)
+        "n_frozen_layers": 0,      # number of initial layers kept frozen during online training
+        "warmup_steps":    0,      # linear LR warmup steps (0 = no warmup)
+        "train_every":     1,      # gradient step every N control iterations
+        "lambda_anchor":   0.0,    # L2 anchor weight toward pre-trained baseline (0 = disabled)
+    }
     sim_options = {
         # Choice of disturbances modeled in our Simplified Simulator
         "disturbances": {
@@ -207,13 +221,20 @@ class EnvConfig:
             "motor_noise": False,  # Asymmetric noise in the rotor thrust and servo angles
             "drag": False,  # 2nd order polynomial aerodynamic drag effect
             "payload": False,  # Payload force in the Z axis
+            # --- Step 3.1: fixed extra mass at CoG ---
+            # Applies a constant downward force = extra_mass_kg * g (world z-up).
+            # Cannot be combined with cog_dist (both write the same parameter slot).
+            "extra_mass": True,  # enable constant payload mass disturbance
+            "extra_mass_kg": 0.2,    # payload mass in kg
         },
         "use_nominal_simulator": False,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 20,
+        "max_sim_time": 90,
         "world_radius": 2,
         "seed": 897,
+        "T_sim":     0.005,  # inner simulation step size (seconds)
+        "T_takeoff": 5.0,    # duration of the takeoff phase (seconds)
     }
 
     # Run options
@@ -265,14 +286,24 @@ class EnvConfig:
         }
     )
 
-    if model_options["minus_neural"] and model_options["plus_neural"]:
-        raise ValueError("Conflict in options.")
+    # Neural model run options
+    run_options.update(
+        {
+            "useMLP": True,     # Load and use the neural residual model
+            "onlineMLP": True,  # Train the NN online during simulation (requires useMLP=True)
+        }
+    )
+
+    if model_options["online_neural_mpc"] and model_options["only_use_nominal"]:
+        raise ValueError("Conflict in options.") 
     if model_options["linearize_mlp"] and model_options["use_l4casadi"]:
         raise ValueError("Conflict in options.")
     if (model_options["linearize_mlp"] or model_options["use_l4casadi"]) and model_options["linearize_order"] not in [1, 2]:
         raise ValueError("Only first and second order linearization supported.")
     if not (model_options["linearize_mlp"] or model_options["use_l4casadi"]) and model_options["use_gpu"]:
         raise ValueError("acados does not support GPU usage natively in optimization framework. GPU can only be used with linearization.")
+    if sim_options["disturbances"]["extra_mass"] and sim_options["disturbances"]["cog_dist"]:
+        raise ValueError("extra_mass and cog_dist both write the CoG parameter slot — enable only one at a time.")
     if sim_options["use_real_world_simulator"] and sim_options["use_nominal_simulator"]:
         raise ValueError("Conflict in options.")
     if sim_options["use_real_world_simulator"]:
@@ -289,12 +320,14 @@ class EnvConfig:
 
 class NetworkConfig:
     # ============================= MODEL SELECTION =============================
-    # Choose between "MLP" or "VAE" for the neural network architecture
-    model_type = "MLP"  # Options: "MLP", "VAE"
+    # Choose between "MLP", "OMLP" or "VAE" for the neural network architecture
+    model_type = "MLP"  # Options: "MLP", "VAE", "OMLP"
     
     # Define characteristics of the MLP model with its name
     if model_type == "MLP":
         model_name = "residual_mlp"
+    elif model_type == "OMLP":
+        model_name = "residual_omlp"
     elif model_type == "VAE":
         model_name = "residual_vae"
     else:
@@ -311,7 +344,7 @@ class NetworkConfig:
         model_name = f"temporal_{model_name}"
 
     # Number of neurons in each hidden layer
-    if model_type == "MLP":
+    if model_type == "MLP" or model_type == "OMLP":
         # hidden_sizes = [8, 8]
         hidden_sizes = [32]
         # hidden_sizes = [64]

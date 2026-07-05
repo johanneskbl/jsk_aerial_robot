@@ -7,12 +7,7 @@ from acados_template import AcadosModel, AcadosOcpSolver
 from utils.data_utils import delete_previous_solver_files, store_additional_metadata
 from utils.geometry_utils import quaternion_inverse, v_dot_q
 from utils.model_utils import load_model, get_output_mapping, get_device
-from utils.model_utils import cross_check_params
-
-try:
-    import l4casadi as l4c
-except ImportError:
-    l4c = None
+from utils.model_utils import cross_check_params, _build_mlp_weight_vector
 
 # Tiltable-Quadrotor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,7 +17,7 @@ import nmpc.nmpc_tilt_mt.tilt_qd.phys_param_beetle_omni as phys_omni
 import nmpc.nmpc_tilt_mt.tilt_qd.phys_param_beetle_jetson as phys_jetson
 
 
-class NeuralMPC(RecedingHorizonBase):
+class OnlineNeuralMPC(RecedingHorizonBase):
     def __init__(self, model_options, solver_options, sim_options, run_options, use_as_simulator=False):
         # TODO implement solver options flexibly such as which solver to use, etc.
         # TODO implement drag correction with RDRv (?)
@@ -38,32 +33,29 @@ class NeuralMPC(RecedingHorizonBase):
         self.mpc_type = model_options["mpc_type"]
         if model_options["only_use_nominal"]:
             identifier = "nominal"
-            identifier2 = ""
+
+        elif model_options["online_neural_mpc"]:
+            identifier = "online_neural"
+
         else:
             identifier = "neural"
-            identifier2 = ""
-            if "minus_neural" in model_options:
-                if model_options["minus_neural"]:
-                    identifier2 = "_minus"
-
-            if "plus_neural" in model_options:
-                if model_options["plus_neural"]:
-                    identifier2 = "_plus"
 
         if use_as_simulator:
-            identifier3 = "_sim"
+            identifier2 = "_sim"
         else:
-            identifier3 = ""
+            identifier2 = ""
 
-        self.model_name = f"tilt_qd_{identifier}_servo{identifier2}{identifier3}_mdl"
+        self.model_name = f"tilt_qd_{identifier}_servo{identifier2}_mdl"
 
         # Read controller parameters from configuration file in the robot's package
         if model_options["only_use_nominal"]:
             yaml_file_name = "BeetleOmniNMPCNominalServo"
-        elif model_options["plus_neural"]:
-            yaml_file_name = "BeetleOmniNMPCNeuralServoPlus"
+
+        elif model_options["online_neural_mpc"]:
+            yaml_file_name = "BeetleOmniNMPCOnlineNeuralServo"
+
         else:
-            yaml_file_name = "BeetleOmniNMPCNeuralServoMinus"
+            yaml_file_name = "BeetleOmniNMPCNeuralServo"
         self.read_params("controller", "nmpc", "beetle_omni", f"{yaml_file_name}.yaml")
         self.T_samp = self.params["T_samp"]  # Sampling time for the MPC controller, time step between two steps
         self.T_horizon = self.params["T_horizon"]  # Time horizon for optimization loop in MPC controller
@@ -84,7 +76,11 @@ class NeuralMPC(RecedingHorizonBase):
 
         # Include disturbance parameters in model
         # NOTE: ONLY FOR SIMULATOR USAGE
-        self.include_cog_dist_parameter = sim_options["disturbances"]["cog_dist"]
+        # extra_mass also needs the CoG slot to inject its constant gravity force.
+        self.include_cog_dist_parameter = (
+            sim_options["disturbances"]["cog_dist"] or
+            sim_options["disturbances"].get("extra_mass", False)
+        )
         self.include_motor_noise_parameter = sim_options["disturbances"]["motor_noise"]
 
         # Solver options
@@ -111,20 +107,8 @@ class NeuralMPC(RecedingHorizonBase):
             print(
                 f"Successfully loaded MLP model {model_options['neural_model_name']}, {model_options['neural_model_instance']}."
             )
-
-
-            #Online MLP
-            nx_mlp_in = len(eval(self.mlp_metadata["ModelFitConfig"]["state_feats"])) \
-            + len(eval(self.mlp_metadata["ModelFitConfig"]["u_feats"]))
-            ny_mlp_out = len(np.array(eval(self.mlp_metadata["ModelFitConfig"]["y_reg_dims"])))
-            self.online_mlp = OnlineMLP(input_dim=nx_mlp_in, output_dim=ny_mlp_out, hidden_dim=32)
-            self.replay_buffer = ReplayBuffer(max_seconds=15, freq_hz=100)
-            self.online_learner = OnlineLearner(self.online_mlp, self.replay_buffer)
-            self.online_learner_thread = threading.Thread(target=self.online_learner.run, daemon=True)
-            self.online_learner_thread.start()
         else:
             self.use_mlp = False
-
 
         # Clean up so the build process doesn't depend on previously generated files
         delete_previous_solver_files(self.model_name)
@@ -141,7 +125,7 @@ class NeuralMPC(RecedingHorizonBase):
         self.parameters = self._acados_model.p
 
     # fmt: off
-    def create_acados_model(self) -> AcadosModel: #TODO: Add a neural network and put the weights of the neural as variable in acados
+    def create_acados_model(self) -> AcadosModel:
         """
         Define generic state-space, acados model parameters, control inputs for kinematics of a omnidirectional quadrotor.
         Calculate transformation matrix from robot's architecture to compute internal wrench.
@@ -520,13 +504,65 @@ class NeuralMPC(RecedingHorizonBase):
                         self.l4casadi_start_idx = parameters.size()[0]
                         parameters = ca.vertcat(parameters, self.learned_dyn_model.get_sym_params())
                         self.l4casadi_end_idx = parameters.size()[0]
+                    elif self.model_options.get("online_neural_mpc"):
+                        # --- Parametric weights: W and b as acados parameters ---
+                        # Weights are symbolic MX.sym variables; their numeric values
+                        # are written into acados_parameters at every training step via
+                        # set_mlp_params(). No solver rebuild needed.
+                        from network_architecture.casadi_layers import caLinear, caBatchNorm1D
+
+                        self.mlp_weight_start_idx = parameters.size()[0]
+                        _sym_map = {}  # layer_index → ("linear"|"bn", *sym_tensors)
+
+                        for l_idx, layer in enumerate(self.neural_model.fully_connected_stack):
+                            if isinstance(layer, caLinear):
+                                n_out, n_in = layer.weight.shape
+                                W_s = ca.MX.sym(f"W_{l_idx}", n_out, n_in)
+                                b_s = ca.MX.sym(f"b_{l_idx}", n_out, 1)
+                                _sym_map[l_idx] = ("linear", W_s, b_s)
+                                parameters = ca.vertcat(parameters, W_s.reshape((-1, 1)), b_s)
+                            elif isinstance(layer, caBatchNorm1D):
+                                n = layer.num_features
+                                gamma_s = ca.MX.sym(f"BN_gamma_{l_idx}", n, 1)
+                                beta_s  = ca.MX.sym(f"BN_beta_{l_idx}",  n, 1)
+                                _sym_map[l_idx] = ("bn", gamma_s, beta_s)
+                                parameters = ca.vertcat(parameters, gamma_s, beta_s)
+
+                        self.mlp_weight_end_idx = parameters.size()[0]
+
+                        # Build parametric forward pass
+                        h = mlp_in
+                        h = (h - ca.DM(self.neural_model.x_mean.cpu().numpy())) \
+                          / ca.DM(self.neural_model.x_std.cpu().numpy())
+
+                        for l_idx, layer in enumerate(self.neural_model.fully_connected_stack):
+                            if l_idx in _sym_map:
+                                kind, *syms = _sym_map[l_idx]
+                                if kind == "linear":
+                                    W_s, b_s = syms
+                                    h = ca.mtimes(W_s, h) + b_s
+                                else:  # bn
+                                    gamma_s, beta_s = syms
+                                    mu  = ca.DM(layer.running_mean.cpu().numpy().reshape(-1, 1))
+                                    var = ca.DM(layer.running_var.cpu().numpy().reshape(-1, 1))
+                                    h = (h - mu) / ca.sqrt(var + layer.eps)
+                                    h = gamma_s * h + beta_s
+                            else:
+                                h = layer.ca_forward(h)  # activations / dropout
+
+                        mlp_out = h * ca.DM(self.neural_model.y_std.cpu().numpy()) \
+                                    + ca.DM(self.neural_model.y_mean.cpu().numpy())
+
+                        # Initial weight values used to initialise acados_parameters
+                        self._mlp_weight_init = _build_mlp_weight_vector(self.neural_model)
+
                     else:
                         mlp_out = self.neural_model.ca_forward(mlp_in)
                 elif self.mlp_metadata["NetworkConfig"]["model_type"] == "VAE":
                     # TODO regularize output by confidence (std)
                     mlp_out, std = self.neural_model(mlp_in)
 
-                
+                                        
                 # Write model options into MLP metadata to be used in C++
                 # NOTE: The parameters are stored DURING BUILD TIME and read AT RUNTIME
                 store_additional_metadata(
@@ -558,10 +594,6 @@ class NeuralMPC(RecedingHorizonBase):
                 else:
                     raise KeyError("Selected regression dimensions not expected.")
 
-            #online MLP
-            parameters = self._append_online_mlp_weights(self.online_mlp, parameters)
-            mlp_online_out = self._build_online_mlp_casadi(mlp_in, self.online_weights_sym, self.online_mlp)
-
             # === Fuse dynamics ===
             # Map output of MLP to the state space
             M = get_output_mapping(
@@ -569,13 +601,8 @@ class NeuralMPC(RecedingHorizonBase):
             )
 
             # Combine nominal dynamics with neural dynamics
-           
-            if self.model_options["plus_neural"]:
-                ds += M @ (mlp_out + mlp_online_out)
-            elif self.model_options.get("minus_neural", False):
-                ds -= M @ (mlp_out + mlp_online_out)
-            else:
-                raise ValueError("Either 'minus_neural' or 'plus_neural' must be set to True.")
+            ds += M @ mlp_out
+
             # === Time-dependent control law ===
             # Add a symbolic counter to the state vector
             # Assume last state entry is reserved for step_count
@@ -684,33 +711,6 @@ class NeuralMPC(RecedingHorizonBase):
         model.p = parameters
 
         return model
-
-    def _append_online_mlp_weights(self, online_mlp, parameters):
-        n_weights = sum(p.numel() for p in online_mlp.parameters())
-        self.online_weights_sym = ca.MX.sym("online_weights", n_weights)
-        self.online_weights_start_idx = parameters.size()[0]
-        parameters = ca.vertcat(parameters, self.online_weights_sym)
-        self.online_weights_end_idx = parameters.size()[0]
-        return parameters
-
-    def _build_online_mlp_casadi(self, x, weights_flat, mlp_ref):
-        """Reconstruit le forward pass CasADi avec poids symboliques"""
-        idx = 0
-        h = x
-        for layer in mlp_ref.net:
-            if isinstance(layer, nn.Linear):
-                fan_in, fan_out = layer.in_features, layer.out_features
-                n_w = fan_out * fan_in
-                n_b = fan_out
-
-                W = ca.reshape(weights_flat[idx:idx+n_w], fan_out, fan_in)
-                b = weights_flat[idx+n_w:idx+n_w+n_b]
-                idx += n_w + n_b
-
-                h = W @ h + b
-            elif isinstance(layer, nn.Tanh):
-                h = ca.tanh(h)
-        return h
 
     def get_cost_function(self, lin_acc_w=None, ang_acc_b=None):
         #### ONLY FOR NMPCServo() FOR NOW ####
@@ -1135,6 +1135,13 @@ class NeuralMPC(RecedingHorizonBase):
             raise ValueError("Physical parameters are not as expected. Please check the physical model.")
         self.acados_parameters[:, 4 : 4 + len(self.phys.physical_param_list)] = np.array(self.phys.physical_param_list)
 
+        # Initialise MLP weight parameters from the current PyTorch model weights.
+        # Required when online_neural_mpc=True (parametric path); harmless otherwise.
+        if hasattr(self, 'mlp_weight_start_idx'):
+            self.acados_parameters[
+                :, self.mlp_weight_start_idx : self.mlp_weight_end_idx
+            ] = self._mlp_weight_init
+
         ocp.parameter_values = self.acados_parameters[0, :]
         # =====================================================================
 
@@ -1168,7 +1175,7 @@ class NeuralMPC(RecedingHorizonBase):
         return solver
     # fmt: on
 
-    def track(self, ocp_solver, xr, ur, u_prev, x_current):
+    def track(self, ocp_solver, xr, ur, u_prev):
         """
         Tracks a trajectory defined by xr and ur, where xr is the reference state and ur is the reference control input.
         :param xr: Reference state trajectory (N+1, state_dim)
@@ -1202,19 +1209,6 @@ class NeuralMPC(RecedingHorizonBase):
             self.acados_parameters[
                 ocp_solver.N, self.external_state_ref_start_idx : self.external_state_ref_end_idx
             ] = xr[ocp_solver.N, :]
-
-
-        # Online MLP — injection des poids et mise à jour du replay buffer
-        if self.use_mlp:
-            online_weights = self.online_learner.get_weights_flat()
-            for j in range(ocp_solver.N + 1):
-                self.acados_parameters[
-                    j,
-                    self.online_weights_start_idx:self.online_weights_end_idx
-                ] = online_weights
-            tracking_error = x_current - xr[0, :]
-            self.replay_buffer.push(x_current, u_prev, tracking_error)
-
 
     def append_delay(self, delay: int = 0):
         """

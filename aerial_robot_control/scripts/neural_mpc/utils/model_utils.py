@@ -270,6 +270,54 @@ def set_temporal_states_as_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolve
     raise NotImplementedError("TODO.")
 
 
+def _build_mlp_weight_vector(neural_model) -> np.ndarray:
+    """
+    Flatten all trainable parameters of the MLP into a single 1-D numpy array,
+    using the same order and column-major (Fortran) flattening that was used when
+    building the symbolic CasADi parameter vector in create_acados_model().
+
+    Order per layer (same as the parametric CasADi path):
+      caLinear   : W.flatten(order='F')  then  b.flatten()
+      caBatchNorm1D : gamma.flatten()    then  beta.flatten()
+    Activation / dropout layers have no trainable parameters and are skipped.
+    """
+    from network_architecture.casadi_layers import caLinear, caBatchNorm1D
+    parts = []
+    for layer in neural_model.fully_connected_stack:
+        if isinstance(layer, caLinear):
+            parts.append(layer.weight.detach().cpu().numpy().flatten(order='F'))
+            if layer.bias is not None:
+                parts.append(layer.bias.detach().cpu().numpy().flatten())
+        elif isinstance(layer, caBatchNorm1D):
+            parts.append(layer.weight.detach().cpu().numpy().flatten())  # gamma
+            parts.append(layer.bias.detach().cpu().numpy().flatten())    # beta
+    return np.concatenate(parts)
+
+
+def set_mlp_params(neural_mpc) -> None:
+    """
+    Sync the current PyTorch weights of neural_mpc.neural_model into
+    neural_mpc.acados_parameters[:, mlp_weight_start_idx : mlp_weight_end_idx].
+
+    Call this after OnlineTrainer.learn(). The parameter-setting loop
+        for j in range(N+1): ocp_solver.set(j, "p", acados_parameters[j, :])
+    at the top of the next MPC iteration will forward the updated weights to
+    the running acados solver automatically.
+
+    Only applicable when model_options["online_neural_mpc"] = True
+    (i.e. the solver was built with the parametric-weight CasADi path).
+    """
+    if not hasattr(neural_mpc, 'mlp_weight_start_idx'):
+        raise AttributeError(
+            "set_mlp_params() requires the solver to have been built with "
+            "model_options['online_neural_mpc']=True and linearize_mlp=False."
+        )
+    weight_flat = _build_mlp_weight_vector(neural_mpc.neural_model)
+    neural_mpc.acados_parameters[
+        :, neural_mpc.mlp_weight_start_idx : neural_mpc.mlp_weight_end_idx
+    ] = weight_flat
+
+
 def get_output_mapping(state_dim, y_reg_dims, label_transform=False, only_vz=False):
     M = np.zeros((state_dim, len(y_reg_dims)))
     for i in range(len(y_reg_dims)):

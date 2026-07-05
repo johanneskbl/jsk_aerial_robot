@@ -36,6 +36,47 @@ def apply_cog_disturbance(sim_solver: AcadosSimSolver, neural_mpc: NeuralMPC, co
     sim_solver.acados_sim.parameter_values[start_idx:end_idx] = cog_dist
 
 
+def apply_extra_mass(
+    sim_solver: AcadosSimSolver,
+    neural_mpc: NeuralMPC,
+    extra_mass_kg: float,
+    g: float = 9.81,
+) -> None:
+    """
+    Model a fixed extra payload rigidly attached at the CoG.
+
+    Adds a constant downward gravitational force from the extra mass into the
+    CoG disturbance parameter slot.  No torque is produced because the mass
+    sits exactly at the center of gravity.
+
+    World-frame convention: z-up, so the extra gravitational force is negative
+    in the z component: force_z = -extra_mass_kg * g.
+
+    Parameters
+    ----------
+    sim_solver    : AcadosSimSolver — simulator solver whose parameter values
+                    will be updated.
+    neural_mpc    : NeuralMPC — provides cog_dist_start_idx / cog_dist_end_idx
+                    to locate the disturbance slot in the parameter vector.
+    extra_mass_kg : payload mass in kilograms (must be >= 0).
+    g             : gravitational acceleration in m/s² (default 9.81).
+    The function must be called AFTER sim_solver.set("p", ...) so that the
+    disturbance is overlaid on top of the base parameters instead of being
+    overwritten.  It calls sim_solver.set("p", ...) internally to write the
+    disturbance directly into the C-level solver buffer.
+    The MPC controller's acados_parameters are not modified, so the controller
+    continues to plan as if no external disturbance is present.
+    """
+    start_idx  = neural_mpc.cog_dist_start_idx
+    end_idx    = neural_mpc.cog_dist_end_idx
+    # Build simulator-only params: copy the base controller vector and overlay
+    # the constant extra-mass gravity force (controller copy is left unchanged).
+    sim_params = neural_mpc.acados_parameters[0, :].copy()
+    sim_params[start_idx : end_idx] = 0.0
+    sim_params[start_idx + 2]       = -extra_mass_kg * g  # world z-up → downward
+    sim_solver.set("p", sim_params)
+
+
 def apply_motor_noise(sim_solver: AcadosSimSolver, neural_mpc: NeuralMPC, u_cmd):
     # Thrust noise
     if u_cmd is None:

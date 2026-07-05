@@ -20,3 +20,4 @@ scienceplots==2.1.1
 cvxpy==1.7.2
 # For network output visualization
 seaborn==0.13.2
+tqdm==4.68.3
