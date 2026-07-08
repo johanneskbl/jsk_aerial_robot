@@ -184,6 +184,7 @@ class QDNMPCReferenceGenerator:
         ftd_ref = [0.0, 0.0, 0.0, 0.0]  # Reference thrust derivative
 
         # Bring servo angle velocities SMOOTHLY to zero x
+        # TODO check if needed?
         # for i in range(4):
         #     ad_ref[i] = -1.0 * current_angles[i]
 

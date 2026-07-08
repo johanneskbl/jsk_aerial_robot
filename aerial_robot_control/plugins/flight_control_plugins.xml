@@ -58,8 +58,11 @@
   </class>
 
 <!-- differential mpc -->
-  <class name="aerial_robot_control/differential_mpc_controller/tilt_mt/servo_thrust_diff_mpc" type="aerial_robot_control::nmpc::TiltMtServoThrustDiffNMPC" base_class_type="aerial_robot_control::ControlBase">
+  <class name="aerial_robot_control/differential_mpc_controller/tilt_mt/servo_thrust_diff_mpc" type="aerial_robot_control::nmpc::TiltMtServoThrustDiffMPC" base_class_type="aerial_robot_control::ControlBase">
     <description>MPC controller for tilt-multirotor with full model and differential controls</description>
+  </class>
+  <class name="aerial_robot_control/differential_mpc_controller/tilt_mt/servo_thrust_diff_second_order_mpc" type="aerial_robot_control::nmpc::TiltMtServoThrustDiffSecondOrderMPC" base_class_type="aerial_robot_control::ControlBase">
+    <description>MPC controller for tilt-multirotor with full model and differential controls as well as second-order actuator dynamics</description>
   </class>
 
 <!-- nominal servo mpc -->

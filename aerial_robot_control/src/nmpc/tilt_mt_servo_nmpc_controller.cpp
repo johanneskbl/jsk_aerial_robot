@@ -14,16 +14,14 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
 {
   BaseMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
-  /* init plugins */
+  initActuatorStates();
+
   initPlugins();
 
-  /* init general parameters */
   initGeneralParams();
 
-  /* init cost weight parameters */
   initNMPCCostW();
 
-  /* init constraints */
   initNMPCConstraints();
 
   /* init dynamic reconfigure */
@@ -60,9 +58,9 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   /* init some values */
   setControlMode();
 
-  initActuatorStates();
   initPredXU(x_u_ref_);
 
+  is_warmup_ = true;
   quat_prev_.setW(1.0);
 
   reset();
@@ -93,11 +91,24 @@ void nmpc::TiltMtServoNMPC::activate()
 
 bool nmpc::TiltMtServoNMPC::update()
 {
-  if (!ControlBase::update())
-    return false;
+  bool control_ready = ControlBase::update();
 
-  this->controlCore();
-  this->sendCmd();
+  // after press activate button, but before takeoff
+  if (!control_ready)
+  {
+    if (navigator_->getNaviState() == aerial_robot_navigation::ARM_ON_STATE)
+    {
+      is_warmup_ = true;
+      controlCore();  // warmup the solver before actual takeoff
+    }
+    return false;
+  }
+  else
+  {
+    is_warmup_ = false;
+    controlCore();
+    sendCmd();
+  }
 
   return true;
 }
@@ -475,7 +486,7 @@ std::vector<double> nmpc::TiltMtServoNMPC::PhysToNMPCParams() const
   return phys_p;
 }
 
-void nmpc::TiltMtServoNMPC::controlCore(bool is_warmup)
+void nmpc::TiltMtServoNMPC::controlCore()
 {
   // restore velocity constraints after hovering
   if (navigator_->getNaviState() == aerial_robot_navigation::HOVER_STATE and has_restored_vel_ == false)
@@ -1118,7 +1129,7 @@ void nmpc::TiltMtServoNMPC::cfgNMPCCallback(NMPCConfig& config, uint32_t level)
   }
 }
 
-double nmpc::TiltMtServoNMPC::getCommand(int idx_u, double T_horizon) const
+double nmpc::TiltMtServoNMPC::getCommand(int idx_u, double T_horizon)
 {
   if (T_horizon == 0)
     return mpc_solver_ptr_->uo_.at(0).at(idx_u);

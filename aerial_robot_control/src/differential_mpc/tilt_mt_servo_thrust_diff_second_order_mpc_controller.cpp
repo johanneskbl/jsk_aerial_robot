@@ -1,50 +1,33 @@
-#include "aerial_robot_control/differential_mpc/tilt_mt_servo_thrust_diff_mpc_controller.h"
+#include "aerial_robot_control/differential_mpc/tilt_mt_servo_thrust_diff_second_order_mpc_controller.h"
 
 namespace aerial_robot_control
 {
 namespace nmpc
 {
-void TiltMtServoThrustDiffMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
-                                                boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
-                                                boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
-                                                boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator,
-                                                double ctrl_loop_du)
+void TiltMtServoThrustDiffSecondOrderMPC::initActuatorStates()
 {
-  TiltMtServoNMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
+  TiltMtServoThrustDiffMPC::initActuatorStates();
 
-  sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &TiltMtServoThrustDiffMPC::callbackESCTelem, this);
-}
-
-void TiltMtServoThrustDiffMPC::initActuatorStates()
-{
-  TiltMtServoNMPC::initActuatorStates();
-  thrust_meas_.resize(motor_num_, 0.0);
-  
+  // Override starting indices for this controller's state-space
   servo_start_idx_ = 13;
-  thrust_start_idx_ = 13 + joint_num_;
-  wrench_state_start_idx_ = 13 + joint_num_ + motor_num_;
+  servo_vel_start_idx_ = 13 + joint_num_;
+  thrust_start_idx_ = 13 + joint_num_ * 2;
+  thrust_vel_start_idx_ = 13 + joint_num_ * 2 + motor_num_;
+  wrench_state_start_idx_ = 13 + joint_num_ * 2 + motor_num_ * 2;
 
-  internal_wrench_b_ = Eigen::VectorXd::Zero(6);
-  
-  uo_prev_.resize(motor_num_ + joint_num_, 0.0);
+  prev_servo_angle_.resize(joint_num_, 0.0);
+  prev_servo_angle_vel_estimate_.resize(joint_num_, 0.0);
+  prev_thrust_meas_.resize(motor_num_, 0.0);
+  prev_thrust_vel_estimate_.resize(motor_num_, 0.0);
 }
 
-void TiltMtServoThrustDiffMPC::initGeneralParams()
-{
-  TiltMtServoNMPC::initGeneralParams();
-
-  ros::NodeHandle motor_nh(nh_, "motor_info");
-  getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
-  getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
-}
-
-void TiltMtServoThrustDiffMPC::initNMPCCostW()
+void TiltMtServoThrustDiffSecondOrderMPC::initNMPCCostW()
 {
   ros::NodeHandle control_nh(nh_, "controller");
   ros::NodeHandle nmpc_nh(control_nh, "nmpc");
 
   /* control parameters with dynamic reconfigure */
-  double Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qt, Qfu, Qtau, Rtd_c, Rad_c;
+  double Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qad, Qt, Qtd, Qfu, Qtau, Rtd_c, Rad_c;
   getParam<double>(nmpc_nh, "Qp_xy", Qp_xy, 300);
   getParam<double>(nmpc_nh, "Qp_z", Qp_z, 400);
   getParam<double>(nmpc_nh, "Qv_xy", Qv_xy, 10);
@@ -54,7 +37,9 @@ void TiltMtServoThrustDiffMPC::initNMPCCostW()
   getParam<double>(nmpc_nh, "Qw_xy", Qw_xy, 5);
   getParam<double>(nmpc_nh, "Qw_z", Qw_z, 5);
   getParam<double>(nmpc_nh, "Qa", Qa, 1);
+  getParam<double>(nmpc_nh, "Qad", Qad, 1.0);
   getParam<double>(nmpc_nh, "Qt", Qt, 1);
+  getParam<double>(nmpc_nh, "Qtd", Qtd, 1);
   getParam<double>(nmpc_nh, "Qfu", Qfu, 0);
   getParam<double>(nmpc_nh, "Qtau", Qtau, 0);
 
@@ -75,10 +60,18 @@ void TiltMtServoThrustDiffMPC::initNMPCCostW()
   mpc_solver_ptr_->setCostWDiagElement(10, Qw_xy);
   mpc_solver_ptr_->setCostWDiagElement(11, Qw_xy);
   mpc_solver_ptr_->setCostWDiagElement(12, Qw_z);
+  // Servo state
   for (int i = servo_start_idx_; i < servo_start_idx_ + joint_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Qa);
+  // Servo velocity state
+  for (int i = servo_vel_start_idx_; i < servo_vel_start_idx_ + joint_num_; ++i)
+    mpc_solver_ptr_->setCostWDiagElement(i, Qad);
+  // Thrust state
   for (int i = thrust_start_idx_; i < thrust_start_idx_ + motor_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Qt);
+  // Thrust velocity cost
+  for (int i = thrust_vel_start_idx_; i < thrust_vel_start_idx_ + motor_num_; ++i)
+    mpc_solver_ptr_->setCostWDiagElement(i, Qtd);
 
   // Wrench state cost
   // NOTE: Include if `self.include_differential_allocation` is set to True in Python file
@@ -97,11 +90,11 @@ void TiltMtServoThrustDiffMPC::initNMPCCostW()
 
   ROS_INFO("MPC cost W initialized:\n",
           "\tQp_xy=%f, Qp_z=%f, Qv_xy=%f, Qv_z=%f, Qq_xy=%f, Qq_z=%f, Qw_xy=%f, Qw_z=%f,\n",
-          "\tQa=%f, Qt=%f, Rtd_c=%f, Rad_c=%f",
-           Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qt, Rtd_c, Rad_c);
+          "\tQa=%f, Qad=%f, Qt=%f, Qfu=%f, Qtau=%f, Qtd=%f, Rtd_c=%f, Rad_c=%f",
+           Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qad, Qt, Qfu, Qtau, Qtd, Rtd_c, Rad_c);
 }
 
-void TiltMtServoThrustDiffMPC::initNMPCConstraints()
+void TiltMtServoThrustDiffSecondOrderMPC::initNMPCConstraints()
 {
   ros::NodeHandle control_nh(nh_, "controller");
   ros::NodeHandle nmpc_nh(control_nh, "nmpc");
@@ -120,21 +113,34 @@ void TiltMtServoThrustDiffMPC::initNMPCConstraints()
   getParam<double>(nmpc_nh, "a_vel_min", servo_vel_min_, -4.0);
   getParam<double>(nmpc_nh, "a_vel_max", servo_vel_max_, 4.0);
 
-  //  TODO: this should be set in flight_navigation; don't know why set 0.2 results solver failure
+  // TODO: this should be set in flight_navigation
   getParam<double>(control_nh, "vel_limit_takeoff", vel_limit_takeoff_, 1.0);  // m/s
 
   // lbx and ubx
   std::vector<int> idxbx = mpc_solver_ptr_->getConstraintsIdxbx();
   std::vector<int> idxbx_desired = { 3, 4, 5, 10, 11, 12 };
-  idxbx_desired.resize(6 + joint_num_ + motor_num_);
+  idxbx_desired.resize(6 + joint_num_ * 2 + motor_num_ * 2);
+  // Servo state
   for (int i = 0; i < joint_num_; i++)
   {
     idxbx_desired[6 + i] = 13 + i;
   }
-  for (int i = 0; i < motor_num_; i++)
+  // Servo velocity state
+  for (int i = 0; i < joint_num_; i++)
   {
     idxbx_desired[6 + joint_num_ + i] = 13 + joint_num_ + i;
   }
+  // Thrust state
+  for (int i = 0; i < motor_num_; i++)
+  {
+    idxbx_desired[6 + joint_num_ * 2 + i] = 13 + joint_num_ * 2 + i;
+  }
+  // Thrust velocity state
+  for (int i = 0; i < motor_num_; i++)
+  {
+    idxbx_desired[6 + joint_num_ * 2 + motor_num_ + i] = 13 + joint_num_ * 2 + motor_num_ + i;
+  }
+
 
   if (idxbx.size() != idxbx_desired.size() || !std::equal(idxbx.begin(), idxbx.end(), idxbx_desired.begin()))
   {
@@ -143,17 +149,31 @@ void TiltMtServoThrustDiffMPC::initNMPCConstraints()
 
   std::vector<double> lbx = { vel_min_, vel_min_, vel_min_, body_rate_min, body_rate_min, body_rate_min };
   std::vector<double> ubx = { vel_max_, vel_max_, vel_max_, body_rate_max, body_rate_max, body_rate_max };
-  lbx.resize(6 + joint_num_ + motor_num_);
-  ubx.resize(6 + joint_num_ + motor_num_);
+  lbx.resize(6 + joint_num_ * 2 + motor_num_ * 2);
+  ubx.resize(6 + joint_num_ * 2 + motor_num_ * 2);
+  // Servo state
   for (int i = 0; i < joint_num_; i++)
   {
     lbx[6 + i] = servo_angle_min_;
     ubx[6 + i] = servo_angle_max_;
   }
+  // Servo velocity state
+  for (int i = 0; i < joint_num_; i++)
+  {
+    lbx[6 + joint_num_ + i] = servo_vel_min_;
+    ubx[6 + joint_num_ + i] = servo_vel_max_;
+  }
+  // Thrust state
   for (int i = 0; i < motor_num_; i++)
   {
-    lbx[6 + joint_num_ + i] = thrust_ctrl_min_;
-    ubx[6 + joint_num_ + i] = thrust_ctrl_max_;
+    lbx[6 + joint_num_ * 2 + i] = thrust_ctrl_min_;
+    ubx[6 + joint_num_ * 2 + i] = thrust_ctrl_max_;
+  }
+  // Thrust velocity state
+  for (int i = 0; i < motor_num_; i++)
+  {
+    lbx[6 + joint_num_ * 2 + motor_num_ + i] = thrust_vel_min_;
+    ubx[6 + joint_num_ * 2 + motor_num_ + i] = thrust_vel_max_;
   }
   mpc_solver_ptr_->setConstraintsLbx(lbx);
   mpc_solver_ptr_->setConstraintsUbx(ubx);
@@ -208,236 +228,86 @@ void TiltMtServoThrustDiffMPC::initNMPCConstraints()
            servo_angle_min_, servo_angle_max_, servo_vel_min_, servo_vel_max_);
 }
 
-void TiltMtServoThrustDiffMPC::callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg)
-{  // TODO: support different motor number
-  double krpm = (double)msg->esc_telemetry_1.rpm * 0.001;
-  thrust_meas_[0] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
+void TiltMtServoThrustDiffSecondOrderMPC::allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
+                                                             const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b,
+                                                             const Eigen::VectorXd& ref_wrench_b, vector<double>& x,
+                                                             vector<double>& u)
+{
+  TiltMtServoThrustDiffMPC::allocateToXU(ref_pos_i, ref_vel_i, ref_quat_ib, ref_omega_b, ref_wrench_b, x, u);
 
-  krpm = (double)msg->esc_telemetry_2.rpm * 0.001;
-  thrust_meas_[1] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
+  // ############ Singularity point incentive ############
+  // Fix singularity point rotation by penalizing pi/2 angle in servo velocity reference
+  // Servo angle velocity reference
+  for (int i = 0; i < joint_num_; i++)
+  {
+    x.at(servo_vel_start_idx_ + i) = - 0.5*std::sin(joint_angles_[i]);
+  }
 
-  krpm = (double)msg->esc_telemetry_3.rpm * 0.001;
-  thrust_meas_[2] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
-
-  krpm = (double)msg->esc_telemetry_4.rpm * 0.001;
-  thrust_meas_[3] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
+  // Thrust velocity
+  for (int i = 0; i < motor_num_; i++)
+  {
+    x.at(thrust_vel_start_idx_ + i) = 0.0;
+  }
 }
 
-void TiltMtServoThrustDiffMPC::allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
-                                                  const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b,
-                                                  const Eigen::VectorXd& ref_wrench_b, vector<double>& x,
-                                                  vector<double>& u)
+std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_centric)
 {
-  x.at(0) = ref_pos_i.x();
-  x.at(1) = ref_pos_i.y();
-  x.at(2) = ref_pos_i.z();
-  x.at(3) = ref_vel_i.x();
-  x.at(4) = ref_vel_i.y();
-  x.at(5) = ref_vel_i.z();
-  x.at(6) = ref_quat_ib.w();
-  x.at(7) = ref_quat_ib.x();
-  x.at(8) = ref_quat_ib.y();
-  x.at(9) = ref_quat_ib.z();
-  x.at(10) = ref_omega_b.x();
-  x.at(11) = ref_omega_b.y();
-  x.at(12) = ref_omega_b.z();
+  auto bx0 = TiltMtServoThrustDiffMPC::meas2VecX(is_ee_centric);
 
-  // Servo angle and thrust reference
-  // NOTE: Not to be used when including differential allocation because the wrench can be directly used as 
-  // reference without problematic servo angle mapping 
-  Eigen::VectorXd x_lambda = alloc_mat_pinv_ * ref_wrench_b;
-  std::vector<double> ft_ref_vec(motor_num_);
-  std::vector<double> a_ref_vec(joint_num_);
-  for (int i = 0; i < motor_num_; i++)
+  if (!is_warmup_)
   {
-    a_ref_vec[i] = atan2(x_lambda(2 * i), x_lambda(2 * i + 1));  // Contains discontinuities
-    ft_ref_vec[i] = sqrt(x_lambda(2 * i) * x_lambda(2 * i) + x_lambda(2 * i + 1) * x_lambda(2 * i + 1));
-    x.at(servo_start_idx_ + i) = a_ref_vec[i];
-    x.at(thrust_start_idx_ + i) = ft_ref_vec[i];
-  }
-
-  // Internal wrench state reference
-  // NOTE: Include if `self.include_differential_allocation` is set to True in Python file
-  // x.at(wrench_state_start_idx_ + 0) = ref_wrench_b(0);
-  // x.at(wrench_state_start_idx_ + 1) = ref_wrench_b(1);
-  // x.at(wrench_state_start_idx_ + 2) = ref_wrench_b(2);
-  // x.at(wrench_state_start_idx_ + 3) = ref_wrench_b(3);
-  // x.at(wrench_state_start_idx_ + 4) = ref_wrench_b(4);
-  // x.at(wrench_state_start_idx_ + 5) = ref_wrench_b(5);
-  
-  // Zero-out control input since control input is thrust and servo derivative
-  for (int i = 0; i < motor_num_ + joint_num_; i++)
-  {
-    u.at(i) = 0.0;
-  }
-
-  // ======================================================================================
-  // ############ Heuristic allocation ############
-  if (alloc_type_ == 0)
-    return;
-
-  // 2) check if one rotor's thrust is less than threshold and flip backwards
-  std::vector<int> rotor_idx_vec;
-  for (int i = 0; i < motor_num_; i++)
-  {
-    if (ft_ref_vec[i] > ft_thresh_)
-      continue;
-
-    if (a_ref_vec[i] >= -M_PI_2 && a_ref_vec[i] <= M_PI_2)
-      continue;
-
-    rotor_idx_vec.push_back(i);
-  }
-
-  if (rotor_idx_vec.empty())
-    return;
-
-  int rotor_idx;
-  if (rotor_idx_vec.size() > 1)
-  {
-    double max_ft = 0.0;
-    int max_rotor_idx = -1;
-    for (const auto& idx : rotor_idx_vec)
+    // Servo velocity estimate
+    for (int i = 0; i < joint_num_; i++)
     {
-      if (ft_ref_vec[idx] > max_ft)
-      {
-        max_ft = ft_ref_vec[idx];
-        max_rotor_idx = idx;
-      }
-    }
-    rotor_idx = max_rotor_idx;
+      // ==== MODEL ====
+      double last_servo_cmd = uo_prev_.at(motor_num_ + i);
+      // TODO is this really correctly computing the velocity???
+      double servo_angle_velocity = (last_servo_cmd - joint_angles_[i]) / t_servo_;
 
-    ROS_WARN(
-        "More than one rotor is below threshold and flip backwards! Select rotor %d with thrust %.2f as the "
-        "fixed rotor.",
-        rotor_idx, max_ft);
+      // ==== NUMERICAL DERIVATIVE ====
+      // double servo_angle_velocity = (joint_angles_[i] - prev_servo_angles_[i]) / du_;
+      // prev_servo_angles_[i] = servo_angles_[i];
+
+      // ==== FILTERED NUMERICAL DERIVATIVE ====
+      // double weight = 0.9;
+      // auto servo_angle_velocity = weight * prev_servo_angle_vel_estimate_.at(i) + (1-weight) * (joint_angles_[i] - prev_servo_angle_.at(i)) * ctrl_loop_du_;
+      // prev_servo_angle_.at(i) = joint_angles_[i];
+      // prev_servo_angle_vel_estimate_.at(i) = servo_angle_velocity;
+
+      bx0[13 + joint_num_ + i] = servo_angle_velocity;
+    }
+
+    // Thrust velocity estimate
+    for (int i = 0; i < motor_num_; i++)
+    {
+      // ==== MODEL ====
+      double last_thrust_c = uo_prev_.at(i);
+      double thrust_velocity = (last_thrust_c - thrust_meas_[i] + 0.2) / t_rotor_;  // 0.2 correction factor for model mismatch
+
+      // ==== NUMERICAL DERIVATIVE ====
+      // double thrust_velocity = (thrust_meas_[i] - prev_thrust_meas_[i]) / du_;
+      // prev_thrust_meas_[i] = thrust_meas_[i];
+
+      // ==== FILTERED NUMERICAL DERIVATIVE ====
+      // auto thrust_velocity = 0.7 * prev_thrust_vel_estimate_.at(i) + 0.3 * (thrust_meas_[i] - prev_thrust_meas_[i]) / ctrl_loop_du_;
+      // prev_thrust_meas_.at(i) = thrust_meas_[i];
+      // prev_thrust_vel_estimate_.at(i) = thrust_velocity;
+
+      bx0[13 + joint_num_ * 2 + motor_num_ + i] = thrust_velocity;
+    }
   }
   else
   {
-    rotor_idx = rotor_idx_vec.at(0);
+    for (int i = 0; i < joint_num_; i++)
+      bx0[13 + joint_num_ + i] = 0.0;
+    for (int i = 0; i < motor_num_; i++)
+      bx0[13 + joint_num_ * 2 + motor_num_ + i] = 0.0;
   }
-
-  // 3) if rotor_idx is not empty, maintain the thrust and modify the angle
-  double ft_stop_rotor = ft_ref_vec[rotor_idx];
-  double alpha_stop_rotor = M_PI_2 - acos(x_lambda(2 * rotor_idx) / ft_thresh_);
-
-  // 4) re-alloc
-  allocateToXUwOneFixedRotor(rotor_idx, ft_stop_rotor, alpha_stop_rotor, ref_wrench_b, x, u);
-}
-
-void TiltMtServoThrustDiffMPC::allocateToXUwOneFixedRotor(int fix_rotor_idx, double fix_ft, double fix_alpha,
-                                                          const VectorXd& ref_wrench_b, vector<double>& x,
-                                                          vector<double>& u)
-{
-  double fix_ft_x = fix_ft * sin(fix_alpha);
-  double fix_ft_y = fix_ft * cos(fix_alpha);
-
-  // 1) construct tgt_wrench from z_from_rotor
-  Eigen::VectorXd z_from_rotor = Eigen::VectorXd::Zero(motor_num_ * 2);
-  z_from_rotor(2 * fix_rotor_idx) = fix_ft_x;
-  z_from_rotor(2 * fix_rotor_idx + 1) = fix_ft_y;
-  Eigen::VectorXd tgt_wrench_from_rotor = alloc_mat_ * z_from_rotor;
-
-  // 2) calculate alloc_mat with this rotor's contribution
-  Eigen::VectorXd tgt_wrench_modified = ref_wrench_b - tgt_wrench_from_rotor;
-
-  // 3) calculate the allocation matrix without this rotor, which is 6*6
-  if (fix_rotor_idx != rotor_idx_prev_)
-  {
-    Eigen::MatrixXd alloc_mat_del_rotor(alloc_mat_.rows(), alloc_mat_.cols() - 2);
-    int j = 0;
-    for (int k = 0; k < alloc_mat_.cols(); ++k)
-    {
-      if (k == 2 * fix_rotor_idx || k == 2 * fix_rotor_idx + 1)
-        continue;
-      alloc_mat_del_rotor.col(j++) = alloc_mat_.col(k);
-    }
-    alloc_mat_del_rotor_inv_ = alloc_mat_del_rotor.inverse();
-  }
-
-  // 4) reconstruct the z output
-  Eigen::VectorXd z_except_rotor = alloc_mat_del_rotor_inv_ * tgt_wrench_modified;
-
-  // 5) at the place of 2*fix_rotor_idx, insert 2 numbers to z_except_rotor
-  Eigen::VectorXd z_final(motor_num_ * 2);
-  z_final.head(2 * fix_rotor_idx) = z_except_rotor.head(2 * fix_rotor_idx);
-  z_final(2 * fix_rotor_idx) = fix_ft_x;
-  z_final(2 * fix_rotor_idx + 1) = fix_ft_y;
-  z_final.tail(z_except_rotor.size() - 2 * fix_rotor_idx) =
-      z_except_rotor.tail(z_except_rotor.size() - 2 * fix_rotor_idx);
-
-  // 6) reconstruct the thrust and servo angle
-  // check motor_num_ == joint_num_ before this function is called
-  if (motor_num_ != joint_num_)
-  {
-    ROS_ERROR("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
-    throw std::runtime_error("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
-  }
-  for (int i = 0; i < motor_num_; i++)
-  {
-    const double ft = sqrt(z_final(2 * i) * z_final(2 * i) + z_final(2 * i + 1) * z_final(2 * i + 1));
-    const double alpha = atan2(z_final(2 * i), z_final(2 * i + 1));
-    x.at(servo_start_idx_ + i) = ensureOneServoContinuity(alpha, i);
-    x.at(thrust_start_idx_ + i) = ft;
-  }
-
-  // if the fixed rotor is the same with previous one, no need to recalculate the allocation matrix.
-  rotor_idx_prev_ = fix_rotor_idx;
-}
-
-std::vector<double> TiltMtServoThrustDiffMPC::meas2VecX(bool is_ee_centric)
-{
-  auto bx0 = TiltMtServoNMPC::meas2VecX(is_ee_centric);
-
-  for (int i = 0; i < motor_num_; i++)
-    bx0[thrust_start_idx_ + i] = thrust_meas_[i];
-
-  // Internal wrench as state
-  // NOTE: Include if `self.include_differential_allocation` is set to True in Python file
-  // computeInternalWrenchB();
-  // bx0[wrench_state_start_idx_ + 0] = internal_wrench_b_(0);
-  // bx0[wrench_state_start_idx_ + 1] = internal_wrench_b_(1);
-  // bx0[wrench_state_start_idx_ + 2] = internal_wrench_b_(2);
-  // bx0[wrench_state_start_idx_ + 3] = internal_wrench_b_(3);
-  // bx0[wrench_state_start_idx_ + 4] = internal_wrench_b_(4);
-  // bx0[wrench_state_start_idx_ + 5] = internal_wrench_b_(5);
 
   return bx0;
 }
 
-void TiltMtServoThrustDiffMPC::computeInternalWrenchB()
-{
-  if (alloc_mat_.size() == 0 || thrust_meas_.size() != motor_num_)
-  {
-    ROS_WARN("[NMPC] Allocation matrix is not set or thrust measurement size is not equal to motor number, we cannot compute internal wrench, set it to zero!");
-    internal_wrench_b_ = Eigen::VectorXd::Zero(6);
-    return;
-  }
-
-  // Compute current force and torque from current servo angles and forces
-  Eigen::VectorXd allocation_matrix_input = Eigen::VectorXd::Zero(2 * motor_num_);
-  for (int i = 0; i < motor_num_; ++i)
-  {
-    allocation_matrix_input(2 * i) = thrust_meas_[i] * std::sin(joint_angles_[i]);
-    allocation_matrix_input(2 * i + 1) = thrust_meas_[i] * std::cos(joint_angles_[i]);
-  }
-
-  // Compute current body wrench from current force and torque
-  internal_wrench_b_ = alloc_mat_ * allocation_matrix_input;
-}
-
-double TiltMtServoThrustDiffMPC::getCommand(int idx_u, double T_horizon)
-{
-  // Integrate control input since it is defined as the servo angle and thrust velocity
-  double uo_derivative = mpc_solver_ptr_->uo_.at(0).at(idx_u);
-  // RESET?!?! to avoid blindly integrating?
-  double uo = uo_derivative / ctrl_loop_du_ + uo_prev_.at(idx_u);
-  uo_prev_.at(idx_u) = uo;
-
-  return uo;
-}
-
-void TiltMtServoThrustDiffMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig& config, uint32_t level)
+void TiltMtServoThrustDiffSecondOrderMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig& config, uint32_t level)
 {
   using Levels = aerial_robot_msgs::DynamicReconfigureLevels;
   if (config.nmpc_flag)
@@ -497,10 +367,22 @@ void TiltMtServoThrustDiffMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig&
           ROS_INFO_STREAM("change Qa for NMPC '" << config.Qa << "'");
           break;
         }
+        case Levels::RECONFIGURE_NMPC_Q_AD: {
+          for (int i = 13; i < 13 + joint_num_; ++i)
+            mpc_solver_ptr_->setCostWDiagElement(i, config.Qad);
+          ROS_INFO_STREAM("change Qad for NMPC '" << config.Qad << "'");
+          break;
+        }
         case Levels::RECONFIGURE_NMPC_Q_T: {
           for (int i = 13 + joint_num_; i < 13 + joint_num_ + motor_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Qt);
           ROS_INFO_STREAM("change Qt for NMPC '" << config.Qt << "'");
+          break;
+        }
+        case Levels::RECONFIGURE_NMPC_Q_TD: {
+          for (int i = 13 + joint_num_; i < 13 + joint_num_ + motor_num_; ++i)
+            mpc_solver_ptr_->setCostWDiagElement(i, config.Qtd);
+          ROS_INFO_STREAM("change Qtd for NMPC '" << config.Qtd << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_FU: {
@@ -546,4 +428,4 @@ void TiltMtServoThrustDiffMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig&
 
 /* plugin registration */
 #include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(aerial_robot_control::nmpc::TiltMtServoThrustDiffMPC, aerial_robot_control::ControlBase);
+PLUGINLIB_EXPORT_CLASS(aerial_robot_control::nmpc::TiltMtServoThrustDiffSecondOrderMPC, aerial_robot_control::ControlBase);

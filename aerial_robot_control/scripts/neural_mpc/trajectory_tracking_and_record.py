@@ -391,7 +391,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
                         dist_dict["cog_dist"] = np.append(
                             dist_dict["cog_dist"],
                             sim_solver.acados_sim.parameter_values[
-                                np.newaxis, neural_mpc.cog_dist_start_idx : neural_mpc.cog_dist_end_idx
+                                np.newaxis, neural_mpc.cog_dist_param_start_idx : neural_mpc.cog_dist_param_end_idx
                             ],
                             axis=0,
                         )

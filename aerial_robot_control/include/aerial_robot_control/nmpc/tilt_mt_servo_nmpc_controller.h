@@ -74,6 +74,7 @@ protected:
   ros::Subscriber sub_set_traj_;
   ros::Subscriber sub_set_fixed_rotor_;
 
+  bool is_warmup_;
   bool is_attitude_ctrl_;
   bool is_body_rate_ctrl_;
   bool is_print_phys_params_;
@@ -147,7 +148,7 @@ protected:
   void modifyVelConstraints(double vel_min, double vel_max) const;
 
   /* update() */
-  void controlCore(bool is_warmup = false) override;
+  void controlCore() override;
   void sendCmd() override;
 
   // controlCore()
@@ -159,7 +160,7 @@ protected:
   virtual void allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
                             const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b,
                             const VectorXd& ref_wrench_b, vector<double>& x, vector<double>& u);
-  void allocateToXUwOneFixedRotor(int fix_rotor_idx, double fix_ft, double fix_alpha, const VectorXd& ref_wrench_b,
+  virtual void allocateToXUwOneFixedRotor(int fix_rotor_idx, double fix_ft, double fix_alpha, const VectorXd& ref_wrench_b,
                                   vector<double>& x, vector<double>& u);
 
   /* callback functions */
@@ -173,7 +174,7 @@ protected:
 
   /* utils */
   // get functions
-  double getCommand(int idx_u, double T_horizon = 0.0) const;
+  virtual double getCommand(int idx_u, double T_horizon = 0.0);
 
   // conversion functions
   std::vector<double> meas2VecX() override

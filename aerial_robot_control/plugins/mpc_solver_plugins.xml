@@ -38,6 +38,9 @@
     <class type="aerial_robot_control::mpc_solver::TiltQdServoThrustDiffMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
         <description>Nonlinear Model Predictive Control with Tilt Qd Servo Thrust Model and Differential Controls.</description>
     </class>
+    <class type="aerial_robot_control::mpc_solver::TiltQdServoThrustDiffSecondOrderMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">
+        <description>Nonlinear Model Predictive Control with Tilt Qd Servo Thrust Model and Differential Controls as well as second-order actuator dynamics.</description>
+    </class>
 
     <!-- nominal servo mpc -->
     <class type="aerial_robot_control::mpc_solver::TiltQdNominalServoMdlMPCSolver" base_class_type="aerial_robot_control::mpc_solver::BaseMPCSolver">

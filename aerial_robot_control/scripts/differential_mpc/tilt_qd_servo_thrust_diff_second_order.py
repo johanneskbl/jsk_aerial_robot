@@ -6,7 +6,7 @@ from nmpc.nmpc_tilt_mt.tilt_qd.qd_nmpc_base import QDNMPCBase
 from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_omni as phys_omni
 
 
-class NMPCTiltQdServoThrustDiff(QDNMPCBase):
+class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
     """
     Controller Name: Tiltable Quadrotor NMPC including Differential Servo and Thrust Model 
     The controller itself is constructed in base class. The control inputs are the rates of the tilt and thrust commands.
@@ -16,17 +16,17 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
 
     def __init__(self, build: bool = True, phys=phys_omni):
         # Model name
-        self.model_name = "tilt_qd_servo_thrust_diff_mdl"
+        self.model_name = "tilt_qd_servo_thrust_diff_second_order_mdl"
         self.phys = phys
         self.num_rotors = 4
 
         self.tilt = True
         self.include_servo_model = True
         self.include_servo_derivative = True
-        self.include_servo_second_order = False
+        self.include_servo_second_order = True
         self.include_thrust_model = True
         self.include_thrust_derivative = True
-        self.include_thrust_second_order = False
+        self.include_thrust_second_order = True
         self.include_differential_allocation = False
         self.include_nullspace_control = False
         self.include_cog_dist_model = False
@@ -59,6 +59,24 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         rot_bt = self._get_rot_wb_ca(self.ee_q[0], self.ee_q[1], self.ee_q[2], self.ee_q[3])
         rot_tb = rot_bt.T
 
+        # Nullspace projection for differential allocation
+        if self.include_nullspace_control:
+            # If using nullspace control, we want to bring our thrusts to thrust_target.
+            # This is 0, but will just reduce the thrust as much as possible without compromising
+            # the main control objective, thanks to the nullspace projection.
+            stacked_actuators = ca.vertcat(self.ft_s, self.a_s)
+            stacked_actuator_velocities = ca.vertcat(self.ftd_s, self.ad_s)
+            target_gain = 0.3
+            thrust_target = 0.0  # Target actuator states (bring prop speed to 0)
+            actuators_target = - target_gain * ca.vertcat(self.ft_s - thrust_target, 0,0,0,0)
+            actuator_velocity_y = ca.simplify(stacked_actuator_velocities - ca.mtimes(nullspace_proj, actuators_target))
+            ftd_s = actuator_velocity_y[0:4]
+            ad_s = actuator_velocity_y[4:8]
+        else:
+            # Without nullspace control, just minimize actuator velocity
+            ftd_s = self.ftd_s
+            ad_s = self.ad_s
+
         state_y = ca.vertcat(
             self.p + rot_wb @ self.ee_p,
             self.v + rot_wb @ skew_w @ self.ee_p,
@@ -68,7 +86,9 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
             qe_z + self.qzr,
             rot_tb @ self.w,
             self.a_s,
+            ad_s,
             self.ft_s,
+            ftd_s,
             # self.fu_b_s,
             # self.tau_u_b_s
         )
@@ -82,34 +102,22 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
 
         # - Nullspace projection
         if self.include_nullspace_control:
-            # If using nullspace control, we want to bring our thrusts to thrust_target.
-            # This is 0, but will just reduce the thrust as much as possible without compromising
-            # the main control objective, thanks to the nullspace projection.
-            stacked_actuator_velocities = ca.vertcat(self.ftd_s, self.ad_s)
-            target_gain = 0.3
-            thrust_target = 0.0  # Target actuator states (bring prop speed to 0)
-            actuators_target = - target_gain * ca.vertcat(self.ft_s - thrust_target, 0,0,0,0)
-
             # TODO Check if correct especially if control_y should be left or right of the minus
             # control_y = ca.simplify(actuator_velocity_y - control_y)
             # control_y = ca.simplify(target_gain * ca.mtimes(ca.mtimes(time_constant_matrix, nullspace_proj), actuators_target) - ca.vertcat(self.ft_c - self.ft_s, self.a_c - self.a_s))
 
             time_contant_matrix_inv = ca.diag(ca.vertcat([1/self.t_rotor]*self.num_rotors, [1/self.t_servo]*self.num_rotors))
-            actuators_target_jacobian = ca.jacobian(actuators_target, stacked_actuator_velocities)
+            actuators_target_jacobian = ca.jacobian(actuators_target, stacked_actuators)
             control_y = ca.simplify(
                 ca.mtimes(time_contant_matrix_inv, ca.vertcat(self.ftd_c - self.ftd_s, self.ad_c - self.ad_s))
                 - ca.mtimes(nullspace_proj_dot, actuators_target)
-                - ca.mtimes(ca.mtimes(nullspace_proj, actuators_target_jacobian), ca.vertcat(self.ftd_s, self.ad_s)) )
+                - ca.mtimes(ca.mtimes(nullspace_proj, actuators_target_jacobian), stacked_actuator_velocities))
         else:
-            # Without nullspace control, just minimize actuator velocity
-            # TODO check if correct!!! (deosnt have a_c and ft_c only ad_c and ftd_c) but also not ad_s and ftd_s to min acc
-            # control_y = ca.vertcat(
-            #     self.ft_c - self.ft_s,
-            #     self.a_c - self.a_s,
-            # )
+            # Without nullspace control, just minimize actuator acceleration
+            # TODO check if correct!!!!!!!!
             control_y = ca.vertcat(
-                self.ftd_c,
-                self.ad_c,
+                self.ftd_c - self.ftd_s,
+                self.ad_c - self.ad_s,
             )
 
         return state_y, state_y_e, control_y

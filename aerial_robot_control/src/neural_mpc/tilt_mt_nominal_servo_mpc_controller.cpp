@@ -65,6 +65,7 @@ void nmpc::TiltMtNominalServoMPC::initialize(ros::NodeHandle nh, ros::NodeHandle
   initActuatorStates();
   initPredXU(x_u_ref_);
 
+  is_warmup_ = true;
   quat_prev_.setW(1.0);
   target_ee_quat_prev_.setW(1.0);
   quat_ref_prev_.assign(mpc_solver_ptr_->NN_ + 1, tf::Quaternion(0,0,0,1));  // (x,y,z,w)
@@ -103,18 +104,20 @@ bool nmpc::TiltMtNominalServoMPC::update()
     // Warm-up the solver & network (if any) before actual takeoff
     if (navigator_->getNaviState() == aerial_robot_navigation::ARM_ON_STATE)
     {
+      is_warmup_ = true;
       double start_time = ros::Time::now().toSec();
-      controlCore(true);
+      controlCore();
       double core_time = ros::Time::now().toSec();
       publishRecording();
       double record_time = ros::Time::now().toSec();
       ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - controlCore(): %.3f ms", (core_time - start_time) * 1000.0);
       ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - publishRecording(): %.3f ms", (record_time - core_time) * 1000.0);
-      return false;
     }
+    return false;
   }
   else
   {
+    is_warmup_ = false;
     double start_time = ros::Time::now().toSec();
     controlCore();
     double core_time = ros::Time::now().toSec();
@@ -507,7 +510,7 @@ std::vector<double> nmpc::TiltMtNominalServoMPC::PhysToMPCParams() const
   return phys_p;
 }
 
-void nmpc::TiltMtNominalServoMPC::controlCore(bool is_warmup)
+void nmpc::TiltMtNominalServoMPC::controlCore()
 // When integrating an I-term in the future, we need to skip the I-term update during warm-up
 {
   // restore velocity constraints after hovering

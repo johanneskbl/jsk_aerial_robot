@@ -90,6 +90,7 @@ protected:
   ros::Subscriber sub_set_traj_;
   ros::Subscriber sub_set_fixed_rotor_;
 
+  bool is_warmup_;
   bool is_attitude_ctrl_;
   bool is_body_rate_ctrl_;
   bool is_print_phys_params_;
@@ -197,7 +198,7 @@ protected:
   void modifyVelConstraints(double vel_min, double vel_max) const;
 
   /* update() */
-  void controlCore(bool is_warmup = false) override;
+  void controlCore() override;
   void sendCmd() override;
   void publishRecording();
 

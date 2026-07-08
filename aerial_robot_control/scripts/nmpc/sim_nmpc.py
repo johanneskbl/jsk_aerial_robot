@@ -60,7 +60,7 @@ def main(args):
             nmpc = NMPCTiltQdServoThrust(phys=phys_art)
         elif args.model == 4:
             nmpc = NMPCTiltQdServoThrustDiff(phys=phys_omni)
-            a_c_int = np.zeros(4)
+            a_c_integ = np.zeros(4)
             ft_c_integ = np.zeros(4)
 
         elif args.model == 21:
@@ -75,7 +75,7 @@ def main(args):
             nmpc = NMPCTiltQdServoOldCost()
         elif args.model == 93:
             nmpc = NMPCTiltQdServoDiff()
-            a_c_int = np.zeros(4)
+            a_c_integ = np.zeros(4)
         elif args.model == 94:
             nmpc = NMPCTiltQdServoDragDist()
         elif args.model == 95:
@@ -230,34 +230,45 @@ def main(args):
 
         # --------- Update state estimation ---------
         # Assemble state from simulation and disturbance estimation
-        if nmpc.include_cog_dist_model and nmpc.include_differential_allocation:
-            x_now = np.zeros(nx)
-            x_now[: nx - 12] = deepcopy(x_now_sim[: nx - 12])
-        elif nmpc.include_cog_dist_model or nmpc.include_differential_allocation:
-            x_now = np.zeros(nx)
-            x_now[: nx - 6] = deepcopy(x_now_sim[: nx - 6])
-        else:
-            x_now = deepcopy(x_now_sim[:nx])  # The dimension of x_now may be smaller than x_now_sim
-
-        # Access thrust state from less indices
-        if (nmpc.include_thrust_model and not nmpc.include_servo_model) and (
-            sim_nmpc.include_servo_model and sim_nmpc.include_thrust_model
-        ):
-            if args.arch == "bi":
-                x_now[13:15] = deepcopy(x_now_sim[15:17])
-            elif args.arch == "tri":
-                x_now[13:16] = deepcopy(x_now_sim[16:19])
-            elif args.arch == "qd":
-                x_now[13:17] = deepcopy(x_now_sim[17:21])
-
-        # Update the body wrench state
-        if nmpc.include_differential_allocation:
-            tilt_angles = x_now[13:17]
-            thrusts = x_now[17:21]
-            current_body_wrench = reference_generator.compute_current_body_wrench(
-                tilt_angles, thrusts
+        x_now = np.zeros(nx)
+        x_now[:12] = deepcopy(x_now_sim[:12])  # x, y, z, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz
+        if nmpc.include_servo_model:
+            # sim_nmpc needs to also include servo model to simulate servo state
+            x_now[nmpc.servo_start_idx:nmpc.servo_end_idx] = deepcopy(
+                x_now_sim[sim_nmpc.servo_start_idx:sim_nmpc.servo_end_idx]
             )
-            x_now[21:27] = current_body_wrench.flatten()
+        if nmpc.include_servo_second_order:
+            # Estimate the current servo derivative for the second-order model
+            a_s = x_now_sim[nmpc.servo_start_idx:nmpc.servo_end_idx]  # Current servo angle state
+            a_c = u_cmd[4:8]  # Current servo angle command
+            ad_s = (a_c - a_s) / t_servo_sim
+            # - Add gaussian noise -
+            ad_s += np.random.normal(0, 0.1, 4)
+            # ----------------------
+            x_now[nmpc.servo_vel_start_idx:nmpc.servo_vel_end_idx] = ad_s  # Current servo angle derivatives
+        if nmpc.include_thrust_model:
+            # sim_nmpc needs to also include thrust model to simulate thrust state
+            x_now[nmpc.thrust_start_idx:nmpc.thrust_end_idx] = deepcopy(
+                x_now_sim[sim_nmpc.thrust_start_idx:sim_nmpc.thrust_end_idx]
+            )
+        if nmpc.include_thrust_second_order:
+            # Estimate the current thrust derivative for the second-order model
+            ft_s = x_now_sim[nmpc.thrust_start_idx:nmpc.thrust_end_idx]  # Current thrust state
+            ft_c = u_cmd[0:4]  # Current thrust command
+            ftd_s = (ft_c - ft_s) / t_rotor_sim
+            # - Add gaussian noise -
+            ftd_s += np.random.normal(0, 1, 4)
+            # ----------------------
+            x_now[nmpc.thrust_vel_start_idx:nmpc.thrust_vel_end_idx] = ftd_s  # Current thrust derivatives
+        if nmpc.include_differential_allocation:
+            # Calculate the body wrench state
+            tilt_angles = x_now[nmpc.servo_start_idx : nmpc.servo_end_idx]
+            thrusts = x_now[nmpc.thrust_start_idx : nmpc.thrust_end_idx]
+            current_body_wrench = reference_generator.compute_current_body_wrench(tilt_angles, thrusts)
+            x_now[nmpc.wrench_state_start_idx : nmpc.wrench_state_end_idx] = current_body_wrench.flatten()
+        if nmpc.include_cog_dist_model:
+            # Disturbance state is zeroed out for this simulation
+            x_now[nmpc.cog_dist_state_start_idx : nmpc.cog_dist_state_end_idx] = np.zeros(3)
 
         # --------- Update control target ---------
         target_xyz = np.array([[0.0, 0.0, 1.0]]).T
@@ -359,34 +370,34 @@ def main(args):
             if type(nmpc) is NMPCTiltQdNoServoAcCost:
                 nmpc.update_a_prev(u_cmd.item(4), u_cmd.item(5), u_cmd.item(6), u_cmd.item(7))
 
-            # Nullspace control for differential allocation
-            # TODO: Understand and verify this (especially if indexing is correct)
-            if nmpc.include_differential_allocation:
-                current_servo_angle = x_now[13:17]
-                current_thrust = x_now[17:21]
-                differential_allocation_mat = (
-                    reference_generator.compute_differential_allocation_matrix(
-                        current_servo_angle, current_thrust
-                    )
-                )
-                try:
-                    # Compute nullspace projection matrix
-                    differential_allocation_mat_pinv = np.linalg.pinv(differential_allocation_mat)
-                    nullspace_projection = np.eye(8) - differential_allocation_mat_pinv @ differential_allocation_mat
-                    controls = np.concatenate((current_thrust, current_servo_angle))
-                    # u_cmd -= nullspace_projection @ controls
-                except np.linalg.LinAlgError:
-                    print("Singular allocation matrix encountered. Skipping nullspace optimization for this step.")
+            # Integrate thrust velocity command translating to the thrust command
+            if nmpc.include_thrust_derivative:
+                ft_c_integ += u_cmd[0:4] * ts_ctrl
+                u_cmd[0:4] = ft_c_integ
 
             # Integrate servo angle velocity command translating to the servo angle command
             if nmpc.include_servo_derivative:
-                a_c_int += u_cmd[4:8] * nmpc.phys.t_servo  # TODO use time constant or sampling time?
-                u_cmd[4:8] = a_c_int  # convert from delta input to real input
+                a_c_integ += u_cmd[4:8] * ts_ctrl
+                u_cmd[4:8] = a_c_integ  # convert from delta input to real input
 
-            # Integrate thrust velocity command translating to the thrust command
-            if nmpc.include_thrust_derivative:
-                ft_c_integ += u_cmd[0:4] * nmpc.phys.t_rotor
-                u_cmd[0:4] = ft_c_integ
+            # Nullspace control for differential allocation
+            # TODO: Understand and verify this (especially if indexing is correct)
+            # if nmpc.include_nullspace_control:
+            #     current_servo_angle = x_now[nmpc.servo_start_idx : nmpc.servo_end_idx]
+            #     current_thrust = x_now[nmpc.thrust_start_idx : nmpc.thrust_end_idx]
+            #     differential_allocation_mat = (
+            #         reference_generator.compute_differential_allocation_matrix(
+            #             current_servo_angle, current_thrust
+            #         )
+            #     )
+            #     try:
+            #         # Compute nullspace projection matrix
+            #         differential_allocation_mat_pinv = np.linalg.pinv(differential_allocation_mat)
+            #         nullspace_projection = np.eye(8) - differential_allocation_mat_pinv @ differential_allocation_mat
+            #         controls = np.concatenate((current_thrust, current_servo_angle))
+            #         u_cmd -= nullspace_projection @ controls
+            #     except np.linalg.LinAlgError:
+            #         print("Singular allocation matrix encountered. Skipping nullspace optimization for this step.")
 
             # tilt_rate_limit = 4.0  # rad/s
             # u_cmd[4:8] = np.clip(
@@ -439,7 +450,13 @@ def main(args):
         u_history.append(u_cmd.copy())
 
         # --------- Update visualizer ---------
-        viz.update(i, x_now_sim, u_cmd)  # Note: The recording frequency of u_cmd is the same as ts_sim
+        if not nmpc.include_servo_second_order or not nmpc.include_thrust_second_order:
+            viz.update(i, x_now_sim, u_cmd)  # NOTE: The recording frequency of u_cmd is the same as ts_sim
+        else:
+            ad_s = x_now[nmpc.servo_vel_start_idx:nmpc.servo_vel_end_idx]
+            ftd_s = x_now[nmpc.thrust_vel_start_idx:nmpc.thrust_vel_end_idx]
+            actuator_vel = np.concatenate((ftd_s, ad_s))
+            viz.update(i, x_now_sim, actuator_vel)
 
     # ========== Visualize ==========
     if not args.no_viz:

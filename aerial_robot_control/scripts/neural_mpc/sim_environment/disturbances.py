@@ -31,8 +31,8 @@ def apply_cog_disturbance(sim_solver: AcadosSimSolver, neural_mpc: NeuralMPC, co
     mu = np.array([force_mu_x, force_mu_y, force_mu_z, torque_mu, torque_mu, torque_mu])
     std = np.array([force_std_x, force_std_y, force_std_z, torque_std, torque_std, torque_std])
     cog_dist = mu  # np.random.normal(loc=mu, scale=std)
-    start_idx = neural_mpc.cog_dist_start_idx
-    end_idx = neural_mpc.cog_dist_end_idx
+    start_idx = neural_mpc.cog_dist_param_start_idx
+    end_idx = neural_mpc.cog_dist_param_end_idx
     sim_solver.acados_sim.parameter_values[start_idx:end_idx] = cog_dist
 
 

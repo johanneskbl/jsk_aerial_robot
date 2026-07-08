@@ -223,9 +223,9 @@ class NeuralMPC(RecedingHorizonBase):
             # Torque disturbance applied to CoG in Body frame
             self.tau_dp_b = ca.MX.sym("tau_dp_b", 3)
 
-            self.cog_dist_start_idx = parameters.size()[0]
+            self.cog_dist_param_start_idx = parameters.size()[0]
             parameters = ca.vertcat(parameters, self.fdp_w, self.tau_dp_b)
-            self.cog_dist_end_idx = parameters.size()[0]
+            self.cog_dist_param_end_idx = parameters.size()[0]
         else:
             self.fdp_w = ca.MX.zeros(3)
             self.tau_dp_b = ca.MX.zeros(3)

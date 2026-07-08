@@ -84,6 +84,7 @@ void nmpc::TiltMtNeuralServoMPC::initialize(ros::NodeHandle nh, ros::NodeHandle 
   initActuatorStates();
   initPredXU(x_u_ref_);
 
+  is_warmup_ = true;
   quat_prev_.setW(1.0);
   target_ee_quat_prev_.setW(1.0);
   quat_ref_prev_.assign(mpc_solver_ptr_->NN_ + 1, tf::Quaternion(0,0,0,1));  // (x,y,z,w)
@@ -121,7 +122,10 @@ bool nmpc::TiltMtNeuralServoMPC::update()
     // After press activate button, but before takeoff
     // Warm-up the solver & network (if any) before actual takeoff
     if (navigator_->getNaviState() == aerial_robot_navigation::ARM_ON_STATE)
-      controlCore(true);
+    {
+      is_warmup_ = true;
+      controlCore();
+    }
     return false;
   }
   else
@@ -178,6 +182,7 @@ bool nmpc::TiltMtNeuralServoMPC::update()
           - sendCmd:
           - recording: 0.03 ms
     */
+    is_warmup_ = false;
     double start_time = ros::WallTime::now().toSec();
     controlCore();
     double core_time = ros::WallTime::now().toSec();
@@ -716,7 +721,7 @@ std::vector<double> nmpc::TiltMtNeuralServoMPC::PhysToMPCParams() const
   return phys_p;
 }
 
-void nmpc::TiltMtNeuralServoMPC::controlCore(bool is_warmup)
+void nmpc::TiltMtNeuralServoMPC::controlCore()
 // When integrating an I-term in the future, we need to skip the I-term update during warm-up
 {
   // restore velocity constraints after hovering
