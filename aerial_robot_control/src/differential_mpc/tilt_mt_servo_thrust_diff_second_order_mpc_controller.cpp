@@ -75,12 +75,12 @@ void TiltMtServoThrustDiffSecondOrderMPC::initNMPCCostW()
 
   // Wrench state cost
   // NOTE: Include if `self.include_differential_allocation` is set to True in Python file
-  // mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 0, Qfu);
-  // mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 1, Qfu);
-  // mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 2, Qfu);
-  // mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 3, Qtau);
-  // mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 4, Qtau);
-  // mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 5, Qtau);
+  mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 0, Qfu);
+  mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 1, Qfu);
+  mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 2, Qfu);
+  mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 3, Qtau);
+  mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 4, Qtau);
+  mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 5, Qtau);
 
   // Control input cost
   for (int i = mpc_solver_ptr_->NX_; i < mpc_solver_ptr_->NX_ + motor_num_; ++i)
@@ -240,7 +240,8 @@ void TiltMtServoThrustDiffSecondOrderMPC::allocateToXU(const tf::Vector3& ref_po
   // Servo angle velocity reference
   for (int i = 0; i < joint_num_; i++)
   {
-    x.at(servo_vel_start_idx_ + i) = 0.0; // - 0.5*std::sin(joint_angles_[i]);
+    // x.at(servo_vel_start_idx_ + i) = - 0.5*std::sin(joint_angles_[i]);  // Alternative
+    x.at(servo_vel_start_idx_ + i) = 0.0;
   }
 
   // Thrust velocity
