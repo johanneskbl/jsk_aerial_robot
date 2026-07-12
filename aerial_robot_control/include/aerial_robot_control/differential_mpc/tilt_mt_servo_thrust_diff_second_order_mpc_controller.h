@@ -17,14 +17,7 @@ protected:
   double thrust_vel_max_;
   double servo_vel_min_;
   double servo_vel_max_;
-  double krpm_square_to_thrust_ratio_;
-  double krpm_square_to_thrust_bias_;
-  std::vector<double> thrust_meas_;
-  ros::Subscriber sub_esc_telem_;
 
-  Eigen::VectorXd internal_wrench_b_;
-
-  std::vector<double> uo_prev_;
   std::vector<double> prev_servo_angle_;
   std::vector<double> prev_servo_angle_vel_estimate_;
   std::vector<double> prev_thrust_meas_;
@@ -42,7 +35,9 @@ protected:
                     const tf::Vector3& ref_omega_b, const VectorXd& ref_wrench_b, vector<double>& x,
                     vector<double>& u) override;
 
-  virtual void cfgNMPCCallback(NMPCConfig& config, uint32_t level);
+  double getCommand(int idx_u, double T_horizon) override;
+
+  void cfgNMPCCallback(NMPCConfig& config, uint32_t level) override;
 };
 
 }  // namespace nmpc

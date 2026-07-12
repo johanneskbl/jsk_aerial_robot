@@ -52,7 +52,8 @@ class CircleTraj(BaseTraj):
         self.T = 10  # period in seconds
         self.omega = 2 * np.pi / self.T  # angular velocity
         self.z = 0.2  # height in meters
-        self.z += 0.27  # height offset in meters; NOTE: ~0.27 is height of legs to offset coordinate system origin
+        self.z += 0.27  # height offset in meters for legs; NOTE: ~0.27 is height of legs to offset coordinate system origin
+        self.z += 0.26  # height offset for EE tracking
 
     def get_2d_pt(self, t: float) -> Tuple[float, float, float, float, float, float]:
         x = self.r * np.cos(self.omega * t)  # - 1.0
@@ -94,6 +95,7 @@ class LemniscateTraj(BaseTraj):
         self.z_range = 0.3  # range of z
         assert self.z_base > self.z_range, "z_base must be greater than or equal to z_range to avoid hitting the ground."
         self.z_base += 0.27  # height offset in meters; NOTE: ~0.27 is height of legs to offset coordinate system origin
+        self.z_base += 0.26  # height offset for EE tracking
         self.T = 20  # period in seconds
         self.omega = 2 * np.pi / self.T  # angular velocity
 

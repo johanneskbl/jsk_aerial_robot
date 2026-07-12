@@ -24,7 +24,10 @@ from nmpc_tilt_mt.archive.tilt_qd_servo_w_cog_end_dist import NMPCTiltQdServoWCo
 from nmpc_tilt_mt.tilt_qd.tilt_qd_servo_diff import NMPCTiltQdServoDiff
 
 # - Consider second order servo angle and thrust models and optimize w.r.t. theit velocities
-from ..differential_mpc.tilt_qd_servo_thrust_diff import NMPCTiltQdServoThrustDiff
+import os, sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from differential_mpc.tilt_qd_servo_thrust_diff import NMPCTiltQdServoThrustDiff
+from differential_mpc.tilt_qd_servo_thrust_diff_second_order import NMPCTiltQdServoThrustDiffSecondOrder
 
 # - Consider the absolute servo angle command in cost
 from nmpc_tilt_mt.archive.tilt_qd_servo_old_cost import NMPCTiltQdServoOldCost
@@ -47,6 +50,11 @@ from nmpc_tilt_mt.tilt_tri.tilt_tri_servo_dist import NMPCTiltTriServoDist
 
 
 def main(args):
+    ############################################
+    args.model = 5
+    args.sim_model = -1
+    ############################################
+
     # ========== Init ==========
     # ---------- Controller ----------
     if args.arch == "qd":
@@ -60,6 +68,10 @@ def main(args):
             nmpc = NMPCTiltQdServoThrust(phys=phys_art)
         elif args.model == 4:
             nmpc = NMPCTiltQdServoThrustDiff(phys=phys_omni)
+            a_c_integ = np.zeros(4)
+            ft_c_integ = np.zeros(4)
+        elif args.model == 5:
+            nmpc = NMPCTiltQdServoThrustDiffSecondOrder(phys=phys_omni)
             a_c_integ = np.zeros(4)
             ft_c_integ = np.zeros(4)
 
@@ -129,12 +141,16 @@ def main(args):
     # ---------- Simulator ----------
     if args.arch == "qd":
         sim_phy = phys_omni if 20 < args.model < 30 else phys_art
-        if args.sim_model == 0:
+        if args.sim_model == -1:
+            sim_nmpc = nmpc  # Use the same model for simulation and control
+        elif args.sim_model == 0:
             sim_nmpc = NMPCTiltQdServoThrust(phys=sim_phy)  # Consider both the servo delay and the thrust delay
         elif args.sim_model == 1:
             sim_nmpc = NMPCTiltQdServoThrustDrag(phys=sim_phy)  # Also consider drag in wrench formulation
         elif args.sim_model == 2:
-            sim_nmpc = NMPCTiltQdServoThrustDiff(phys=sim_phy)  # Consider differential servo and thrust models
+            sim_nmpc = NMPCTiltQdServoThrustDiff(phys=phys_omni)  # Consider differential servo and thrust models
+        elif args.sim_model == 3:
+            sim_nmpc = NMPCTiltQdServoThrustDiffSecondOrder(phys=phys_omni)
         else:
             raise ValueError(f"Invalid sim model {args.sim_model}.")
 
@@ -188,6 +204,7 @@ def main(args):
 
     # ---------- Visualization ----------
     viz = Visualizer(
+        nmpc,
         args.arch,
         N_sim,
         nx_sim,
@@ -199,16 +216,12 @@ def main(args):
         x_upper_constraints=dict(
             list(zip(ocp_solver.acados_ocp.constraints.idxbx, ocp_solver.acados_ocp.constraints.ubx))
         ),
-        u_lower_constraints=(
-            [nmpc.params["thrust_min"], nmpc.params["a_min"]] if nmpc.tilt else [nmpc.params["thrust_min"]]
+        u_lower_constraints=dict(
+            list(zip(ocp_solver.acados_ocp.constraints.idxbu, ocp_solver.acados_ocp.constraints.lbu))
         ),
-        u_upper_constraints=(
-            [nmpc.params["thrust_max"], nmpc.params["a_max"]] if nmpc.tilt else [nmpc.params["thrust_max"]]
-        ),
-        tilt=nmpc.tilt,
-        include_servo_model=sim_nmpc.include_servo_model,
-        include_thrust_model=sim_nmpc.include_thrust_model,
-        include_cog_dist_model=sim_nmpc.include_cog_dist_model,
+        u_upper_constraints=dict(
+            list(zip(ocp_solver.acados_ocp.constraints.idxbu, ocp_solver.acados_ocp.constraints.ubu))
+        )
     )
 
     # Prepare containers to record simulation data (x and u) for future comparison
@@ -231,7 +244,7 @@ def main(args):
         # --------- Update state estimation ---------
         # Assemble state from simulation and disturbance estimation
         x_now = np.zeros(nx)
-        x_now[:12] = deepcopy(x_now_sim[:12])  # x, y, z, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz
+        x_now[:13] = deepcopy(x_now_sim[:13])  # x, y, z, vx, vy, vz, qw, qx, qy, qz, wx, wy, wz
         if nmpc.include_servo_model:
             # sim_nmpc needs to also include servo model to simulate servo state
             x_now[nmpc.servo_start_idx:nmpc.servo_end_idx] = deepcopy(
@@ -239,9 +252,13 @@ def main(args):
             )
         if nmpc.include_servo_second_order:
             # Estimate the current servo derivative for the second-order model
-            a_s = x_now_sim[nmpc.servo_start_idx:nmpc.servo_end_idx]  # Current servo angle state
-            a_c = u_cmd[4:8]  # Current servo angle command
-            ad_s = (a_c - a_s) / t_servo_sim
+            if sim_nmpc.include_servo_derivative:
+                # Simulator has the servo velocity as a state, use it directly
+                ad_s = deepcopy(x_now_sim[sim_nmpc.servo_vel_start_idx:sim_nmpc.servo_vel_end_idx])
+            else:
+                a_s = x_now_sim[sim_nmpc.servo_start_idx:sim_nmpc.servo_end_idx]  # Current servo angle state
+                a_c = u_cmd[4:8]  # Current servo angle command
+                ad_s = (a_c - a_s) / t_servo_sim
             # - Add gaussian noise -
             ad_s += np.random.normal(0, 0.1, 4)
             # ----------------------
@@ -253,9 +270,13 @@ def main(args):
             )
         if nmpc.include_thrust_second_order:
             # Estimate the current thrust derivative for the second-order model
-            ft_s = x_now_sim[nmpc.thrust_start_idx:nmpc.thrust_end_idx]  # Current thrust state
-            ft_c = u_cmd[0:4]  # Current thrust command
-            ftd_s = (ft_c - ft_s) / t_rotor_sim
+            if sim_nmpc.include_thrust_derivative:
+                # Simulator has the thrust velocity as a state, use it directly
+                ftd_s = deepcopy(x_now_sim[sim_nmpc.thrust_vel_start_idx:sim_nmpc.thrust_vel_end_idx])
+            else:
+                ft_s = x_now_sim[sim_nmpc.thrust_start_idx:sim_nmpc.thrust_end_idx]  # Current thrust state
+                ft_c = u_cmd[0:4]  # Current thrust command
+                ftd_s = (ft_c - ft_s) / t_rotor_sim
             # - Add gaussian noise -
             ftd_s += np.random.normal(0, 1, 4)
             # ----------------------
@@ -317,6 +338,8 @@ def main(args):
         # Compute reference trajectory from target pose
         xr, ur = reference_generator.compute_trajectory(target_xyz, target_rpy=target_rpy)
 
+        if not args.no_viz and args.plot_type == 0:
+            viz.update_ref(i, xr[0, :], ur[0, :])
         if args.plot_type == 2:
             if nx > 13:
                 xr[:, 13:] = 0.0
@@ -362,23 +385,18 @@ def main(args):
                 print(f"Round {i}: acados ocp_solver returned status {ocp_solver.status}. Exiting.")
                 break
 
-        comp_time_end = time.time()
-        viz.comp_time[i] = (comp_time_end - comp_time_start) * 1000.0  # in ms
+            if type(sim_nmpc) is not NMPCTiltQdServoThrustDiff and \
+               type(sim_nmpc) is not NMPCTiltQdServoThrustDiffSecondOrder:
+                # If simulator is also a differential model, the control inputs stay as the derivative
+                # Integrate thrust velocity command translating to the thrust command
+                if nmpc.include_thrust_derivative:
+                    ft_c_integ += u_cmd[0:4] * ts_ctrl
+                    u_cmd[0:4] = ft_c_integ
 
-        if args.arch == "qd":
-            # Use previous servo angle as reference
-            if type(nmpc) is NMPCTiltQdNoServoAcCost:
-                nmpc.update_a_prev(u_cmd.item(4), u_cmd.item(5), u_cmd.item(6), u_cmd.item(7))
-
-            # Integrate thrust velocity command translating to the thrust command
-            if nmpc.include_thrust_derivative:
-                ft_c_integ += u_cmd[0:4] * ts_ctrl
-                u_cmd[0:4] = ft_c_integ
-
-            # Integrate servo angle velocity command translating to the servo angle command
-            if nmpc.include_servo_derivative:
-                a_c_integ += u_cmd[4:8] * ts_ctrl
-                u_cmd[4:8] = a_c_integ  # convert from delta input to real input
+                # Integrate servo angle velocity command translating to the servo angle command
+                if nmpc.include_servo_derivative:
+                    a_c_integ += u_cmd[4:8] * ts_ctrl
+                    u_cmd[4:8] = a_c_integ  # convert from delta input to real input
 
             # Nullspace control for differential allocation
             # TODO: Understand and verify this (especially if indexing is correct)
@@ -411,6 +429,15 @@ def main(args):
             #     -thrust_rate_limit * 0.0942 + current_thrust,
             #     thrust_rate_limit * 0.0942 + current_thrust,
             # )
+
+
+        comp_time_end = time.time()
+        viz.comp_time[i] = (comp_time_end - comp_time_start) * 1000.0  # in ms
+
+        if args.arch == "qd":
+            # Use previous servo angle as reference
+            if type(nmpc) is NMPCTiltQdNoServoAcCost:
+                nmpc.update_a_prev(u_cmd.item(4), u_cmd.item(5), u_cmd.item(6), u_cmd.item(7))
 
         # --------- Update simulation ---------
         sim_solver.set("x", x_now_sim)

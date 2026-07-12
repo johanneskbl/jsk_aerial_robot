@@ -29,6 +29,8 @@ class NMPCTiltQdServo(QDNMPCBase):
         # Model name
         self.model_name = model_name
         self.phys = phys
+        self.num_rotors = 4
+        self.num_servos = 4
 
         self.tilt = True
         self.include_servo_model = True

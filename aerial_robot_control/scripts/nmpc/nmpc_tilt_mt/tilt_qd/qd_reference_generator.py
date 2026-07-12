@@ -197,9 +197,7 @@ class QDNMPCReferenceGenerator:
                 ft_ref,
                 a_ref,
                 target_body_forces,
-                target_body_torques,
-                ad_ref,
-                ftd_ref,
+                target_body_torques
             )
         else:
             xr, ur = self.nmpc.get_reference(target_xyz, target_qwxyz, ft_ref, a_ref)

@@ -29,7 +29,11 @@ protected:
   std::vector<double> thrust_meas_;
   ros::Subscriber sub_esc_telem_;
 
-  int servo_start_idx_, servo_vel_start_idx_, thrust_start_idx_, thrust_vel_start_idx_, wrench_state_start_idx_;
+  int servo_start_idx_;
+  int servo_vel_start_idx_;
+  int thrust_start_idx_;
+  int thrust_vel_start_idx_;
+  int wrench_state_start_idx_;
   std::vector<double> uo_prev_;
   Eigen::VectorXd internal_wrench_b_;
 
@@ -42,6 +46,8 @@ protected:
   virtual void initNMPCConstraints();
 
   void callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg);
+
+  void reset() override;
 
   virtual std::vector<double> meas2VecX(bool is_modified_by_traj_frame);
 
@@ -56,7 +62,7 @@ protected:
 
   void computeInternalWrenchB();
 
-  double getCommand(int idx_u, double T_horizon) override;
+  virtual double getCommand(int idx_u, double T_horizon) override;
 };
 
 }  // namespace nmpc

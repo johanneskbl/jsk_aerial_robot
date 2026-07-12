@@ -135,7 +135,9 @@
 
     #### gimbal joints ####
     <joint name="gimbal${self}" type="revolute">
-      <limit effort="6.6" lower="-3.926991" upper="3.926991" velocity="3.0"/>
+      <!-- 12.07.2026 Previously, velocity="3.0" but according to the XC330-T181-T's datasheet
+      it has a no load speed of 104rev/min at 11.1V translating to 5.44rad/s (UNDER NO LOAD!) -->
+      <limit effort="6.6" lower="-3.926991" upper="3.926991" velocity="5.0"/>
       <parent link="rotor_arm${self}"/>
       <child link="gimbal_link${self}"/>
       <origin rpy="0 0 0" xyz="0 0 0"/>

@@ -17,6 +17,8 @@ class NMPCFixQdThrustOut(QDNMPCBase):
         # Model name
         self.model_name = "fix_qd_thrust_out_mdl"
         self.phys = phys
+        self.num_rotors = 4
+        self.num_servos = 4
 
         self.tilt = False
         self.include_servo_model = False

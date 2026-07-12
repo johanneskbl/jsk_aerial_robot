@@ -18,6 +18,8 @@ class NMPCTiltQdServoDiff(QDNMPCBase):
         # Model name
         self.model_name = "tilt_qd_servo_diff_mdl"
         self.phys = phys
+        self.num_rotors = 4
+        self.num_servos = 4
 
         self.tilt = True
         self.include_servo_model = True

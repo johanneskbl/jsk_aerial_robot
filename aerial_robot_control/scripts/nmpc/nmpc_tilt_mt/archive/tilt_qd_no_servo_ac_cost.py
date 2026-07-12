@@ -43,6 +43,8 @@ class NMPCTiltQdNoServoAcCost(QDNMPCBase):
 
         # Load robot specific parameters
         self.phys = phys
+        self.num_rotors = 4
+        self.num_servos = 4
 
         # Read parameters from configuration file in the robot's package
         self.read_params("controller", "nmpc", "beetle", "BeetleNMPCNoServoAcCost.yaml")

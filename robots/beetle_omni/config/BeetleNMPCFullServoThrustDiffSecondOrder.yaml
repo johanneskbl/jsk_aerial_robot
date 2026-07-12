@@ -3,7 +3,7 @@ aerial_robot_control_name: aerial_robot_control/differential_mpc_controller/tilt
 
 controller:
   alloc:
-    type: 1  # 0: pseudo allocation, 1: heuristic allocation,
+    type: 0  # 0: pseudo allocation, 1: heuristic allocation,
     ft_thresh: 1.0  # N
 
   nmpc:
@@ -21,13 +21,13 @@ controller:
     thrust_min: 0  # N
     thrust_max: 23   # N
 
-    thrust_vel_min: -200  # N/s
+    thrust_vel_min: -200 # 100 (from Claude due to urdf)  # 200 (from Eugenio) # N/s
     thrust_vel_max: 200  # N/s
 
     a_min: -3.15
     a_max: 3.15  # 180 deg + a little bit
 
-    a_vel_min: -8  # rad/s
+    a_vel_min: -8  # 3 (from Claude due to urdf)  # 8 (from Eugenio)  # rad/s
     a_vel_max: 8  # rad/s
 
     Qp_xy: 300
@@ -36,17 +36,17 @@ controller:
     Qv_z: 10
     Qq_xy: 300
     Qq_z: 600
-    Qw_xy: 40
-    Qw_z: 40
-    Qa: 0.2
-    Qt: 0.2
-    Qad: 1
-    Qtd: 0.0
-    Qfu: 0.01 # Generated body force
-    Qtau: 0.01 # Generated body torque
+    Qw_xy: 5
+    Qw_z: 5
+    Qa: 0.0 # 0.1
+    Qad: 0.1
+    Qt: 0.0 # 0.1
+    Qtd: 0.001
+    Qfu: 0.001 # Generated body force
+    Qtau: 0.001 # Generated body torque
 
-    Rtd_c: 0.0001  # Thrust velocity
-    Rad_c: 0.01 # Servo angle velocity
+    Rtd_c: 0.01  # Thrust velocity
+    Rad_c: 0.1 # Servo angle velocity
 
     is_attitude_ctrl: false
     is_body_rate_ctrl: false

@@ -19,6 +19,7 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         self.model_name = "tilt_qd_servo_thrust_diff_mdl"
         self.phys = phys
         self.num_rotors = 4
+        self.num_servos = 4
 
         self.tilt = True
         self.include_servo_model = True
@@ -59,6 +60,12 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         rot_bt = self._get_rot_wb_ca(self.ee_q[0], self.ee_q[1], self.ee_q[2], self.ee_q[3])
         rot_tb = rot_bt.T
 
+        # === NO EE ===
+        # qe_x =  self.qwr * self.qx - self.qw * self.qxr - self.qyr * self.qz + self.qy * self.qzr
+        # qe_y =  self.qwr * self.qy - self.qw * self.qyr + self.qxr * self.qz - self.qx * self.qzr
+        # qe_z = -self.qxr * self.qy + self.qx * self.qyr + self.qwr * self.qz - self.qw * self.qzr
+        # =============
+
         state_y = ca.vertcat(
             self.p + rot_wb @ self.ee_p,
             self.v + rot_wb @ skew_w @ self.ee_p,
@@ -68,10 +75,15 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
             qe_z + self.qzr,
             rot_tb @ self.w,
             self.a_s,
-            self.ft_s,
-            # self.fu_b_s,
-            # self.tau_u_b_s
+            self.ft_s
         )
+
+        if self.include_differential_allocation:
+            state_y = ca.vertcat(
+                state_y,
+                self.fu_b_s,
+                self.tau_u_b_s
+            )
 
         state_y_e = state_y
 
@@ -102,7 +114,7 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
                 - ca.mtimes(ca.mtimes(nullspace_proj, actuators_target_jacobian), ca.vertcat(self.ftd_s, self.ad_s)) )
         else:
             # Without nullspace control, just minimize actuator velocity
-            # TODO check if correct!!! (deosnt have a_c and ft_c only ad_c and ftd_c) but also not ad_s and ftd_s to min acc
+            # TODO check if correct!!! (doesnt have a_c and ft_c only ad_c and ftd_c) but also not ad_s and ftd_s to min acc
             # control_y = ca.vertcat(
             #     self.ft_c - self.ft_s,
             #     self.a_c - self.a_s,
@@ -124,10 +136,8 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         target_qwxyz,
         ft_ref,
         a_ref,
-        body_forces_ref,
-        body_torques_ref,
-        ad_ref,
-        ftd_ref,
+        body_forces_ref = None,
+        body_torques_ref = None,
     ):
         """
         Assemble reference trajectory from target pose and reference control values.
@@ -161,21 +171,21 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         xr[:, 8] = target_qwxyz[2]  # qy
         xr[:, 9] = target_qwxyz[3]  # qz
         # No reference for wx, wy, wz (idx: 10, 11, 12)
-        xr[:, 13] = a_ref[0]  # TODO: The servo reference is ill defined and therefore should be avoided at all
-        xr[:, 14] = a_ref[1]
-        xr[:, 15] = a_ref[2]
-        xr[:, 16] = a_ref[3]
-        xr[:, 17] = ft_ref[0]
-        xr[:, 18] = ft_ref[1]
-        xr[:, 19] = ft_ref[2]
-        xr[:, 20] = ft_ref[3]
+        xr[:, self.servo_start_idx] = a_ref[0]  # TODO: The servo reference is ill defined and therefore should be avoided at all
+        xr[:, self.servo_start_idx + 1] = a_ref[1]
+        xr[:, self.servo_start_idx + 2] = a_ref[2]
+        xr[:, self.servo_start_idx + 3] = a_ref[3]
+        xr[:, self.thrust_start_idx] = ft_ref[0]
+        xr[:, self.thrust_start_idx + 1] = ft_ref[1]
+        xr[:, self.thrust_start_idx + 2] = ft_ref[2]
+        xr[:, self.thrust_start_idx + 3] = ft_ref[3]
         if self.include_differential_allocation:
-            xr[:, 21] = body_forces_ref[0]
-            xr[:, 22] = body_forces_ref[1]
-            xr[:, 23] = body_forces_ref[2]
-            xr[:, 24] = body_torques_ref[0]
-            xr[:, 25] = body_torques_ref[1]
-            xr[:, 26] = body_torques_ref[2]
+            xr[:, self.wrench_state_start_idx + 0] = body_forces_ref[0]
+            xr[:, self.wrench_state_start_idx + 1] = body_forces_ref[1]
+            xr[:, self.wrench_state_start_idx + 2] = body_forces_ref[2]
+            xr[:, self.wrench_state_start_idx + 3] = body_torques_ref[0]
+            xr[:, self.wrench_state_start_idx + 4] = body_torques_ref[1]
+            xr[:, self.wrench_state_start_idx + 5] = body_torques_ref[2]
 
         # Assemble input reference
         # NOTE: Reference has to be zero if variable is included as state in cost function!

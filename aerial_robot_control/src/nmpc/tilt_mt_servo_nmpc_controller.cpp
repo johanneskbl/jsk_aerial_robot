@@ -14,11 +14,11 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
 {
   BaseMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
-  initActuatorStates();
-
   initPlugins();
-
+  
   initGeneralParams();
+  
+  initActuatorStates();
 
   initNMPCCostW();
 
@@ -60,8 +60,15 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
 
   initPredXU(x_u_ref_);
 
+  t_nmpc_timestep_ = t_nmpc_prev_timestep_ = ros::Time::now().toSec();
   is_warmup_ = true;
   quat_prev_.setW(1.0);
+
+  if (motor_num_ != joint_num_)
+  {
+    ROS_ERROR("motor_num_ is not equal to joint_num_! Currently allocation indexing assume they are equal.");
+    throw std::runtime_error("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
+  }
 
   reset();
   ROS_INFO("MPC Controller initialized!");
@@ -109,13 +116,14 @@ bool nmpc::TiltMtServoNMPC::update()
     controlCore();
     sendCmd();
   }
-
   return true;
 }
 
 void nmpc::TiltMtServoNMPC::reset()
 {
   ControlBase::reset();
+
+  t_nmpc_timestep_ = t_nmpc_prev_timestep_ = ros::Time::now().toSec();
 
   resetPlugins();
 
@@ -138,8 +146,7 @@ void nmpc::TiltMtServoNMPC::reset()
   mpc_solver_ptr_->resetSolverByX0U0(x_vec, u_vec);
 
   /* reset control input */
-  for (int i = 0; i < motor_num_; ++i)
-    flight_cmd_.base_thrust[i] = 0.0f;
+  flight_cmd_.base_thrust = std::vector<float>(motor_num_, 0.0);
 
   gimbal_ctrl_cmd_.name.clear();
   gimbal_ctrl_cmd_.position.clear();
@@ -502,6 +509,10 @@ void nmpc::TiltMtServoNMPC::controlCore()
   /* prepare initial value */
   std::vector<double> bx0 = meas2VecX();
 
+  /* Measure actual timestep to previous solve() call */
+  t_nmpc_timestep_ = ros::Time::now().toSec();
+  t_nmpc_dt_ = t_nmpc_timestep_ - t_nmpc_prev_timestep_;
+
   /* solve */
   try
   {
@@ -511,6 +522,7 @@ void nmpc::TiltMtServoNMPC::controlCore()
   {
     ROS_FATAL("NMPC solver failed. Details: %s", e.what());
   }
+  t_nmpc_prev_timestep_ = t_nmpc_timestep_; 
   // The result is stored in mpc_solver_ptr_->uo_
 
   /* get result */
@@ -856,12 +868,6 @@ void nmpc::TiltMtServoNMPC::allocateToXUwOneFixedRotor(int fix_rotor_idx, double
       z_except_rotor.tail(z_except_rotor.size() - 2 * fix_rotor_idx);
 
   // 6) reconstruct the thrust and servo angle
-  // check motor_num_ == joint_num_ before this function is called
-  if (motor_num_ != joint_num_)
-  {
-    ROS_ERROR("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
-    throw std::runtime_error("motor_num_ is not equal to joint_num_! Cannot allocate to X and U!");
-  }
   for (int i = 0; i < motor_num_; i++)
   {
     const double ft = sqrt(z_final(2 * i) * z_final(2 * i) + z_final(2 * i + 1) * z_final(2 * i + 1));

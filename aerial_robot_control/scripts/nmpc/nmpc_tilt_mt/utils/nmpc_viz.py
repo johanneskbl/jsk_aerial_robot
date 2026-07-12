@@ -12,6 +12,7 @@ legend_alpha = 0.3
 class Visualizer:
     def __init__(
         self,
+        nmpc,
         robot_arch,
         N_sim,
         nx,
@@ -21,13 +22,11 @@ class Visualizer:
         x_upper_constraints=None,
         u_lower_constraints=None,
         u_upper_constraints=None,
-        tilt=False,
-        include_servo_model=False,
-        include_thrust_model=False,
-        include_cog_dist_model=False,
         include_cog_dist_est=False,
         is_record_diff_u=False,
     ):
+        self.nmpc = nmpc
+
         # Store robot architecture
         self.is_bi, self.is_tri, self.is_qd = False, False, False
         if robot_arch == "bi":
@@ -48,10 +47,6 @@ class Visualizer:
         self.u_upper_constraints = u_upper_constraints
 
         # Store model properties
-        self.tilt = tilt
-        self.include_servo_model = include_servo_model
-        self.include_thrust_model = include_thrust_model
-        self.include_cog_dist_model = include_cog_dist_model
         self.include_cog_dist_est = include_cog_dist_est
         self.is_record_diff_u = is_record_diff_u
 
@@ -67,6 +62,11 @@ class Visualizer:
         self.est_disturb_f_w_all = np.ndarray((N_sim, 3))
         self.est_disturb_tau_g_all = np.ndarray((N_sim, 3))
 
+        # Reference data
+        self.x_ref = np.ndarray((N_sim + 1, nx))
+        self.u_ref = np.ndarray((N_sim, nu))
+        self.transparency_ref = 0.6
+
         self.data_idx = 0
 
     def update(self, i, x, u):
@@ -81,6 +81,10 @@ class Visualizer:
     def update_est_disturb(self, i, est_disturb_f_w, est_disturb_tau_g):
         self.est_disturb_f_w_all[i, :] = est_disturb_f_w
         self.est_disturb_tau_g_all[i, :] = est_disturb_tau_g
+
+    def update_ref(self, i, x_ref, u_ref):
+        self.x_ref[i, :] = x_ref
+        self.u_ref[i, :] = u_ref
 
     def visualize(
         self,
@@ -109,44 +113,46 @@ class Visualizer:
         )
         # Number of subplots
         n_plots = 7  # States, Controls and Computation Time
-        if self.include_servo_model:
+        if self.nmpc.include_servo_model:
             n_plots += 1  # Additional State: Servo Angle
-        if self.include_thrust_model:
+        if self.nmpc.include_thrust_model:
             n_plots += 1  # Additional State: Thrust
-        if self.tilt:
+        if self.nmpc.tilt:
             n_plots += 1  # Additional Control: Servon Angle
-        if self.include_cog_dist_model:
+        if self.nmpc.include_cog_dist_model:
             n_plots += 2  # Additional State: Disturbance Force and Torque
         if self.include_cog_dist_est:
             n_plots += 2  # Disturbance Force and Torque
         if hasattr(self, "u_sim_mpc_all"):
             n_plots += 2  # MPC controls if needed
+        if self.nmpc.include_differential_allocation:
+            n_plots += 2  # Internal Force and Torque Wrench States
 
         # Timeseries
         time_data_x = np.arange(self.data_idx) * ts_sim
 
         # Plot Position
         # fmt: off
-        plt.subplot(ceil(n_plots/2), 2, 1)
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 0], label="x")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 1], label="y")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 2], label="z")
+        ax_first = plt.subplot(ceil(n_plots/2), 2, 1)
+        line_x, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 0], label="x")
+        line_y, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 1], label="y")
+        line_z, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 2], label="z")
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 0], "--", label="x_ref", color=line_x.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 1], "--", label="y_ref", color=line_y.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 2], "--", label="z_ref", color=line_z.get_color(), alpha=self.transparency_ref)
         # plt.xlabel("Time (s)")
         plt.xlim([0, t_total_sim])
         plt.ylabel("Position (m)")
         # Constraints
         if 0 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[0] * np.ones(self.data_idx), "r--", label="xbl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[0], self.x_lower_constraints[0]], "r--", label="xbl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[0], self.x_upper_constraints[0]], "r--", label="xbu")
         if 1 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[1] * np.ones(self.data_idx), "g--", label="ybl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[1], self.x_lower_constraints[1]], "g--", label="ybl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[1], self.x_upper_constraints[1]], "g--", label="ybu")
         if 2 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[2] * np.ones(self.data_idx), "b--", label="zbl")
-        if 0 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[0] * np.ones(self.data_idx), "r--", label="xbu")
-        if 1 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[1] * np.ones(self.data_idx), "g--", label="ybu")
-        if 2 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[2] * np.ones(self.data_idx), "b--", label="zbu")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[2], self.x_lower_constraints[2]], "b--", label="zbl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[2], self.x_upper_constraints[2]], "b--", label="zbu")
         if is_plot_sqp:
             plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
             plt.text(1.5, 0.5, "SQP_RTI", horizontalalignment="center", verticalalignment="center")
@@ -158,59 +164,59 @@ class Visualizer:
         plt.grid(True)
 
         # Plot Velocity
-        plt.subplot(ceil(n_plots/2), 2, 3)
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 3], label="vx")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 4], label="vy")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 5], label="vz")
+        plt.subplot(ceil(n_plots/2), 2, 3, sharex=ax_first)
+        line_vx, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 3], label="vx")
+        line_vy, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 4], label="vy")
+        line_vz, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 5], label="vz")
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 3], "--", label="vx_ref", color=line_vx.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 4], "--", label="vy_ref", color=line_vy.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 5], "--", label="vz_ref", color=line_vz.get_color(), alpha=self.transparency_ref)
         plt.legend(framealpha=legend_alpha)
         # plt.xlabel("Time (s)")
         plt.xlim([0, t_total_sim])
         plt.ylabel("Velocity (m/s)")
         # Constraints
         if 3 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[3] * np.ones(self.data_idx), 'r--', label="vbl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[3], self.x_lower_constraints[3]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[3], self.x_upper_constraints[3]], 'r--')
         if 4 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[4] * np.ones(self.data_idx), 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[4], self.x_lower_constraints[4]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[4], self.x_upper_constraints[4]], 'r--')
         if 5 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[5] * np.ones(self.data_idx), 'r--')
-        if 3 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[3] * np.ones(self.data_idx), 'r--', label="vbu")
-        if 4 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[4] * np.ones(self.data_idx), 'r--')
-        if 5 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[5] * np.ones(self.data_idx), 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[5], self.x_lower_constraints[5]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[5], self.x_upper_constraints[5]], 'r--')
         if is_plot_sqp:
             plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
         plt.legend(framealpha=legend_alpha)
         plt.grid(True)
 
         # Plot Quaternions
-        plt.subplot(ceil(n_plots/2), 2, 5)
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 6], label="qw")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 7], label="qx")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 8], label="qy")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 9], label="qz")
+        plt.subplot(ceil(n_plots/2), 2, 5, sharex=ax_first)
+        line_qw, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 6], label="qw")
+        line_qx, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 7], label="qx")
+        line_qy, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 8], label="qy")
+        line_qz, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 9], label="qz")
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 6], "--", label="qw_ref", color=line_qw.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 7], "--", label="qx_ref", color=line_qx.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 8], "--", label="qy_ref", color=line_qy.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 9], "--", label="qz_ref", color=line_qz.get_color(), alpha=self.transparency_ref)
         plt.legend(framealpha=legend_alpha)
         # plt.xlabel("Time (s)")
         plt.xlim([0, t_total_sim])
         plt.ylabel("Quaternion")
         # Constraints
         if 6 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[6] * np.ones(self.data_idx), 'r--', label="lin qbl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[6], self.x_lower_constraints[6]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[6], self.x_upper_constraints[6]], 'r--')
         if 7 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[7] * np.ones(self.data_idx), 'g--', label="ang qbl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[7], self.x_lower_constraints[7]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[7], self.x_upper_constraints[7]], 'r--')
         if 8 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[8] * np.ones(self.data_idx), 'g--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[8], self.x_lower_constraints[8]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[8], self.x_upper_constraints[8]], 'r--')
         if 9 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[9] * np.ones(self.data_idx), 'g--')
-        if 6 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[6] * np.ones(self.data_idx), 'r--', label="lin qbu")
-        if 7 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[7] * np.ones(self.data_idx), 'g--', label="ang qbu")
-        if 8 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[8] * np.ones(self.data_idx), 'g--')
-        if 9 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[9] * np.ones(self.data_idx), 'g--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[9], self.x_lower_constraints[9]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[9], self.x_upper_constraints[9]], 'r--')
         if is_plot_sqp:
             plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
         plt.legend(framealpha=legend_alpha)
@@ -222,11 +228,20 @@ class Visualizer:
             qwxyz = x_sim_all[i, 6:10]
             euler[i, :] = tf.euler_from_quaternion(qwxyz, axes="sxyz")
 
+        # Convert x_ref[:, 6:10] to euler angle
+        euler_ref = np.zeros((self.x_ref.shape[0], 3))
+        for i in range(self.x_ref.shape[0]):
+            qwxyz = self.x_ref[i, 6:10]
+            euler_ref[i, :] = tf.euler_from_quaternion(qwxyz, axes="sxyz")
+
         # Plot Euler Angles
-        plt.subplot(ceil(n_plots/2), 2, 2)
-        plt.plot(time_data_x, euler[:self.data_idx, 0], label="roll")
-        plt.plot(time_data_x, euler[:self.data_idx, 1], label="pitch")
-        plt.plot(time_data_x, euler[:self.data_idx, 2], label="yaw")
+        plt.subplot(ceil(n_plots/2), 2, 2, sharex=ax_first)
+        line_roll, = plt.plot(time_data_x, euler[:self.data_idx, 0], label="roll")
+        line_pitch, = plt.plot(time_data_x, euler[:self.data_idx, 1], label="pitch")
+        line_yaw, = plt.plot(time_data_x, euler[:self.data_idx, 2], label="yaw")
+        plt.plot(time_data_x, euler_ref[:self.data_idx, 0], "--", label="roll_ref", color=line_roll.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, euler_ref[:self.data_idx, 1], "--", label="pitch_ref", color=line_pitch.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, euler_ref[:self.data_idx, 2], "--", label="yaw_ref", color=line_yaw.get_color(), alpha=self.transparency_ref)
         # plt.xlabel("Time (s)")
         plt.xlim([0, t_total_sim])
         plt.ylabel("Euler Angle (rad)")
@@ -236,26 +251,26 @@ class Visualizer:
             plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
 
         # Plot Angular Velocity
-        plt.subplot(ceil(n_plots/2), 2, 4)
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 10], label="wx")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 11], label="wy")
-        plt.plot(time_data_x, x_sim_all[:self.data_idx, 12], label="wz")
+        plt.subplot(ceil(n_plots/2), 2, 4, sharex=ax_first)
+        line_wx, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 10], label="wx")
+        line_wy, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 11], label="wy")
+        line_wz, = plt.plot(time_data_x, x_sim_all[:self.data_idx, 12], label="wz")
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 10], "--", label="wx_ref", color=line_wx.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 11], "--", label="wy_ref", color=line_wy.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, self.x_ref[:self.data_idx, 12], "--", label="wz_ref", color=line_wz.get_color(), alpha=self.transparency_ref)
         # plt.xlabel("Time (s)")
         plt.xlim([0, t_total_sim])
         plt.ylabel("Angular Velocity (rad/s)")
         # Constraints
         if 10 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[10] * np.ones(self.data_idx), 'r--', label="wbl")
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[10], self.x_lower_constraints[10]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[10], self.x_upper_constraints[10]], 'r--')
         if 11 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[11] * np.ones(self.data_idx), 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[11], self.x_lower_constraints[11]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[11], self.x_upper_constraints[11]], 'r--')
         if 12 in self.x_lower_constraints.keys():
-            plt.plot(time_data_x, self.x_lower_constraints[12] * np.ones(self.data_idx), 'r--')
-        if 10 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[10] * np.ones(self.data_idx), 'r--', label="wbu")
-        if 11 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[11] * np.ones(self.data_idx), 'r--')
-        if 12 in self.x_upper_constraints.keys():
-            plt.plot(time_data_x, self.x_upper_constraints[12] * np.ones(self.data_idx), 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[12], self.x_lower_constraints[12]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[12], self.x_upper_constraints[12]], 'r--')
         if is_plot_sqp:
             plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
         plt.legend(framealpha=legend_alpha)
@@ -263,30 +278,31 @@ class Visualizer:
 
         # Plot Computation Time
         print(f"Average computation time: {np.mean(self.comp_time):.3f} ms")
-        plt.subplot(ceil(n_plots/2), 2, 6)
+        plt.subplot(ceil(n_plots/2), 2, 6, sharex=ax_first)
         plt.plot(time_data_x, self.comp_time, label=f"Avg = {np.mean(self.comp_time):.3f} ms")
         plt.legend(framealpha=legend_alpha)
-        plt.xlabel("Time (s)")
+        # plt.xlabel("Time (s)")
         plt.xlim([0, t_total_sim])
         plt.ylabel("Computation Time (ms)")
         plt.grid(True)
 
         # Plot Servo Angle as State
-        x_idx = 12
-        if self.tilt and self.include_servo_model:
-            plt.subplot(ceil(n_plots/2), 2, 7)
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+1], label="a1s")
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+2], label="a2s")
-            x_idx += 2
-            if self.is_tri or self.is_qd:
-                plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+1], label="a3s")
-                x_idx += 1
-            if self.is_qd:
-                plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+1], label="a4s")
-                x_idx += 1
+        if self.nmpc.tilt and self.nmpc.include_servo_model:
+            plt.subplot(ceil(n_plots/2), 2, 7, sharex=ax_first)
+            for i in range(self.nmpc.num_servos):
+                line_as, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.servo_start_idx + i], label=f"a{i+1}s")
+                plt.plot(
+                    time_data_x,
+                    self.x_ref[:self.data_idx, self.nmpc.servo_start_idx + i],
+                    "--",
+                    color=line_as.get_color(),
+                    label=f"a{i+1}s_ref",
+                    alpha=self.transparency_ref,
+                )
             # Constraints
-            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_lower_constraints[1], self.u_lower_constraints[1]], 'r--')
-            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_upper_constraints[1], self.u_upper_constraints[1]], 'r--')
+            if 13 in self.x_lower_constraints.keys():
+                plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[self.nmpc.servo_start_idx], self.x_lower_constraints[self.nmpc.servo_start_idx]], 'r--')
+                plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[self.nmpc.servo_start_idx], self.x_upper_constraints[self.nmpc.servo_start_idx]], 'r--')
             plt.legend(framealpha=legend_alpha)
             # plt.xlabel("Time (s)")
             plt.xlim([0, t_total_sim])
@@ -296,70 +312,85 @@ class Visualizer:
                 plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
 
         # Plot Thrust as State
-        if self.include_thrust_model:
-            plt.subplot(ceil(n_plots/2), 2, 8)
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+1], label="ft1s")
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+2], label="ft2s")
-            if self.is_tri or self.is_qd:
-                plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+3], label="ft3s")
-            if self.is_qd:
-                plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+4], label="ft4s")
+        if self.nmpc.include_thrust_model:
+            plt.subplot(ceil(n_plots/2), 2, 8, sharex=ax_first)
+            for i in range(self.nmpc.num_rotors):
+                line_fts, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.thrust_start_idx + i], label=f"ft{i+1}s")
+                plt.plot(
+                    time_data_x,
+                    self.x_ref[:self.data_idx, self.nmpc.thrust_start_idx + i],
+                    "--",
+                    color=line_fts.get_color(),
+                    label=f"ft{i+1}s_ref",
+                    alpha=self.transparency_ref,
+                )
             plt.legend(framealpha=legend_alpha)
-            # plt.xlabel("Time (s)")
             plt.xlim([0, t_total_sim])
             plt.ylabel("Thrust State (N)")
             # Constraints
-            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_lower_constraints[0], self.u_lower_constraints[0]], 'r--')
-            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_upper_constraints[0], self.u_upper_constraints[0]], 'r--')
+            if 14 in self.x_lower_constraints.keys():
+                plt.plot([time_data_x[0], time_data_x[-1]], [self.x_lower_constraints[self.nmpc.thrust_start_idx], self.x_lower_constraints[self.nmpc.thrust_start_idx]], 'r--')
+                plt.plot([time_data_x[0], time_data_x[-1]], [self.x_upper_constraints[self.nmpc.thrust_start_idx], self.x_upper_constraints[self.nmpc.thrust_start_idx]], 'r--')
             if is_plot_sqp:
                 plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
             plt.legend(framealpha=legend_alpha)
             plt.grid(True)
 
         # Plot Thrust as Control Input
-        if self.include_thrust_model:
-            plt.subplot(ceil(n_plots/2), 2, 10)
+        if self.nmpc.include_thrust_model:
+            plt.subplot(ceil(n_plots/2), 2, 10, sharex=ax_first)
         else:
-            plt.subplot(ceil(n_plots/2), 2, 8)
-        plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, 0], label="ft1c")
-        plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, 1], label="ft2c")
-        u_idx = 1
-        if self.is_tri or self.is_qd:
-            plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, 2], label="ft3c")
-            u_idx = 2
-        if self.is_qd:
-            plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, 3], label="ft4c")
-            u_idx = 3
+            plt.subplot(ceil(n_plots/2), 2, 8, sharex=ax_first)
+        for i in range(self.nmpc.num_rotors):
+            line_ftc, = plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, i], label=f"ft{i+1}c")
+            plt.plot(
+                time_data_x[1:],
+                self.u_ref[:self.data_idx - 1, i],
+                "--",
+                color=line_ftc.get_color(),
+                label=f"ft{i+1}c_ref",
+                alpha=self.transparency_ref,
+            )
         # Constraints
         plt.plot([time_data_x[0], time_data_x[-1]], [self.u_lower_constraints[0], self.u_lower_constraints[0]], 'r--')
         plt.plot([time_data_x[0], time_data_x[-1]], [self.u_upper_constraints[0], self.u_upper_constraints[0]], 'r--')
         plt.legend(framealpha=legend_alpha)
         # plt.xlabel("Time (s)")
         plt.xlim([0, t_total_sim])
-        plt.ylabel("Thrust Cmd (N)")
+        if self.nmpc.include_thrust_derivative:
+            plt.ylabel("Thrust Velocity Cmd (N/s)")
+        else:
+            plt.ylabel("Thrust Cmd (N)")
         plt.grid(True)
         if is_plot_sqp:
             plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
 
         # Plot Servo Angle as Control Input
-        if self.tilt:
-            if self.include_servo_model:
-                plt.subplot(ceil(n_plots/2), 2, 9)
+        if self.nmpc.tilt:
+            if self.nmpc.include_servo_model:
+                plt.subplot(ceil(n_plots/2), 2, 9, sharex=ax_first)
             else:
-                plt.subplot(ceil(n_plots/2), 2, 7)
-            plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, u_idx+1], label="a1c")
-            plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, u_idx+2], label="a2c")
-            if self.is_tri or self.is_qd:
-                plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, u_idx+3], label="a3c")
-            if self.is_qd:
-                plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, u_idx+4], label="a4c")
+                plt.subplot(ceil(n_plots/2), 2, 7, sharex=ax_first)
+            for i in range(self.nmpc.num_servos):
+                line_ac, = plt.plot(time_data_x[1:], u_sim_all[:self.data_idx - 1, self.nmpc.num_rotors + i], label=f"a{i+1}c")
+                plt.plot(
+                    time_data_x[1:],
+                    self.u_ref[:self.data_idx - 1, self.nmpc.num_rotors + i],
+                    "--",
+                    color=line_ac.get_color(),
+                    label=f"a{i+1}c_ref",
+                    alpha=self.transparency_ref,
+                )
             # Constraints
-            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_lower_constraints[1], self.u_lower_constraints[1]], 'r--')
-            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_upper_constraints[1], self.u_upper_constraints[1]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_lower_constraints[self.nmpc.num_rotors], self.u_lower_constraints[self.nmpc.num_rotors]], 'r--')
+            plt.plot([time_data_x[0], time_data_x[-1]], [self.u_upper_constraints[self.nmpc.num_rotors], self.u_upper_constraints[self.nmpc.num_rotors]], 'r--')
             plt.legend(framealpha=legend_alpha)
             # plt.xlabel("Time (s)")
             plt.xlim([0, t_total_sim])
-            plt.ylabel("Servo Angle Cmd (rad)")
+            if self.nmpc.include_servo_derivative:
+                plt.ylabel("Servo Angle Velocity Cmd (rad/s)")
+            else:
+                plt.ylabel("Servo Angle Cmd (rad)")
             plt.grid(True)
             if is_plot_sqp:
                 plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
@@ -367,25 +398,17 @@ class Visualizer:
         plot_idx = 10
         # Plot seperate MPC control variable
         if self.is_record_diff_u:
-            plt.subplot(ceil(n_plots/2), 2, 11)
-            plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 4], label="a1c_mpc")
-            plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 5], label="a2c_mpc")
-            if self.is_tri or self.is_qd:
-                plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 6], label="a3c_mpc")
-            if self.is_qd:
-                plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 7], label="a4c_mpc")
+            plt.subplot(ceil(n_plots/2), 2, 11, sharex=ax_first)
+            for i in range(self.nmpc.num_servos):
+                plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, self.nmpc.num_rotors + i], label=f"a{i+1}c_mpc")
             plt.legend(framealpha=legend_alpha, loc="upper left")
             plt.xlim([0, t_total_sim])
             plt.ylabel("Servo Angle Cmd MPC (rad)")
             plt.grid(True)
 
-            plt.subplot(ceil(n_plots/2), 2, 12)
-            plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 0], label="ft1c_mpc")
-            plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 1], label="ft2c_mpc")
-            if self.is_tri or self.is_qd:
-                plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 2], label="ft3c_mpc")
-            if self.is_qd:
-                plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, 3], label="ft4c_mpc")
+            plt.subplot(ceil(n_plots/2), 2, 12, sharex=ax_first)
+            for i in range(self.nmpc.num_rotors):
+                plt.plot(time_data_x[1:], self.u_sim_mpc_all[:self.data_idx - 1, i], label=f"ft{i+1}c_mpc")
             plt.legend(framealpha=legend_alpha, loc="upper left")
             plt.xlim([0, t_total_sim])
             plt.ylabel("Thrust Cmd MPC (N)")
@@ -393,22 +416,22 @@ class Visualizer:
 
             plot_idx += 2
 
-        if self.include_cog_dist_model:
+        if self.nmpc.include_cog_dist_model:
             # Plot Disturbance Force as State in NMPC
-            plt.subplot(ceil(n_plots/2), 2, plot_idx+1)
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+1], label="f_d_x")
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+2], label="f_d_y")
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+3], label="f_d_z")
+            plt.subplot(ceil(n_plots/2), 2, plot_idx+1, sharex=ax_first)
+            plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.cog_dist_state_start_idx + 0], label="f_d_x")
+            plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.cog_dist_state_start_idx + 1], label="f_d_y")
+            plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.cog_dist_state_start_idx + 2], label="f_d_z")
             plt.legend(framealpha=legend_alpha, loc="upper left")
             plt.xlim([0, t_total_sim])
             plt.ylabel("Disturbance Force (N)")
             plt.grid(True)
 
             # Plot Disturbance Torque as State in NMPC
-            plt.subplot(ceil(n_plots/2), 2, plot_idx+2)
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+4], label="tau_d_x")
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+5], label="tau_d_y")
-            plt.plot(time_data_x, x_sim_all[:self.data_idx, x_idx+6], label="tau_d_z")
+            plt.subplot(ceil(n_plots/2), 2, plot_idx+2, sharex=ax_first)
+            plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.cog_dist_state_start_idx + 3], label="tau_d_x")
+            plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.cog_dist_state_start_idx + 4], label="tau_d_y")
+            plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.cog_dist_state_start_idx + 5], label="tau_d_z")
             plt.legend(framealpha=legend_alpha, loc="upper left")
             plt.xlim([0, t_total_sim])
             plt.ylabel("Disturbance Torque (N*m)")
@@ -418,7 +441,7 @@ class Visualizer:
 
         if self.include_cog_dist_est:
             # Plot estimated Disturbance Force by MHE
-            plt.subplot(ceil(n_plots/2), 2, plot_idx+1)
+            plt.subplot(ceil(n_plots/2), 2, plot_idx+1, sharex=ax_first)
             plt.plot(time_data_x, self.est_disturb_f_w_all[:self.data_idx, 0], label="est. f_d_x")
             plt.plot(time_data_x, self.est_disturb_f_w_all[:self.data_idx, 1], label="est. f_d_y")
             plt.plot(time_data_x, self.est_disturb_f_w_all[:self.data_idx, 2], label="est. f_d_z")
@@ -428,7 +451,7 @@ class Visualizer:
             plt.grid(True)
 
             # Plot estimated Disturbance Torque by MHE
-            plt.subplot(ceil(n_plots/2), 2, plot_idx+2)
+            plt.subplot(ceil(n_plots/2), 2, plot_idx+2, sharex=ax_first)
             plt.plot(time_data_x, self.est_disturb_tau_g_all[:self.data_idx, 0], label="est. tau_d_x")
             plt.plot(time_data_x, self.est_disturb_tau_g_all[:self.data_idx, 1], label="est. tau_d_y")
             plt.plot(time_data_x, self.est_disturb_tau_g_all[:self.data_idx, 2], label="est. tau_d_z")
@@ -436,6 +459,37 @@ class Visualizer:
             plt.xlim([0, t_total_sim])
             plt.ylabel("Est. Disturbance Torque (N*m)")
             plt.grid(True)
+
+        if self.nmpc.include_differential_allocation:
+            # Plot Internal Force Wrench as State
+            plt.subplot(ceil(n_plots/2), 2, plot_idx+1, sharex=ax_first)
+            line_fx, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.wrench_state_start_idx + 0], label="f_x")
+            line_fy, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.wrench_state_start_idx + 1], label="f_y")
+            line_fz, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.wrench_state_start_idx + 2], label="f_z")
+            plt.plot(time_data_x, self.x_ref[:self.data_idx, self.nmpc.wrench_state_start_idx + 0], "--", label="f_x_ref", color=line_fx.get_color(), alpha=self.transparency_ref)
+            plt.plot(time_data_x, self.x_ref[:self.data_idx, self.nmpc.wrench_state_start_idx + 1], "--", label="f_y_ref", color=line_fy.get_color(), alpha=self.transparency_ref)
+            plt.plot(time_data_x, self.x_ref[:self.data_idx, self.nmpc.wrench_state_start_idx + 2], "--", label="f_z_ref", color=line_fz.get_color(), alpha=self.transparency_ref)
+            plt.legend(framealpha=legend_alpha)
+            plt.xlim([0, t_total_sim])
+            plt.ylabel("Internal Force Wrench (N)")
+            plt.grid(True)
+            if is_plot_sqp:
+                plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
+
+            # Plot Internal Torque Wrench as State
+            plt.subplot(ceil(n_plots/2), 2, plot_idx+2, sharex=ax_first)
+            line_tx, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.wrench_state_start_idx + 3], label="tau_x")
+            line_ty, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.wrench_state_start_idx + 4], label="tau_y")
+            line_tz, = plt.plot(time_data_x, x_sim_all[:self.data_idx, self.nmpc.wrench_state_start_idx + 5], label="tau_z")
+            plt.plot(time_data_x, self.x_ref[:self.data_idx, self.nmpc.wrench_state_start_idx + 3], "--", label="tau_x_ref", color=line_tx.get_color(), alpha=self.transparency_ref)
+            plt.plot(time_data_x, self.x_ref[:self.data_idx, self.nmpc.wrench_state_start_idx + 4], "--", label="tau_y_ref", color=line_ty.get_color(), alpha=self.transparency_ref)
+            plt.plot(time_data_x, self.x_ref[:self.data_idx, self.nmpc.wrench_state_start_idx + 5], "--", label="tau_z_ref", color=line_tz.get_color(), alpha=self.transparency_ref)
+            plt.legend(framealpha=legend_alpha)
+            plt.xlim([0, t_total_sim])
+            plt.ylabel("Internal Torque Wrench (Nm)")
+            plt.grid(True)
+            if is_plot_sqp:
+                plt.axvspan(t_sqp_start, t_sqp_end, facecolor="orange", alpha=0.2)
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
@@ -492,41 +546,19 @@ class Visualizer:
 
         # Plot Thrust as Control Input
         ax2 = plt.subplot(212, sharex=ax)
-        plt.plot(time_data_u, u_sim_all[:self.data_idx - 1, 0], label="$f_{c1}$")
-        plt.plot(time_data_u, u_sim_all[:self.data_idx - 1, 1], label="$f_{c2}$")
-        if self.is_tri or self.is_qd:
-            plt.plot(time_data_u, u_sim_all[:self.data_idx - 1, 2], label="$f_{c3}$")
-        if self.is_qd:
-            plt.plot(time_data_u, u_sim_all[:self.data_idx - 1, 3], label="$f_{c4}$")
-        plt.ylabel("Thrust Cmd. (N)", fontsize=label_size)
+        for i in range(self.nmpc.num_rotors):
+            plt.plot(time_data_u, u_sim_all[:self.data_idx - 1, i], label=f"$f_{{c{i+1}}}$")
+        plt.ylabel("Thrust Cmd (N)", fontsize=label_size)
         plt.xlabel("Time (s)", fontsize=label_size)
         plt.legend(framealpha=legend_alpha, ncol=4, bbox_to_anchor=(0.1, 0.75), loc="lower left")
 
         # Plot Sensor Angle as Control Input (in degree)
-        if self.tilt:
+        if self.nmpc.tilt:
             ax2_right = ax2.twinx()
-            if self.is_bi:
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 2] * 180 / np.pi, label="$\\alpha_{c1}$",
-                               linestyle="--")
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 3] * 180 / np.pi, label="$\\alpha_{c2}$",
-                               linestyle="--")
-            if self.is_tri:
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 3] * 180 / np.pi, label="$\\alpha_{c1}$",
-                               linestyle="--")
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 4] * 180 / np.pi, label="$\\alpha_{c2}$",
-                               linestyle="--")
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 5] * 180 / np.pi, label="$\\alpha_{c3}$",
-                               linestyle="--")
-            if self.is_qd:
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 4] * 180 / np.pi, label="$\\alpha_{c1}$",
-                            linestyle="--")
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 5] * 180 / np.pi, label="$\\alpha_{c2}$",
-                            linestyle="--")
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 6] * 180 / np.pi, label="$\\alpha_{c3}$",
-                        linestyle="--")
-                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, 7] * 180 / np.pi, label="$\\alpha_{c4}$",
-                        linestyle="--")
-            ax2_right.set_ylabel("Servo Angle Cmd. ($^\\circ$)", fontsize=label_size)
+            for i in range(self.nmpc.num_servos):
+                ax2_right.plot(time_data_u, u_sim_all[:self.data_idx - 1, self.nmpc.num_rotors + i] * 180 / np.pi,
+                               label=f"$\\alpha_{{c{i+1}}}$", linestyle="--")
+            ax2_right.set_ylabel("Servo Angle Cmd ($^\\circ$)", fontsize=label_size)
             plt.legend(framealpha=legend_alpha, ncol=4, bbox_to_anchor=(0.1, 0.00), loc="lower left")
             plt.xlim([-0.1, t_total_sim])
             # plt.ylim([-1.0, 1.0])  # -0.8, 0.8; -1.6, 1.6
@@ -562,12 +594,20 @@ class Visualizer:
             qwxyz = x_sim_all[i, 6:10]
             euler[i, :] = tf.euler_from_quaternion(qwxyz, axes="sxyz")
 
+        # Convert reference quaternions to Euler angles
+        euler_ref = np.zeros((self.x_ref.shape[0], 3))
+        for i in range(self.x_ref.shape[0]):
+            qwxyz = self.x_ref[i, 6:10]
+            euler_ref[i, :] = tf.euler_from_quaternion(qwxyz, axes="sxyz")
+
         # fmt: off
         # Plot Euler Angles
-        plt.plot([0, t_total_sim], [0.5, 0.5], label="ref", linestyle="-.")  # Plot reference as constant 0.5
-        plt.plot(time_data_x, euler[:self.data_idx, 0], label="roll")
-        plt.plot(time_data_x, euler[:self.data_idx, 1], label="pitch")
-        plt.plot(time_data_x, euler[:self.data_idx, 2], label="yaw")
+        line_roll, = plt.plot(time_data_x, euler[:self.data_idx, 0], label="roll")
+        line_pitch, = plt.plot(time_data_x, euler[:self.data_idx, 1], label="pitch")
+        line_yaw, = plt.plot(time_data_x, euler[:self.data_idx, 2], label="yaw")
+        plt.plot(time_data_x, euler_ref[:self.data_idx, 0], "--", label="roll_ref", color=line_roll.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, euler_ref[:self.data_idx, 1], "--", label="pitch_ref", color=line_pitch.get_color(), alpha=self.transparency_ref)
+        plt.plot(time_data_x, euler_ref[:self.data_idx, 2], "--", label="yaw_ref", color=line_yaw.get_color(), alpha=self.transparency_ref)
         plt.legend(framealpha=legend_alpha, loc="lower right")
         plt.xlabel("Time (s)", fontsize=label_size)
         plt.xlim([0, t_total_sim])

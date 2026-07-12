@@ -88,10 +88,10 @@ void TiltMtServoThrustDiffSecondOrderMPC::initNMPCCostW()
   for (int i = mpc_solver_ptr_->NX_ + motor_num_; i < mpc_solver_ptr_->NX_ + motor_num_ + joint_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Rad_c, false);
 
-  ROS_INFO("MPC cost W initialized:\n",
-          "\tQp_xy=%f, Qp_z=%f, Qv_xy=%f, Qv_z=%f, Qq_xy=%f, Qq_z=%f, Qw_xy=%f, Qw_z=%f,\n",
-          "\tQa=%f, Qad=%f, Qt=%f, Qfu=%f, Qtau=%f, Qtd=%f, Rtd_c=%f, Rad_c=%f",
-           Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qad, Qt, Qfu, Qtau, Qtd, Rtd_c, Rad_c);
+  ROS_INFO("MPC cost W initialized:\n"
+           "\tQp_xy=%f, Qp_z=%f, Qv_xy=%f, Qv_z=%f, Qq_xy=%f, Qq_z=%f, Qw_xy=%f, Qw_z=%f,\n"
+           "\tQa=%f, Qad=%f, Qt=%f, Qtd=%f, Qfu=%f, Qtau=%f, Rtd_c=%f, Rad_c=%f",
+           Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qad, Qt, Qtd, Qfu, Qtau, Rtd_c, Rad_c);
 }
 
 void TiltMtServoThrustDiffSecondOrderMPC::initNMPCConstraints()
@@ -229,9 +229,9 @@ void TiltMtServoThrustDiffSecondOrderMPC::initNMPCConstraints()
 }
 
 void TiltMtServoThrustDiffSecondOrderMPC::allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
-                                                             const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b,
-                                                             const Eigen::VectorXd& ref_wrench_b, vector<double>& x,
-                                                             vector<double>& u)
+                                                       const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b,
+                                                       const Eigen::VectorXd& ref_wrench_b, vector<double>& x,
+                                                       vector<double>& u)
 {
   TiltMtServoThrustDiffMPC::allocateToXU(ref_pos_i, ref_vel_i, ref_quat_ib, ref_omega_b, ref_wrench_b, x, u);
 
@@ -240,7 +240,7 @@ void TiltMtServoThrustDiffSecondOrderMPC::allocateToXU(const tf::Vector3& ref_po
   // Servo angle velocity reference
   for (int i = 0; i < joint_num_; i++)
   {
-    x.at(servo_vel_start_idx_ + i) = - 0.5*std::sin(joint_angles_[i]);
+    x.at(servo_vel_start_idx_ + i) = 0.0; // - 0.5*std::sin(joint_angles_[i]);
   }
 
   // Thrust velocity
@@ -282,7 +282,8 @@ std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_ce
     {
       // ==== MODEL ====
       double last_thrust_c = uo_prev_.at(i);
-      double thrust_velocity = (last_thrust_c - thrust_meas_[i] + 0.2) / t_rotor_;  // 0.2 correction factor for model mismatch
+      // double thrust_velocity = (last_thrust_c - thrust_meas_[i] + 0.2) / t_rotor_;  // 0.2 correction factor for model mismatch
+      double thrust_velocity = (last_thrust_c - thrust_meas_[i]) / t_rotor_;
 
       // ==== NUMERICAL DERIVATIVE ====
       // double thrust_velocity = (thrust_meas_[i] - prev_thrust_meas_[i]) / du_;
@@ -305,6 +306,78 @@ std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_ce
   }
 
   return bx0;
+}
+
+double TiltMtServoThrustDiffSecondOrderMPC::getCommand(int idx_u, double T_horizon)
+{
+  // ENTIRELY DIFFERENT IDEA:
+  // Instead of using control input here, get the predicted STATE of thrust and servo inside the MODEL!
+  // This makes sense since in SQP-RTI the state is also an optimization variable
+  // Interpolate to next sample time based on current and next state in the horizon
+  // if (idx_u < motor_num_)
+  // {
+  //   // Interpolate one control period into the horizon WITH rotor time constant
+  //   double x0 = mpc_solver_ptr_->xo_.at(0).at(thrust_start_idx_ + idx_u);
+  //   double x1 = mpc_solver_ptr_->xo_.at(1).at(thrust_start_idx_ + idx_u);
+  //   double uo_ = x0 + (x1 - x0) * t_rotor_ / t_nmpc_step_;
+  // }
+  // else
+  // {
+  //   // Interpolate one control period into the horizon WITH servo time constant
+  //   double x0 = mpc_solver_ptr_->xo_.at(0).at(servo_start_idx_ + (idx_u - motor_num_));
+  //   double x1 = mpc_solver_ptr_->xo_.at(1).at(servo_start_idx_ + (idx_u - motor_num_));
+  //   double uo_ = x0 + (x1 - x0) * t_servo_ / t_nmpc_step_;
+  // }
+
+  // ------- OR -------
+
+  // // Integrate control input since it is defined as the servo angle and thrust velocity
+  // double uo_derivative = mpc_solver_ptr_->uo_.at(0).at(idx_u);
+  // // RESET?!?! to avoid blindly integrating?
+  // double uo = uo_prev_.at(idx_u) + uo_derivative * t_nmpc_dt_;
+
+  // ------- OR -------
+
+  // // Equivalent to direct integration if model is correct, else correct for drift
+  // double uo_derivative = mpc_solver_ptr_->uo_.at(0).at(idx_u);
+  // double uo;
+  // if (idx_u < motor_num_) {
+  //   // For thrust: use measured thrust as ground truth
+  //   uo = thrust_meas_[idx_u] + uo_derivative * t_rotor_;
+  // } else {
+  //   // For servo: use measured angle as ground truth
+  //   uo = joint_angles_[idx_u - motor_num_] + uo_derivative * t_servo_;
+  // }
+
+  // ------- OR -------
+
+  double uo_derivative = mpc_solver_ptr_->uo_.at(0).at(idx_u);
+  double tau  = (idx_u < motor_num_) ? t_rotor_ : t_servo_;
+  double meas = (idx_u < motor_num_) ? thrust_meas_[idx_u] : joint_angles_[idx_u - motor_num_];
+
+  // Blind integration realizes the planned rate exactly; the slow leak pins the command
+  // to the measurement-consistent lead (meas + tau*u_dot) so open-loop drift stays bounded.
+  const double T_leak = 0.4;  // s; must be >> tau - leaking at 1/tau halves the realized velocity
+  double uo = uo_prev_.at(idx_u) + uo_derivative * t_nmpc_dt_;
+  uo += (t_nmpc_dt_ / T_leak) * ((meas + tau * uo_derivative) - uo);
+
+  // -----------------
+
+  // Clamp to constraints
+  if (idx_u < motor_num_)
+  {
+    uo = std::clamp(uo, thrust_ctrl_min_, thrust_ctrl_max_);
+  }
+  else
+  {
+    uo = std::clamp(uo, servo_angle_min_, servo_angle_max_);
+  }
+
+  if (!is_warmup_)
+  {
+    uo_prev_.at(idx_u) = uo;
+  }
+  return uo;
 }
 
 void TiltMtServoThrustDiffSecondOrderMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig& config, uint32_t level)
@@ -362,40 +435,40 @@ void TiltMtServoThrustDiffSecondOrderMPC::cfgNMPCCallback(aerial_robot_control::
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_A: {
-          for (int i = 13; i < 13 + joint_num_; ++i)
+          for (int i = servo_start_idx_; i < servo_start_idx_ + joint_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Qa);
           ROS_INFO_STREAM("change Qa for NMPC '" << config.Qa << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_AD: {
-          for (int i = 13; i < 13 + joint_num_; ++i)
+          for (int i = servo_vel_start_idx_; i < servo_vel_start_idx_ + joint_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Qad);
           ROS_INFO_STREAM("change Qad for NMPC '" << config.Qad << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_T: {
-          for (int i = 13 + joint_num_; i < 13 + joint_num_ + motor_num_; ++i)
+          for (int i = thrust_start_idx_; i < thrust_start_idx_ + motor_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Qt);
           ROS_INFO_STREAM("change Qt for NMPC '" << config.Qt << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_TD: {
-          for (int i = 13 + joint_num_; i < 13 + joint_num_ + motor_num_; ++i)
+          for (int i = thrust_vel_start_idx_; i < thrust_vel_start_idx_ + motor_num_; ++i)
             mpc_solver_ptr_->setCostWDiagElement(i, config.Qtd);
           ROS_INFO_STREAM("change Qtd for NMPC '" << config.Qtd << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_FU: {
-          mpc_solver_ptr_->setCostWDiagElement(13 + joint_num_ + motor_num_ + 0, config.Qfu);
-          mpc_solver_ptr_->setCostWDiagElement(13 + joint_num_ + motor_num_ + 1, config.Qfu);
-          mpc_solver_ptr_->setCostWDiagElement(13 + joint_num_ + motor_num_ + 2, config.Qfu);
+          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 0, config.Qfu);
+          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 1, config.Qfu);
+          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 2, config.Qfu);
           ROS_INFO_STREAM("change Qfu for NMPC '" << config.Qfu << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_Q_TAU: {
-          mpc_solver_ptr_->setCostWDiagElement(13 + joint_num_ + motor_num_ + 3, config.Qtau);
-          mpc_solver_ptr_->setCostWDiagElement(13 + joint_num_ + motor_num_ + 4, config.Qtau);
-          mpc_solver_ptr_->setCostWDiagElement(13 + joint_num_ + motor_num_ + 5, config.Qtau);
+          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 3, config.Qtau);
+          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 4, config.Qtau);
+          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 5, config.Qtau);
           ROS_INFO_STREAM("change Qtau for NMPC '" << config.Qtau << "'");
           break;
         }
@@ -405,10 +478,10 @@ void TiltMtServoThrustDiffSecondOrderMPC::cfgNMPCCallback(aerial_robot_control::
           ROS_INFO_STREAM("change Rtc_d for NMPC '" << config.Rtc_d << "'");
           break;
         }
-        case Levels::RECONFIGURE_NMPC_R_AC_D: {
+        case Levels::RECONFIGURE_NMPC_R_AD_C: {
           for (int i = mpc_solver_ptr_->NX_ + motor_num_; i < mpc_solver_ptr_->NX_ + motor_num_ + joint_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Rac_d, false);
-          ROS_INFO_STREAM("change Rac_d for NMPC '" << config.Rac_d << "'");
+            mpc_solver_ptr_->setCostWDiagElement(i, config.Rad_c, false);
+          ROS_INFO_STREAM("change Rad_c for NMPC '" << config.Rad_c << "'");
           break;
         }
         default: {

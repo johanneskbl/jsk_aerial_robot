@@ -222,9 +222,6 @@ def full_dynamics(mpc: NeuralMPC, state, u):
         cos_a = ca.MX.ones(4)
         sin_a = ca.MX.zeros(4)
 
-    #     i < 3
-    # u @Dschodscho
-
     # [Coordinate Transform] End-of-arm to Body
     # Vectorized rotation matrices rot_be (3x3x4)
     # We'll compute the rotated forces later directly without storing the full rotation matrices

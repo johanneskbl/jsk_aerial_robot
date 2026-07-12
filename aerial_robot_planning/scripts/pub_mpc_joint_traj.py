@@ -193,7 +193,7 @@ class MPCSinglePtPub(MPCPubJointTraj):
 
         ####################################################
         # NOT CLEAR WHY BUT z has always an offset of 0.26
-        cur_pos.z -= 0.26
+        # cur_pos.z -= 0.26
         ####################################################
 
         dx = cur_pos.x - self.target_pose.position.x
@@ -227,6 +227,7 @@ class MPCSinglePtPub(MPCPubJointTraj):
         else:
             # rospy.loginfo(f"pos_err, ang_err, vel_err, rate_err: {pos_err}, {ang_err}, {vel_err}, {rate_err}")
             rospy.loginfo(f"cur_pos.z = {cur_pos.z}")
+            rospy.loginfo(f"target.z  = {self.target_pose.position.z}")
             # rospy.loginfo(f"self.target_pose.position.z = {self.target_pose.position.z}")
             # rospy.loginfo(f"cur_pos.z - self.target_pose.position.z = {cur_pos.z - self.target_pose.position.z}")
             return False

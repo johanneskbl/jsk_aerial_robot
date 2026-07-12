@@ -92,6 +92,9 @@ protected:
   double servo_angle_max_;
   double servo_angle_min_;
 
+  double t_nmpc_dt_;
+  double t_nmpc_timestep_;
+  double t_nmpc_prev_timestep_;
   double t_nmpc_samp_;
   double t_nmpc_step_;
   double t_nmpc_horizon_;
