@@ -12,7 +12,21 @@ void TiltMtServoThrustDiffMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nh
 {
   TiltMtServoNMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
+  /* Subscribers */
   sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &TiltMtServoThrustDiffMPC::callbackESCTelem, this);
+
+  /* Publishers */
+  pub_record_ref_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_ref", 1);
+  pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
+}
+
+void TiltMtServoThrustDiffMPC::initGeneralParams()
+{
+  TiltMtServoNMPC::initGeneralParams();
+
+  ros::NodeHandle motor_nh(nh_, "motor_info");
+  getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
+  getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
 }
 
 void TiltMtServoThrustDiffMPC::initActuatorStates()
@@ -27,15 +41,6 @@ void TiltMtServoThrustDiffMPC::initActuatorStates()
   internal_wrench_b_ = Eigen::VectorXd::Zero(6);
   
   uo_prev_ = std::vector<double>(motor_num_ + joint_num_, 0.0);
-}
-
-void TiltMtServoThrustDiffMPC::initGeneralParams()
-{
-  TiltMtServoNMPC::initGeneralParams();
-
-  ros::NodeHandle motor_nh(nh_, "motor_info");
-  getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
-  getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
 }
 
 void TiltMtServoThrustDiffMPC::initNMPCCostW()
@@ -95,10 +100,30 @@ void TiltMtServoThrustDiffMPC::initNMPCCostW()
   for (int i = mpc_solver_ptr_->NX_ + motor_num_; i < mpc_solver_ptr_->NX_ + motor_num_ + joint_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Rad_c, false);
 
+  
+  // Nullspace control
+  double nullspace_servo_gain, nullspace_thrust_gain;
+  getParam<double>(nmpc_nh, "nullspace_servo_gain", nullspace_servo_gain, 0.0);
+  getParam<double>(nmpc_nh, "nullspace_thrust_gain", nullspace_thrust_gain, 0.0);
+  if (nullspace_servo_gain == 0.0 && nullspace_thrust_gain == 0.0)
+  {
+    include_nullspace_control_ = false;
+  }
+  else
+  {
+    include_nullspace_control_ = true;
+    if (Qa != 0.0 || Qt != 0.0)
+    {
+      ROS_FATAL("Nullspace control is enabled, but Qa or Qt is not zero. Since the reference must be set to zero this is badly conditioned.");
+    }
+  }
+
   ROS_INFO("MPC cost W initialized:\n"
            "\tQp_xy=%f, Qp_z=%f, Qv_xy=%f, Qv_z=%f, Qq_xy=%f, Qq_z=%f, Qw_xy=%f, Qw_z=%f,\n"
-           "\tQa=%f, Qt=%f, Qfu=%f, Qtau=%f, Rtd_c=%f, Rad_c=%f",
-           Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qt, Qfu, Qtau, Rtd_c, Rad_c);
+           "\tQa=%f, Qt=%f, Qfu=%f, Qtau=%f, Rtd_c=%f, Rad_c=%f,\n"
+           "\tnullspace_servo_gain=%f, nullspace_thrust_gain=%f",
+           Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qt, Qfu, Qtau, Rtd_c, Rad_c,
+           nullspace_servo_gain, nullspace_thrust_gain);
 }
 
 void TiltMtServoThrustDiffMPC::initNMPCConstraints()
@@ -223,10 +248,115 @@ void TiltMtServoThrustDiffMPC::callbackESCTelem(const spinal::ESCTelemetryArrayC
   thrust_meas_[3] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
 }
 
+bool TiltMtServoThrustDiffMPC::update()
+{
+  bool control_ready = ControlBase::update();
+
+  // after press activate button, but before takeoff
+  if (!control_ready)
+  {
+    if (navigator_->getNaviState() == aerial_robot_navigation::ARM_ON_STATE)
+    {
+      // Warmup the solver before actual takeoff
+      is_warmup_ = true;
+      controlCore();
+      publishRecording();
+    }
+    return false;
+  }
+  else
+  {
+    is_warmup_ = false;
+    controlCore();
+    sendCmd();
+    publishRecording();
+  }
+  return true;
+}
+
 void TiltMtServoThrustDiffMPC::reset()
 {
   TiltMtServoNMPC::reset();
   uo_prev_ = std::vector<double>(motor_num_ + joint_num_, 0.0);
+}
+
+/**
+ * @brief calXrUrRef: calculate the reference state and control input
+ * @param ref_pos_i
+ * @param ref_vel_i
+ * @param ref_acc_i - the acceleration is in the inertial frame, no including the gravity
+ * @param ref_quat_ib
+ * @param ref_omega_b
+ * @param ref_ang_acc_b
+ * @param horizon_idx - set -1 for adding the target point to the end of the reference trajectory, 0 ~ NN for adding
+ * the target point to the horizon_idx interval
+ */
+void TiltMtServoThrustDiffMPC::setXrUrRef(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
+                                          const tf::Vector3& ref_acc_i, const tf::Quaternion& ref_quat_ib,
+                                          const tf::Vector3& ref_omega_b, const tf::Vector3& ref_ang_acc_b,
+                                          const int& horizon_idx)
+{
+  int& NX = mpc_solver_ptr_->NX_;
+  int& NU = mpc_solver_ptr_->NU_;
+  int& NN = mpc_solver_ptr_->NN_;
+
+  /* calculate the reference wrench in the body frame */
+  Eigen::VectorXd acc_with_g_i(3);
+  acc_with_g_i(0) = ref_acc_i.x();
+  acc_with_g_i(1) = ref_acc_i.y();
+  acc_with_g_i(2) = ref_acc_i.z() + gravity_const_;  // add gravity
+
+  // coordinate transformation
+  tf::Quaternion q_bi = ref_quat_ib.inverse();
+  Eigen::Matrix3d rot_bi;
+  tf::matrixTFToEigen(tf::Transform(q_bi).getBasis(), rot_bi);
+  Eigen::VectorXd ref_acc_b = rot_bi * acc_with_g_i;
+
+  Eigen::VectorXd ref_wrench_b(6);
+  ref_wrench_b(0) = ref_acc_b(0) * mass_;
+  ref_wrench_b(1) = ref_acc_b(1) * mass_;
+  ref_wrench_b(2) = ref_acc_b(2) * mass_;
+  ref_wrench_b(3) = ref_ang_acc_b.x() * inertia_.at(0);
+  ref_wrench_b(4) = ref_ang_acc_b.y() * inertia_.at(1);
+  ref_wrench_b(5) = ref_ang_acc_b.z() * inertia_.at(2);
+
+  /* calculate X U from ref, aka. control allocation */
+  std::vector<double> x(NX, 0.0);
+  std::vector<double> u(NU, 0.0);
+  allocateToXU(ref_pos_i, ref_vel_i, ref_quat_ib, ref_omega_b, ref_wrench_b, x, u);
+
+  /* set values */
+  if (horizon_idx == -1)
+  {
+    // Aim: gently add the target point to the end of the reference trajectory
+    // - x: NN + 1, u: NN
+    // - for 0 ~ NN-2 x and u, shift
+    // - copy x to x: NN-1 and NN, copy u to u: NN-1
+    for (int i = 0; i < NN - 1; i++)
+    {
+      // shift one step
+      std::copy(x_u_ref_.x.data.begin() + NX * (i + 1), x_u_ref_.x.data.begin() + NX * (i + 2),
+                x_u_ref_.x.data.begin() + NX * i);
+      std::copy(x_u_ref_.u.data.begin() + NU * (i + 1), x_u_ref_.u.data.begin() + NU * (i + 2),
+                x_u_ref_.u.data.begin() + NU * i);
+    }
+    std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * (NN - 1));
+    std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * (NN - 1));
+
+    std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * NN);
+
+    return;
+  }
+
+  if (horizon_idx < 0 || horizon_idx > NN)
+  {
+    ROS_WARN("horizon_idx is out of range! CalXrUrRef failed!");
+    return;
+  }
+
+  std::copy(x.begin(), x.begin() + NX, x_u_ref_.x.data.begin() + NX * horizon_idx);
+  if (horizon_idx < NN)
+    std::copy(u.begin(), u.begin() + NU, x_u_ref_.u.data.begin() + NU * horizon_idx);
 }
 
 void TiltMtServoThrustDiffMPC::allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
@@ -511,6 +641,155 @@ double TiltMtServoThrustDiffMPC::getCommand(int idx_u, double T_horizon)
   //   uo_prev_.at(idx_u) = uo;
   // }
   // return uo;
+}
+
+void TiltMtServoThrustDiffMPC::publishRecording()
+{
+  // int& NN = mpc_solver_ptr_->NN_;
+  int NN = 1;  // Only for next prediction to avoid high runtime overhead
+  auto stamp = ros::Time::now();
+
+  // Publish reference states
+  aerial_robot_msgs::MPCTrajectory ref_msg;
+  ref_msg.header.frame_id = "world";
+  ref_msg.header.stamp = stamp;
+  ref_msg.states.resize(NN + 1);
+  ref_msg.controls.resize(NN);
+
+  for (int i = 0; i <= NN; ++i)
+  {
+    // Position
+    ref_msg.states[i].position.x = mpc_solver_ptr_->xr_[i][0];
+    ref_msg.states[i].position.y = mpc_solver_ptr_->xr_[i][1];
+    ref_msg.states[i].position.z = mpc_solver_ptr_->xr_[i][2];
+    
+    // Linear velocity
+    ref_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xr_[i][3];
+    ref_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xr_[i][4];
+    ref_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xr_[i][5];
+    
+    // Quaternion
+    ref_msg.states[i].orientation.w = mpc_solver_ptr_->xr_[i][6];
+    ref_msg.states[i].orientation.x = mpc_solver_ptr_->xr_[i][7];
+    ref_msg.states[i].orientation.y = mpc_solver_ptr_->xr_[i][8];
+    ref_msg.states[i].orientation.z = mpc_solver_ptr_->xr_[i][9];
+    
+    // Angular velocity
+    ref_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xr_[i][10];
+    ref_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xr_[i][11];
+    ref_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xr_[i][12];
+    
+    // Servo angle state
+    ref_msg.states[i].servo_angles.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      ref_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xr_[i][servo_start_idx_ + j];
+    }
+
+    // Thrust state
+    ref_msg.states[i].thrust.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      ref_msg.states[i].thrust[j] = mpc_solver_ptr_->xr_[i][thrust_start_idx_ + j];
+    }
+
+    // Wrench state
+    ref_msg.states[i].wrench_forces.x = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 0];
+    ref_msg.states[i].wrench_forces.y = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 1];
+    ref_msg.states[i].wrench_forces.z = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 2];
+    ref_msg.states[i].wrench_torques.x = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 3];
+    ref_msg.states[i].wrench_torques.y = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 4];
+    ref_msg.states[i].wrench_torques.z = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 5];
+  }
+
+  for (int i = 0; i < NN; ++i)
+  {
+    // Thrust commands
+    ref_msg.controls[i].thrust_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      ref_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->ur_[i][j];
+    }
+
+    // Servo angle commands
+    ref_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      ref_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
+    }
+  }
+  pub_record_ref_.publish(ref_msg);
+
+  // Predicted states
+  aerial_robot_msgs::MPCTrajectory pred_msg;
+  pred_msg.header.frame_id = "world";
+  pred_msg.header.stamp = stamp;
+  pred_msg.states.resize(NN + 1);
+  pred_msg.controls.resize(NN);
+
+  for (int i = 0; i <= NN; ++i)
+  {
+    // Position
+    pred_msg.states[i].position.x = mpc_solver_ptr_->xo_[i][0];
+    pred_msg.states[i].position.y = mpc_solver_ptr_->xo_[i][1];
+    pred_msg.states[i].position.z = mpc_solver_ptr_->xo_[i][2];
+    
+    // Linear velocity
+    pred_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xo_[i][3];
+    pred_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xo_[i][4];
+    pred_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xo_[i][5];
+    
+    // Quaternion
+    pred_msg.states[i].orientation.w = mpc_solver_ptr_->xo_[i][6];
+    pred_msg.states[i].orientation.x = mpc_solver_ptr_->xo_[i][7];
+    pred_msg.states[i].orientation.y = mpc_solver_ptr_->xo_[i][8];
+    pred_msg.states[i].orientation.z = mpc_solver_ptr_->xo_[i][9];
+    
+    // Angular velocity
+    pred_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xo_[i][10];
+    pred_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xo_[i][11];
+    pred_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xo_[i][12];
+    
+    // Servo angle state
+    pred_msg.states[i].servo_angles.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      pred_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xo_[i][servo_start_idx_ + j];
+    }
+
+    // Thrust state
+    pred_msg.states[i].thrust.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.states[i].thrust[j] = mpc_solver_ptr_->xo_[i][thrust_start_idx_ + j];
+    }
+
+    // Wrench state
+    pred_msg.states[i].wrench_forces.x = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 0];
+    pred_msg.states[i].wrench_forces.y = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 1];
+    pred_msg.states[i].wrench_forces.z = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 2];
+    pred_msg.states[i].wrench_torques.x = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 3];
+    pred_msg.states[i].wrench_torques.y = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 4];
+    pred_msg.states[i].wrench_torques.z = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 5];
+  }
+  
+  for (int i = 0; i < NN; ++i)
+  {
+    // Thrust commands
+    pred_msg.controls[i].thrust_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->uo_[i][j];
+    }
+
+    // Servo angle commands
+    pred_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      pred_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
+    }
+  }
+  pub_record_pred_.publish(pred_msg);
 }
 
 void TiltMtServoThrustDiffMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig& config, uint32_t level)

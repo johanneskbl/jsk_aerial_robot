@@ -19,5 +19,18 @@ geometry_msgs/Quaternion orientation
 # Angular velocity in body frame
 geometry_msgs/Vector3 angular_velocity
 
-# Servo/joint angles as state (dynamic array for flexible robot configurations)
+# Servo angles as state (dynamic array for flexible robot configurations)
 float64[] servo_angles
+
+# Servo angle velocity as state
+float64[] servo_angle_velocity
+
+# Thrust as state
+float64[] thrust
+
+# Thrust velocity as state
+float64[] thrust_velocity
+
+# Internal wrench as state in Body frame
+geometry_msgs/Vector3 wrench_forces
+geometry_msgs/Vector3 wrench_torques

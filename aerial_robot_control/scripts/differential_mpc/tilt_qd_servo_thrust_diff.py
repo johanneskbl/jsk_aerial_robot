@@ -82,43 +82,31 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
             state_y = ca.vertcat(
                 state_y,
                 self.fu_b_s,
-                self.tau_u_b_s
+                self.tau_b_s
             )
 
         state_y_e = state_y
 
-        # control_y = ca.vertcat(
-        #     self.ftd_c,
-        #     self.ad_c,
-        # )
-
-        # - Nullspace projection
+        # - Nullspace secondary task
         if self.include_nullspace_control:
-            # If using nullspace control, we want to bring our thrusts to thrust_target.
-            # This is 0, but will just reduce the thrust as much as possible without compromising
-            # the main control objective, thanks to the nullspace projection.
-            stacked_actuator_velocities = ca.vertcat(self.ftd_s, self.ad_s)
-            target_gain = 0.3
-            thrust_target = 0.0  # Target actuator states (bring prop speed to 0)
-            actuators_target = - target_gain * ca.vertcat(self.ft_s - thrust_target, 0,0,0,0)
-
-            # TODO Check if correct especially if control_y should be left or right of the minus
-            # control_y = ca.simplify(actuator_velocity_y - control_y)
-            # control_y = ca.simplify(target_gain * ca.mtimes(ca.mtimes(time_constant_matrix, nullspace_proj), actuators_target) - ca.vertcat(self.ft_c - self.ft_s, self.a_c - self.a_s))
-
-            time_contant_matrix_inv = ca.diag(ca.vertcat([1/self.t_rotor]*self.num_rotors, [1/self.t_servo]*self.num_rotors))
-            actuators_target_jacobian = ca.jacobian(actuators_target, stacked_actuator_velocities)
+            # Secondary objective: pull the servo angles back to 0 (and optionally the thrusts
+            # to 0) within the nullspace of the allocation Jacobian, i.e. without changing the
+            # produced wrench. See NMPCTiltQdServoThrustDiffSecondOrder.get_cost_function for
+            # details. In this first-order model the actuator velocities are the control
+            # inputs themselves, so the residual lives in control_y (weights Rtd_c, Rad_c).
+            thrust_task_gain = self.params["nullspace_thrust_gain"]  # [1/s]
+            servo_task_gain = self.params["nullspace_servo_gain"]    # [1/s]
+            thrust_target = 0.0
+            servo_target = 0.0
+            velocity_target = ca.vertcat(
+                - thrust_task_gain * (self.ft_s - thrust_target),
+                - servo_task_gain * (self.a_s - servo_target),
+            )
             control_y = ca.simplify(
-                ca.mtimes(time_contant_matrix_inv, ca.vertcat(self.ftd_c - self.ftd_s, self.ad_c - self.ad_s))
-                - ca.mtimes(nullspace_proj_dot, actuators_target)
-                - ca.mtimes(ca.mtimes(nullspace_proj, actuators_target_jacobian), ca.vertcat(self.ftd_s, self.ad_s)) )
+                ca.vertcat(self.ftd_c, self.ad_c) - ca.mtimes(nullspace_proj, velocity_target)
+            )
         else:
             # Without nullspace control, just minimize actuator velocity
-            # TODO check if correct!!! (doesnt have a_c and ft_c only ad_c and ftd_c) but also not ad_s and ftd_s to min acc
-            # control_y = ca.vertcat(
-            #     self.ft_c - self.ft_s,
-            #     self.a_c - self.a_s,
-            # )
             control_y = ca.vertcat(
                 self.ftd_c,
                 self.ad_c,

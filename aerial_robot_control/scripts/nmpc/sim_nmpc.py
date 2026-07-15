@@ -3,6 +3,7 @@ from copy import deepcopy
 import time
 import numpy as np
 import argparse
+import transformations as tf
 
 from nmpc_tilt_mt.utils.nmpc_viz import Visualizer
 
@@ -180,7 +181,7 @@ def main(args):
 
     ts_sim = 0.005  # or 0.001
 
-    t_total_sim = 15.0
+    t_total_sim = 70.0
     if args.plot_type == 1:
         t_total_sim = 4.0
     if args.plot_type == 2:
@@ -294,49 +295,84 @@ def main(args):
         # --------- Update control target ---------
         target_xyz = np.array([[0.0, 0.0, 1.0]]).T
         target_rpy = np.array([[0.0, 0.0, 0.0]]).T
+        target_qwxyz = None
 
         if args.plot_type == 2:
             target_xyz = np.array([[0.0, 0.0, 0.0]]).T
             target_rpy = np.array([[0.5, 0.5, 0.5]]).T
 
         if t_total_sim > 2.0:
-            if 2.0 <= t_now < 6:
-                target_xyz = np.array([[0.3, 0.6, 1.0]]).T
+            # if 2.0 <= t_now < 6:
+            #     target_xyz = np.array([[0.3, 0.6, 1.0]]).T
 
-                roll = 90.0 / 180.0 * np.pi
-                pitch = 0.0 / 180.0 * np.pi
-                yaw = 0.0 / 180.0 * np.pi
-                target_rpy = np.array([[roll, pitch, yaw]]).T
-
-            # if 3.0 <= t_now < 5.5:
-            #     assert t_sqp_end <= 3.0
-            #     target_xyz = np.array([[1.0, 1.0, 1.0]]).T
-            #     target_rpy = np.array([[0.0, 0.0, 0.0]]).T
-            # if t_now >= 5.5:
-            #     target_xyz = np.array([[1.0, 1.0, 1.0]]).T
-
-            #     roll = 30.0 / 180.0 * np.pi
+            #     roll = 90.0 / 180.0 * np.pi
             #     pitch = 0.0 / 180.0 * np.pi
             #     yaw = 0.0 / 180.0 * np.pi
             #     target_rpy = np.array([[roll, pitch, yaw]]).T
 
-            if 6 <= t_now < 12:
-                assert t_sqp_end <= 3.0
-                target_xyz = np.array([[0.3, 0.6, 1.0]]).T
-                roll = 0.0 / 180.0 * np.pi
-                pitch = 90.0 / 180.0 * np.pi
-                yaw = 0.0 / 180.0 * np.pi
-                target_rpy = np.array([[roll, pitch, yaw]]).T
+            # # if 3.0 <= t_now < 5.5:
+            # #     assert t_sqp_end <= 3.0
+            # #     target_xyz = np.array([[1.0, 1.0, 1.0]]).T
+            # #     target_rpy = np.array([[0.0, 0.0, 0.0]]).T
+            # # if t_now >= 5.5:
+            # #     target_xyz = np.array([[1.0, 1.0, 1.0]]).T
 
-            if t_now >= 12:
-                target_xyz = np.array([[0.3, 0.6, 1.0]]).T
-                roll = 0.0 / 180.0 * np.pi
-                pitch = 180.0 / 180.0 * np.pi
-                yaw = 0.0 / 180.0 * np.pi
-                target_rpy = np.array([[roll, pitch, yaw]]).T
+            # #     roll = 30.0 / 180.0 * np.pi
+            # #     pitch = 0.0 / 180.0 * np.pi
+            # #     yaw = 0.0 / 180.0 * np.pi
+            # #     target_rpy = np.array([[roll, pitch, yaw]]).T
+
+            # if 6 <= t_now < 12:
+            #     assert t_sqp_end <= 3.0
+            #     target_xyz = np.array([[0.3, 0.6, 1.0]]).T
+            #     roll = 0.0 / 180.0 * np.pi
+            #     pitch = 90.0 / 180.0 * np.pi
+            #     yaw = 0.0 / 180.0 * np.pi
+            #     target_rpy = np.array([[roll, pitch, yaw]]).T
+
+            # if 12 <= t_now < 15:
+            #     target_xyz = np.array([[0.3, 0.6, 1.0]]).T
+            #     roll = 0.0 / 180.0 * np.pi
+            #     pitch = 180.0 / 180.0 * np.pi
+            #     yaw = 0.0 / 180.0 * np.pi
+            #     target_rpy = np.array([[roll, pitch, yaw]]).T
+
+            # ----- Cartwheel rotation trajectory (SingularityPointTraj) -----
+            # SingularityPointTraj holds roll = 90 deg and steps yaw in the *intrinsic* xyz
+            # convention (axes="rxyz"): once rolled, the body z-axis lies horizontal and the
+            # yaw steps rotate the body about it, sweeping the vertical world x-z plane.
+            # Four 90 deg steps thus complete one full 2*pi cartwheel.
+            # NOTE: compute_trajectory converts target_rpy with axes="sxyz", which is a
+            # different rotation for the same numbers, so the reference quaternion must be
+            # built here with axes="rxyz" and passed directly as target_qwxyz.
+            t_start = 2.0  # settle into hover first
+            t_converge = 8.0  # per-phase convergence time, as in SingularityPointTraj
+            phase = int((t_now - t_start) // t_converge) if t_now >= t_start else -1
+
+            target_xyz = np.array([[0.3, 0.6, 1.0]]).T
+            roll, pitch, yaw = np.pi / 2.0, 0.0, np.pi / 4.0
+
+            if phase < 0:  # hover level at the start point
+                target_xyz = np.array([[0.0, 0.0, 1.0]]).T
+                roll, yaw = 0.0, 0.0
+            elif phase == 0:  # move to the maneuver point and pre-align yaw while level
+                roll = 0.0
+            elif phase <= 5:  # phase 1: roll up on the side; phases 2-5: quarter-turn steps
+                yaw = np.pi / 4.0 + (phase - 1) * np.pi / 2.0  # ends at pi/4 + 2*pi
+            elif phase == 6:  # cartwheel complete: roll back to level
+                roll = 0.0
+            else:  # return home
+                target_xyz = np.array([[0.0, 0.0, 1.0]]).T
+                roll, yaw = 0.0, 0.0
+
+            target_qwxyz = np.array(tf.quaternion_from_euler(roll, pitch, yaw, axes="rxyz"))
+            # ------------------------------------------------------------------------------
 
         # Compute reference trajectory from target pose
-        xr, ur = reference_generator.compute_trajectory(target_xyz, target_rpy=target_rpy)
+        if target_qwxyz is not None:
+            xr, ur = reference_generator.compute_trajectory(target_xyz, target_qwxyz=target_qwxyz)
+        else:
+            xr, ur = reference_generator.compute_trajectory(target_xyz, target_rpy=target_rpy)
 
         if not args.no_viz and args.plot_type == 0:
             viz.update_ref(i, xr[0, :], ur[0, :])

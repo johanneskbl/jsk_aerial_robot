@@ -238,16 +238,36 @@ void TiltMtServoThrustDiffSecondOrderMPC::allocateToXU(const tf::Vector3& ref_po
   // ############ Singularity point incentive ############
   // Fix singularity point rotation by penalizing pi/2 angle in servo velocity reference
   // Servo angle velocity reference
-  for (int i = 0; i < joint_num_; i++)
-  {
-    // x.at(servo_vel_start_idx_ + i) = - 0.5*std::sin(joint_angles_[i]);  // Alternative
-    x.at(servo_vel_start_idx_ + i) = 0.0;
-  }
 
-  // Thrust velocity
-  for (int i = 0; i < motor_num_; i++)
+  if (include_nullspace_control_)
   {
-    x.at(thrust_vel_start_idx_ + i) = 0.0;
+    // When using nullspace control, we MUST set the reference to zero as we already have a P-term difference in the cost function!
+    // DO !
+    // NOT !
+    // CHANGE !
+    for (int i = 0; i < joint_num_; i++)
+    {
+      x.at(servo_vel_start_idx_ + i) = 0.0;
+    }
+    for (int i = 0; i < motor_num_; i++)
+    {
+      x.at(thrust_vel_start_idx_ + i) = 0.0;
+    }
+  }
+  else
+  {
+    for (int i = 0; i < joint_num_; i++)
+    {
+      // Incentivize servo angle to go back to 0 rad (or pi rad) to avoid singularity point FOR LOW THRUSTS
+      // x.at(servo_vel_start_idx_ + i) = - std::sin(joint_angles_[i] / 2.0) * std::cos((std::max(thrust_meas_[i], 0.0) + 1e-3) / thrust_ctrl_max_ * M_PI_2);  // Alternative
+      x.at(servo_vel_start_idx_ + i) = 0.0;
+    }
+
+    // Thrust velocity
+    for (int i = 0; i < motor_num_; i++)
+    {
+      x.at(thrust_vel_start_idx_ + i) = 0.0;
+    }
   }
 }
 
@@ -379,6 +399,183 @@ double TiltMtServoThrustDiffSecondOrderMPC::getCommand(int idx_u, double T_horiz
     uo_prev_.at(idx_u) = uo;
   }
   return uo;
+}
+
+void TiltMtServoThrustDiffSecondOrderMPC::publishRecording()
+{
+  // int& NN = mpc_solver_ptr_->NN_;
+  int NN = 1;  // Only for next prediction to avoid high runtime overhead
+  auto stamp = ros::Time::now();
+
+  // Publish reference states
+  aerial_robot_msgs::MPCTrajectory ref_msg;
+  ref_msg.header.frame_id = "world";
+  ref_msg.header.stamp = stamp;
+  ref_msg.states.resize(NN + 1);
+  ref_msg.controls.resize(NN);
+
+  for (int i = 0; i <= NN; ++i)
+  {
+    // Position
+    ref_msg.states[i].position.x = mpc_solver_ptr_->xr_[i][0];
+    ref_msg.states[i].position.y = mpc_solver_ptr_->xr_[i][1];
+    ref_msg.states[i].position.z = mpc_solver_ptr_->xr_[i][2];
+    
+    // Linear velocity
+    ref_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xr_[i][3];
+    ref_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xr_[i][4];
+    ref_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xr_[i][5];
+    
+    // Quaternion
+    ref_msg.states[i].orientation.w = mpc_solver_ptr_->xr_[i][6];
+    ref_msg.states[i].orientation.x = mpc_solver_ptr_->xr_[i][7];
+    ref_msg.states[i].orientation.y = mpc_solver_ptr_->xr_[i][8];
+    ref_msg.states[i].orientation.z = mpc_solver_ptr_->xr_[i][9];
+    
+    // Angular velocity
+    ref_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xr_[i][10];
+    ref_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xr_[i][11];
+    ref_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xr_[i][12];
+    
+    // Servo angle state
+    ref_msg.states[i].servo_angles.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      ref_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xr_[i][servo_start_idx_ + j];
+    }
+
+    // Servo angle velocity state
+    ref_msg.states[i].servo_angle_velocity.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      ref_msg.states[i].servo_angle_velocity[j] = mpc_solver_ptr_->xr_[i][servo_vel_start_idx_ + j];
+    }
+
+    // Thrust state
+    ref_msg.states[i].thrust.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      ref_msg.states[i].thrust[j] = mpc_solver_ptr_->xr_[i][thrust_start_idx_ + j];
+    }
+
+    // Thrust velocity state
+    ref_msg.states[i].thrust_velocity.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      ref_msg.states[i].thrust_velocity[j] = mpc_solver_ptr_->xr_[i][thrust_vel_start_idx_ + j];
+    }
+
+    // Wrench state
+    ref_msg.states[i].wrench_forces.x = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 0];
+    ref_msg.states[i].wrench_forces.y = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 1];
+    ref_msg.states[i].wrench_forces.z = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 2];
+    ref_msg.states[i].wrench_torques.x = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 3];
+    ref_msg.states[i].wrench_torques.y = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 4];
+    ref_msg.states[i].wrench_torques.z = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 5];
+  }
+
+  for (int i = 0; i < NN; ++i)
+  {
+    // Thrust commands
+    ref_msg.controls[i].thrust_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      ref_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->ur_[i][j];
+    }
+
+    // Servo angle commands
+    ref_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      ref_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
+    }
+  }
+  pub_record_ref_.publish(ref_msg);
+
+  // Predicted states
+  aerial_robot_msgs::MPCTrajectory pred_msg;
+  pred_msg.header.frame_id = "world";
+  pred_msg.header.stamp = stamp;
+  pred_msg.states.resize(NN + 1);
+  pred_msg.controls.resize(NN);
+
+  for (int i = 0; i <= NN; ++i)
+  {
+    // Position
+    pred_msg.states[i].position.x = mpc_solver_ptr_->xo_[i][0];
+    pred_msg.states[i].position.y = mpc_solver_ptr_->xo_[i][1];
+    pred_msg.states[i].position.z = mpc_solver_ptr_->xo_[i][2];
+    
+    // Linear velocity
+    pred_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xo_[i][3];
+    pred_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xo_[i][4];
+    pred_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xo_[i][5];
+    
+    // Quaternion
+    pred_msg.states[i].orientation.w = mpc_solver_ptr_->xo_[i][6];
+    pred_msg.states[i].orientation.x = mpc_solver_ptr_->xo_[i][7];
+    pred_msg.states[i].orientation.y = mpc_solver_ptr_->xo_[i][8];
+    pred_msg.states[i].orientation.z = mpc_solver_ptr_->xo_[i][9];
+    
+    // Angular velocity
+    pred_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xo_[i][10];
+    pred_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xo_[i][11];
+    pred_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xo_[i][12];
+    
+    // Servo angle state
+    pred_msg.states[i].servo_angles.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      pred_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xo_[i][servo_start_idx_ + j];
+    }
+
+    // Servo angle velocity state
+    pred_msg.states[i].servo_angle_velocity.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      pred_msg.states[i].servo_angle_velocity[j] = mpc_solver_ptr_->xo_[i][servo_vel_start_idx_ + j];
+    }
+
+    // Thrust state
+    pred_msg.states[i].thrust.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.states[i].thrust[j] = mpc_solver_ptr_->xo_[i][thrust_start_idx_ + j];
+    }
+
+    // Thrust velocity state
+    pred_msg.states[i].thrust_velocity.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.states[i].thrust_velocity[j] = mpc_solver_ptr_->xo_[i][thrust_vel_start_idx_ + j];
+    }
+
+    // Wrench state
+    pred_msg.states[i].wrench_forces.x = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 0];
+    pred_msg.states[i].wrench_forces.y = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 1];
+    pred_msg.states[i].wrench_forces.z = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 2];
+    pred_msg.states[i].wrench_torques.x = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 3];
+    pred_msg.states[i].wrench_torques.y = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 4];
+    pred_msg.states[i].wrench_torques.z = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 5];
+  }
+  
+  for (int i = 0; i < NN; ++i)
+  {
+    // Thrust commands
+    pred_msg.controls[i].thrust_commands.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->uo_[i][j];
+    }
+
+    // Servo angle commands
+    pred_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      pred_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
+    }
+  }
+  pub_record_pred_.publish(pred_msg);
 }
 
 void TiltMtServoThrustDiffSecondOrderMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig& config, uint32_t level)

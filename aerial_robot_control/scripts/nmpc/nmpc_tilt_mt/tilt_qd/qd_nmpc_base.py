@@ -179,9 +179,9 @@ class QDNMPCBase(RecedingHorizonBase):
         if self.include_differential_allocation:
             # Forces and torques generated in Body frame as a function of the thrust and servo angles
             self.fu_b_s = ca.MX.sym("fu_b_s", 3)
-            self.tau_u_b_s = ca.MX.sym("tau_u_b_s", 3)
+            self.tau_b_s = ca.MX.sym("tau_b_s", 3)
             self.wrench_state_start_idx = state.size()[0]
-            state = ca.vertcat(state, self.fu_b_s, self.tau_u_b_s)
+            state = ca.vertcat(state, self.fu_b_s, self.tau_b_s)
             self.wrench_state_end_idx = state.size()[0]
 
         # - Extend state-space by disturbance on CoG (actual)
@@ -393,7 +393,7 @@ class QDNMPCBase(RecedingHorizonBase):
                         + ca.mtimes(rot_be3, ca.mtimes(rot_e3r3, ft_r3))
                         + ca.mtimes(rot_be4, ca.mtimes(rot_e4r4, ft_r4))
                 )
-                tau_u_b = (
+                tau_b = (
                         ca.mtimes(rot_be1, ca.mtimes(rot_e1r1, tau_r1))
                         + ca.mtimes(rot_be2, ca.mtimes(rot_e2r2, tau_r2))
                         + ca.mtimes(rot_be3, ca.mtimes(rot_e3r3, tau_r3))
@@ -405,7 +405,7 @@ class QDNMPCBase(RecedingHorizonBase):
                 )
             else:
                 fu_b = self.fu_b_s
-                tau_u_b = self.tau_u_b_s
+                tau_b = self.tau_b_s
 
             # Force in World frame
             fu_w = rot_wb @ fu_b
@@ -500,7 +500,7 @@ class QDNMPCBase(RecedingHorizonBase):
                 ca.sum1(ft_b_z)
             )
 
-            tau_u_b_expr = ca.vertcat(
+            tau_b_expr = ca.vertcat(
                 ca.sum1(tau_b_x + cross_tau_b_x),
                 ca.sum1(tau_b_y + cross_tau_b_y),
                 ca.sum1(tau_b_z + cross_tau_b_z)
@@ -508,16 +508,10 @@ class QDNMPCBase(RecedingHorizonBase):
 
             if not self.include_differential_allocation:
                 fu_b = fu_b_expr
-                tau_u_b = tau_u_b_expr
+                tau_b = tau_b_expr
             else:
                 fu_b = self.fu_b_s
-                tau_u_b = self.tau_u_b_s
-                
-                # TODO: Understand and verify this
-                stacked_actuator_states = ca.vertcat(self.ft_s, self.a_s)
-                allocation_matrix_fu_b = ca.simplify(ca.jacobian(fu_b_expr, stacked_actuator_states))
-                allocation_matrix_tau_u_b = ca.simplify(ca.jacobian(tau_u_b_expr, stacked_actuator_states))
-                
+                tau_b = self.tau_b_s
 
             # 6. Apply transformation from Body to World: rot_wb @ ft_b:
             # [1 - 2*qy^2 - 2*qz^2, 2*qx*qy - 2*qw*qz, 2*qx*qz + 2*qw*qy]
@@ -542,7 +536,7 @@ class QDNMPCBase(RecedingHorizonBase):
             ( self.wx * self.qw + self.wz * self.qy - self.wy * self.qz) / 2,
             ( self.wy * self.qw - self.wz * self.qx + self.wx * self.qz) / 2,
             ( self.wz * self.qw + self.wy * self.qx - self.wx * self.qy) / 2,
-            ca.mtimes(I_inv, (-ca.cross(self.w, ca.mtimes(I, self.w)) + tau_u_b + self.tau_ds_b + self.tau_dp_b)),  # Stay in Body frame
+            ca.mtimes(I_inv, (-ca.cross(self.w, ca.mtimes(I, self.w)) + tau_b + self.tau_ds_b + self.tau_dp_b)),  # Stay in Body frame
         )
 
         # - Extend model by servo angle dynamics
@@ -579,34 +573,54 @@ class QDNMPCBase(RecedingHorizonBase):
 
         # - Extend model by forces and torques in Body frame for differential allocation
         if self.include_differential_allocation:
-            if not self.include_servo_second_order:
-                servo_velocity = (self.a_c - self.a_s) / self.t_servo  # Time constant of servo motor
-            else:
-                servo_velocity = self.ad_s
-            if not self.include_thrust_second_order:
-                thrust_velocity = (self.ft_c - self.ft_s) / self.t_rotor  # Time constant of rotor
-            else:
+            # The wrench state w(ft, a) evolves with the actuator velocities through the allocation
+            # dw/dt = dw/d(ft) * d(ft)/dt + dw/da * da/dt
+            # Jacobian J = [dw/d(ft), dw/da]
+            # dw/dt = J @ (ftd, ad)
+            stacked_actuator_states = ca.vertcat(self.ft_s, self.a_s)
+            jacobian_fu_b = ca.simplify(ca.jacobian(fu_b_expr, stacked_actuator_states))
+            jacobian_tau_b = ca.simplify(ca.jacobian(tau_b_expr, stacked_actuator_states))
+
+            # Actuator velocities d(ft)/dt and da/dt
+            # Priority: Use state if possible, else use control input, else use first-order model
+            if self.include_thrust_second_order:
                 thrust_velocity = self.ftd_s
+            elif self.include_thrust_derivative:
+                thrust_velocity = self.ftd_c
+            else:
+                thrust_velocity = (self.ft_c - self.ft_s) / self.t_rotor
+            if self.include_servo_second_order:
+                servo_velocity = self.ad_s
+            elif self.include_servo_derivative:
+                servo_velocity = self.ad_c
+            else:
+                servo_velocity = (self.a_c - self.a_s) / self.t_servo
             stacked_actuator_velocities = ca.vertcat(thrust_velocity, servo_velocity)
-            # stacked_actuator_velocities = controls
 
             ds[self.wrench_state_start_idx:self.wrench_state_end_idx] = ca.vertcat(
-                ca.mtimes(allocation_matrix_fu_b, stacked_actuator_velocities),
-                ca.mtimes(allocation_matrix_tau_u_b, stacked_actuator_velocities),
+                ca.mtimes(jacobian_fu_b, stacked_actuator_velocities),
+                ca.mtimes(jacobian_tau_b, stacked_actuator_velocities),
             )
 
             if self.include_nullspace_control:
-                stacked_wrenches = ca.vertcat(fu_b_expr, tau_u_b_expr)
-                allocation_matrix = ca.simplify(ca.jacobian(stacked_wrenches, stacked_actuator_states))
-                pseudo_inverse_allocation_matrix = ca.mtimes(allocation_matrix.T, ca.inv(ca.mtimes(allocation_matrix, allocation_matrix.T) + 1e-6 * ca.MX.eye(allocation_matrix.shape[0])))  # Damped pseudo-inverse for better numerical stability
-                nullspace_projector = ca.simplify(ca.MX.eye(allocation_matrix.shape[1]) - ca.mtimes(pseudo_inverse_allocation_matrix, allocation_matrix))
+                # Nullspace projector N = I - pinv(J) @ J of the Jacobian.
+                # The null space of J spans the space of actuator velocities that map to zero wrench,
+                # i.e. satisfy J @ (ftd, ad) = 0.
+                # Actuator velocities in the image of N do not change the wrench to first order
+                # (J @ N ~ 0), so they can be spent on secondary objectives without disturbing
+                # the pose/wrench tracking task.
+                jacobian_wrench = ca.vertcat(jacobian_fu_b, jacobian_tau_b)
+                # Damped pseudo-inverse for numerical stability at singularities
+                # (e.g. the servo columns of J vanish when the corresponding thrust is zero)
+                # Reference: https://robotics.caltech.edu/~jwb/courses/ME115/handouts/damped.pdf
+                pseudo_inverse_jacobian_wrench = ca.mtimes(jacobian_wrench.T, ca.inv(ca.mtimes(jacobian_wrench, jacobian_wrench.T) + 1e-6 * ca.MX.eye(jacobian_wrench.shape[0])))
+                nullspace_projector = ca.simplify(ca.MX.eye(jacobian_wrench.shape[1]) - ca.mtimes(pseudo_inverse_jacobian_wrench, jacobian_wrench))
 
-                nullspace_projector_dot = ca.reshape(
-                    ca.jtimes(ca.vec(nullspace_projector), stacked_actuator_states, stacked_actuator_velocities),
-                    nullspace_projector.shape[0],
-                    nullspace_projector.shape[1]
-                )
-
+                #### FROM EUGENIO FOR ACCELERATION BASED NULLSPACE ####
+                # # Time derivative dN/dt = dN/d(ft, a) @ (ftd, ad)
+                # jacobian_nullspace_projector = ca.jacobian(nullspace_projector, stacked_actuator_states)
+                # nullspace_projector_dot = ca.simplify(ca.mtimes(jacobian_nullspace_projector, stacked_actuator_velocities))
+                #######################################################
 
         # - Extend model by disturbances simply to match state dimensions
         if self.include_cog_dist_model:
@@ -630,15 +644,12 @@ class QDNMPCBase(RecedingHorizonBase):
             # a constant disturbance will be injected.
             lin_acc_w = (ca.mtimes(rot_wb, fu_b) + self.fds_w + self.fdp_w) / mass + g_w
             ang_acc_b = ca.mtimes(
-                I_inv, (-ca.cross(self.w, ca.mtimes(I, self.w)) + tau_u_b + self.tau_ds_b + self.tau_dp_b)
+                I_inv, (-ca.cross(self.w, ca.mtimes(I, self.w)) + tau_b + self.tau_ds_b + self.tau_dp_b)
             )
 
             state_y, state_y_e, control_y = self.get_cost_function(lin_acc_w=lin_acc_w, ang_acc_b=ang_acc_b)
         elif self.include_nullspace_control:
-            if not self.include_servo_second_order and not self.include_thrust_second_order:
-                state_y, state_y_e, control_y = self.get_cost_function(nullspace_proj=nullspace_projector)
-            else:
-                state_y, state_y_e, control_y = self.get_cost_function(nullspace_proj=nullspace_projector, nullspace_proj_dot=nullspace_projector_dot)
+            state_y, state_y_e, control_y = self.get_cost_function(nullspace_proj=nullspace_projector)
         else:
             state_y, state_y_e, control_y = self.get_cost_function()
 

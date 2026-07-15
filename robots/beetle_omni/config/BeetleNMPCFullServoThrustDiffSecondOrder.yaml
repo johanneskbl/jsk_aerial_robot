@@ -42,11 +42,17 @@ controller:
     Qad: 0.1
     Qt: 0.0 # 0.1
     Qtd: 0.001
-    Qfu: 0.001 # Generated body force
+    Qfu: 0.01 # Generated body force
     Qtau: 0.001 # Generated body torque
 
-    Rtd_c: 0.01  # Thrust velocity
-    Rad_c: 0.1 # Servo angle velocity
+    Rtd_c: 0.001  # Punishing thrust acceleration which can generally be high
+    Rad_c: 0.01 # Punishing servo acceleration which can generally be high
+
+    # Nullspace control:
+    # rate [1/s] at which the actuators are pulled toward their rest values (servo angle 0,
+    # thrust 0) within the nullspace of the Jacobian
+    nullspace_servo_gain: 3.0  # [1/s]
+    nullspace_thrust_gain: 1.0  # [1/s]
 
     is_attitude_ctrl: false
     is_body_rate_ctrl: false

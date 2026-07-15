@@ -37,6 +37,8 @@ protected:
 
   double getCommand(int idx_u, double T_horizon) override;
 
+  void publishRecording() override;
+
   void cfgNMPCCallback(NMPCConfig& config, uint32_t level) override;
 };
 
