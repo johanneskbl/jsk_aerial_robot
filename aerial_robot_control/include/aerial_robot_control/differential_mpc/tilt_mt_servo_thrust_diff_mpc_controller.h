@@ -30,8 +30,6 @@ protected:
   double thrust_vel_max_;
   double servo_vel_min_;
   double servo_vel_max_;
-  double krpm_square_to_thrust_ratio_;
-  double krpm_square_to_thrust_bias_;
   std::vector<double> thrust_meas_;
   ros::Subscriber sub_esc_telem_;
 
@@ -45,8 +43,6 @@ protected:
   bool include_nullspace_control_;
 
   virtual void initActuatorStates();
-  
-  void initGeneralParams() override;
 
   virtual void initNMPCCostW();
 

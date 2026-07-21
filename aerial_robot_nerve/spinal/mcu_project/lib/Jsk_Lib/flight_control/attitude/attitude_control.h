@@ -276,6 +276,10 @@ private:
   float max_duty_;
   float min_thrust_;  // max thrust is variant according to the voltage
   float force_landing_thrust_;
+  float min_rpm_;    // RPM_MODE only
+  float max_rpm_;    // RPM_MODE only
+  float rpm_convert_ratio_;  // RPM_MODE only, N / kRPM^2
+  float rpm_convert_bias_;   // RPM_MODE only, N
   int8_t rotor_devider_;
   int8_t pwm_conversion_mode_;
   std::vector<spinal::MotorInfo> motor_info_;

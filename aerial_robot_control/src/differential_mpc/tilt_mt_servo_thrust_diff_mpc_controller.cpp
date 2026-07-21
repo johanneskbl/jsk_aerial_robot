@@ -20,15 +20,6 @@ void TiltMtServoThrustDiffMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nh
   pub_record_pred_ = nh_.advertise<aerial_robot_msgs::MPCTrajectory>("nmpc/record_pred", 1);
 }
 
-void TiltMtServoThrustDiffMPC::initGeneralParams()
-{
-  TiltMtServoNMPC::initGeneralParams();
-
-  ros::NodeHandle motor_nh(nh_, "motor_info");
-  getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
-  getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
-}
-
 void TiltMtServoThrustDiffMPC::initActuatorStates()
 {
   TiltMtServoNMPC::initActuatorStates();

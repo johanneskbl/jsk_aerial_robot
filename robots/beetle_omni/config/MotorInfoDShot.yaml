@@ -1,6 +1,8 @@
 motor_info:
-  min_pwm: 0.5  # 1000 ~ dshot 0
-  max_pwm: 0.9  # 1800 ~ dshot 1600
+  # min_pwm: 0.5  # 1000 ~ dshot 0
+  # max_pwm: 0.9  # 1800 ~ dshot 1600
+  min_pwm: 0.5
+  max_pwm: 1.0
   min_thrust: 0.0  # [N]
   force_landing_thrust: 6.0  # [N]
 
@@ -10,45 +12,59 @@ motor_info:
   rotor_damping_rate: 0.1062  # = dt/t_thrust = 0.01 (guess) / 0.0942
   m_f_rate: -0.0165  # (-0.0166 + -0.0165 + -0.0166 +  -0.0164 + -0.0162) / 5 = -0.0165
 
-  pwm_conversion_mode: 1  # POLYNOMIAL Mode
+  # --- RPM Mode ---
+  pwm_conversion_mode: 2
+  # Inverts thrust = krpm_square_to_thrust_ratio * krpm^2 + krpm_square_to_thrust_bias to get the target RPM,
+  # then linearly normalizes it onto [min_rpm, max_rpm] to get target_pwm in [0.5, 1.0], which DShot then
+  # maps 1:1 onto the ESC's own RPM window -- so min_rpm/max_rpm MUST equal the ESC firmware's RPM window
+  # (e.g. AM32 RPM_CONTROL_MIN_RPM / MAX_RPM).
+  # This relationship is voltage-independent.
+  # Reference: attitude_control.cpp, AttitudeController::pwmConversion(), case spinal::MotorInfo::RPM_MODE
+  min_rpm: 1000.0   # [RPM] must match the ESC's RPM_CONTROL_MIN_RPM!!!
+  max_rpm: 13300.0  # [RPM] must match the ESC's RPM_CONTROL_MAX_RPM!!!
+
+  # --- POLYNOMIAL Mode ---
   # Note that for SQRT mode, only poly2 is 10x, others are 1x, and the relationship is fz = f(pwm).
   # But for POLYNOMIAL mode, the coefficients are 10x one by one, and the relationship is pwm = f(fz).
   # Specifically, get the coefficients from aerial_robot_nerve/motor_test/scripts/analyze_data.py, the second group.
-  # SQRT Mode ref: https://github.com/jsk-ros-pkg/jsk_aerial_robot/blob/master/aerial_robot_nerve/spinal/mcu_project/lib/Jsk_Lib/flight_control/attitude/attitude_control.cpp#L825
-  # POLYNOMIAL Mode ref: https://github.com/jsk-ros-pkg/jsk_aerial_robot/blob/master/aerial_robot_nerve/spinal/mcu_project/lib/Jsk_Lib/flight_control/attitude/attitude_control.cpp#L832
+  # SQRT Mode Reference: attitude_control.cpp, AttitudeController::pwmConversion(), case spinal::MotorInfo::SQRT_MODE
+  # POLYNOMIAL Mode Reference: attitude_control.cpp, AttitudeController::pwmConversion(), case spinal::MotorInfo::POLYNOMINAL_MODE
+  # pwm_conversion_mode: 1
   vel_ref_num: 5
   ref1:
     voltage: 25.09  # [V]
     max_thrust: 24.4020  # [N]
-    polynominal3: 2.97877161  # x10^3
-    polynominal2: -14.05324570  # x10^2
-    polynominal1: 32.37351102  # x10^1
-    polynominal0: 51.90014589  # x10^0
+    # polynominal3: 2.97877161  # x10^3
+    # polynominal2: -14.05324570  # x10^2
+    # polynominal1: 32.37351102  # x10^1
+    # polynominal0: 51.90014589  # x10^0
   ref2:
     voltage: 24.14  # [V]
     max_thrust: 22.7408  # [N]
-    polynominal3: 3.79791642  # x10^3
-    polynominal2: -16.70081320  # x10^2
-    polynominal1: 35.30631205  # x10^1
-    polynominal0: 51.80790765  # x10^0
+    # polynominal3: 3.79791642  # x10^3
+    # polynominal2: -16.70081320  # x10^2
+    # polynominal1: 35.30631205  # x10^1
+    # polynominal0: 51.80790765  # x10^0
   ref3:
     voltage: 23.23  # [V]
     max_thrust: 21.6353  # [N]
-    polynominal3: 4.22756569  # x10^3
-    polynominal2: -17.92885378  # x10^2
-    polynominal1: 36.88290715  # x10^1
-    polynominal0: 51.92626194  # x10^0
+    # polynominal3: 4.22756569  # x10^3
+    # polynominal2: -17.92885378  # x10^2
+    # polynominal1: 36.88290715  # x10^1
+    # polynominal0: 51.92626194  # x10^0
   ref4:
     voltage: 22.33  # [V]
     max_thrust: 20.1849  # [N]
-    polynominal3: 5.16221759  # x10^3
-    polynominal2: -20.63203999  # x10^2
-    polynominal1: 39.77248596  # x10^1
-    polynominal0: 51.81942204  # x10^0
+    # polynominal3: 5.16221759  # x10^3
+    # polynominal2: -20.63203999  # x10^2
+    # polynominal1: 39.77248596  # x10^1
+    # polynominal0: 51.81942204  # x10^0
   ref5:
     voltage: 21.40  # [V]
     max_thrust: 18.7075  # [N]
-    polynominal3: 6.54431964  # x10^3
-    polynominal2: -24.10320159  # x10^2
-    polynominal1: 42.80435622  # x10^1
-    polynominal0: 52.00842335  # x10^0
+    # polynominal3: 6.54431964  # x10^3
+    # polynominal2: -24.10320159  # x10^2
+    # polynominal1: 42.80435622  # x10^1
+    # polynominal0: 52.00842335  # x10^0
+  # to roll back: set pwm_conversion_mode: 1, vel_ref_num: 5, max_pwm: 0.9 (dshot mapping),
+  # and uncomment polynomial_ref1..5 above renamed back to ref1..ref5.

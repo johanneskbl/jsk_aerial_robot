@@ -24,8 +24,6 @@ public:
                   boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_du) override;
 
 protected:
-  double krpm_square_to_thrust_ratio_;
-  double krpm_square_to_thrust_bias_;
   std::vector<double> thrust_meas_;
   ros::Subscriber sub_esc_telem_;
 
@@ -34,8 +32,6 @@ protected:
     nmpc::TiltMtServoNMPC::initActuatorStates();
     thrust_meas_.resize(motor_num_, 0.0);
   }
-
-  void initGeneralParams() override;
 
   void initNMPCCostW() override;
 

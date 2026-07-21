@@ -123,6 +123,10 @@ void AttitudeController::baseInit()
   max_duty_ = IDLE_DUTY;  // should assign right value from PC(ros)
   min_thrust_ = 0;
   force_landing_thrust_ = 0;
+  min_rpm_ = 0;
+  max_rpm_ = 0;
+  rpm_convert_ratio_ = 0;
+  rpm_convert_bias_ = 0;
   pwm_pub_last_time_ = 0;
   pwm_test_flag_ = false;
 
@@ -212,6 +216,13 @@ void AttitudeController::pwmsControl(void)
   uint16_t motor_value[4] = { 0, 0, 0, 0 };
   for (int i = 0; i < 4; i++)
   {
+    // if (!start_control_flag_)
+    // {
+    //   // DShot value 0 = motor stop; required for AM32 to arm (>= 1s of continuous zero frames)
+    //   motor_value[i] = 0;
+    //   continue;
+    // }
+
     // target_pwm_: 0.5 ~ 1.0
     uint16_t motor_v = (uint16_t)((target_pwm_[i] - 0.5) / 0.5 * DSHOT_RANGE + DSHOT_MIN_THROTTLE);
 
@@ -613,6 +624,14 @@ void AttitudeController::pwmInfoCallback(const spinal::PwmInfo& info_msg)
     sim_voltage_ = motor_info_[0].voltage;
 #endif
 
+  if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE)
+  {
+    min_rpm_ = info_msg.min_rpm;
+    max_rpm_ = info_msg.max_rpm;
+    rpm_convert_ratio_ = info_msg.motor_info[0].krpm_square_to_thrust_ratio;  // N / kRPM^2
+    rpm_convert_bias_ = info_msg.motor_info[0].krpm_square_to_thrust_bias;    // N
+  }
+
 #ifndef SIMULATION
   /* mutex to protect the completion of following update  */
   if (mutex_ != NULL)
@@ -907,6 +926,21 @@ void AttitudeController::pwmConversion()
           target_pwm = target_pwm * tenth_scaled_thrust + motor_info_[motor_ref_index_].polynominal[j];
         break;
       }
+      case spinal::MotorInfo::RPM_MODE: {
+        /* Closed-loop RPM on ESC: 
+         * Invert: thrust = krpm_square_to_thrust_ratio * krpm^2 + * krpm_square_to_thrust_bias,
+         * then map linearly onto [min_rpm_, max_rpm_].
+         * This PWM value is decoded on ESC in the same way to get the desired RPM in the low-level PID controller. */
+        float krpm2 = (scaled_thrust - rpm_convert_bias_) / rpm_convert_ratio_;
+        float rpm_desired = (krpm2 > 0) ? sqrtf(krpm2) * 1000.0f : 0;
+        float frac = (rpm_desired - min_rpm_) / (max_rpm_ - min_rpm_);
+        if (frac < 0)
+          frac = 0;
+        if (frac > 1)
+          frac = 1;
+        // Return PWM value directly since its already in range [0.5, 1.0]
+        return 0.5f + 0.5f * frac;
+      }
       default: {
         break;
       }
@@ -959,6 +993,11 @@ void AttitudeController::pwmConversion()
         /* pwm = F_inv[(V_ref / V)^1.5 f] */
         v_factor_ = motor_info_[motor_ref_index_].voltage / voltage *
                     ap::inv_sqrt(voltage / motor_info_[motor_ref_index_].voltage);
+        break;
+      }
+      case spinal::MotorInfo::RPM_MODE: {
+        /* the ESC's closed-loop RPM control already rejects battery sag; do not re-derate by voltage */
+        v_factor_ = 1;
         break;
       }
       default: {

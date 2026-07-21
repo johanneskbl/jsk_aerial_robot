@@ -86,6 +86,10 @@ public:
     getParam<double>(motor_nh, "force_landing_thrust", force_landing_thrust_, 0.0);
     getParam<double>(motor_nh, "m_f_rate", m_f_rate_, 0.0);
     getParam<int>(motor_nh, "pwm_conversion_mode", pwm_conversion_mode_, -1);
+    getParam<double>(motor_nh, "min_rpm", min_rpm_, 0.0);
+    getParam<double>(motor_nh, "max_rpm", max_rpm_, 0.0);
+    getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
+    getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
 
     int vel_ref_num;
     getParam<int>(motor_nh, "vel_ref_num", vel_ref_num, 0);
@@ -101,14 +105,23 @@ public:
       nh.param("max_thrust", val, 0.0);
       motor_info_[i].max_thrust = val;
 
-      /* Hardcode: up to 4 dimensions */  // TODO Why implemented this way?! Doesn't need to be arbitrary amount? And
-                                          // what even is polynomial factor? -> Overthink this!
-      for (int j = 0; j < 5; j++)
+      if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE)
       {
-        std::stringstream ss2;
-        ss2 << j;
-        getParam<double>(nh, "polynominal" + ss2.str(), val, 0);
-        motor_info_[i].polynominal[j] = val;
+        /* Use RPM mode parameters for all voltage references as it is voltage-independent */
+        motor_info_[i].krpm_square_to_thrust_bias = krpm_square_to_thrust_bias_;
+        motor_info_[i].krpm_square_to_thrust_ratio = krpm_square_to_thrust_ratio_;
+      }
+      else if (pwm_conversion_mode_ == spinal::MotorInfo::POLYNOMINAL_MODE)
+      {
+        /* Hardcode: up to 4 dimensions */  // TODO Why implemented this way?! Doesn't need to be arbitrary amount? And
+                                            // what even is polynomial factor? -> Overthink this!
+        for (int j = 0; j < 5; j++)
+        {
+          std::stringstream ss2;
+          ss2 << j;
+          getParam<double>(nh, "polynominal" + ss2.str(), val, 0);
+          motor_info_[i].polynominal[j] = val;
+        }
       }
     }
   }
@@ -149,6 +162,11 @@ public:
       motor_info_msg.min_thrust = min_thrust_;
       motor_info_msg.force_landing_thrust = force_landing_thrust_;
       motor_info_msg.pwm_conversion_mode = pwm_conversion_mode_;
+      if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE)
+      {
+        motor_info_msg.min_rpm = min_rpm_;
+        motor_info_msg.max_rpm = max_rpm_;
+      }
       motor_info_msg.motor_info.resize(0);
       for (int i = 0; i < motor_info_.size(); i++)
         motor_info_msg.motor_info.push_back(motor_info_[i]);
@@ -193,6 +211,8 @@ protected:
 
   double force_landing_thrust_;  // pwm
   int pwm_conversion_mode_;
+  double min_rpm_, max_rpm_;  // [RPM] RPM_MODE only
+  double krpm_square_to_thrust_ratio_, krpm_square_to_thrust_bias_;  // [N/kRPM^2] and [N] RPM_MODE only
 
   int estimate_mode_;
   bool param_verbose_;
