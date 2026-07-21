@@ -245,11 +245,10 @@ class OnlineTrainer:
           Y_feat = Y[:, y_reg_dims]
 
         Input/output transforms:
-          If the model stores x_mean/x_std (set during offline training),
-          X_feat is normalised before the forward pass to match the CasADi
-          evaluation path.  Similarly Y_feat is normalised if y_mean/y_std
-          are present.  When both transforms are disabled (the default) the
-          statistics are 0/1 and the normalisation is a no-op.
+          None applied here — self.model.forward() already normalises its
+          input (x_mean/x_std) and denormalises its output (y_mean/y_std)
+          internally, exactly like ca_forward() at inference time. X_feat
+          and Y_feat are therefore passed through in raw physical units.
 
         Parameters
         ----------
@@ -274,18 +273,12 @@ class OnlineTrainer:
         X_feat = np.concatenate(feat_parts, axis=1).astype(np.float32)         # (batch, W*(n_sf+n_uf))
         Y_feat = Y_raw[:, self._y_col].astype(np.float32)                      # (batch, n_y)
 
-        # --- Input / output normalisation (mirrors the CasADi forward pass) ---
-        if getattr(self.model, "x_mean", None) is not None:
-            x_mean = np.tile(self.model.x_mean.detach().cpu().numpy().flatten(), self.window_size)
-            x_std  = np.tile(self.model.x_std.detach().cpu().numpy().flatten(),  self.window_size)
-            X_feat = (X_feat - x_mean) / (x_std + 1e-8)
-
-        if getattr(self.model, "y_mean", None) is not None:
-            y_mean = self.model.y_mean.detach().cpu().numpy().flatten()
-            y_std  = self.model.y_std.detach().cpu().numpy().flatten()
-            Y_feat = (Y_feat - y_mean) / (y_std + 1e-8)
-
         # --- Convert to tensors and update ---
+        # NOTE: no manual normalisation here. self.model.forward() already
+        # normalises the input (x_mean/x_std) and denormalises the output
+        # (y_mean/y_std) internally — normalising X_feat/Y_feat here too
+        # would apply the transform twice on the input and compare a
+        # denormalised prediction against a normalised target in the loss.
         X_tensor = torch.tensor(X_feat, device=self.device)
         Y_tensor = torch.tensor(Y_feat, device=self.device)
 

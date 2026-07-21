@@ -227,7 +227,7 @@ class EnvConfig:
             "extra_mass": True,  # enable constant payload mass disturbance
             "extra_mass_kg": 0.2,    # payload mass in kg
         },
-        "use_nominal_simulator": False,  # Use nominal model as simulator
+        "use_nominal_simulator": True,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
         "max_sim_time": 90,
@@ -459,10 +459,10 @@ class ModelFitConfig:
     save_plots = False
 
     # ------- Dataset loading -------
-    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
+    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ENTIRE_HORIZON"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ENTIRE_HORIZON_DEBUG"
-    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
+    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ONLY_JOY"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_WITH_REF_ALL_PROP"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_FULL"
@@ -481,8 +481,8 @@ class ModelFitConfig:
     # real machine GROUND_EFFECT_ONLY: hovering and ground effect data only (48k datapoints)
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_FOR_PAPER"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
-    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
-    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
+    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_03"
     val_ds_instance = "dataset_001"
     # === FROM HERE WITH MOVING AVERAGE FILTER APPLIED ===

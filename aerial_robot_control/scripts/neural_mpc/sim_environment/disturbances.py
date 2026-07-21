@@ -62,19 +62,20 @@ def apply_extra_mass(
     g             : gravitational acceleration in m/s² (default 9.81).
     The function must be called AFTER sim_solver.set("p", ...) so that the
     disturbance is overlaid on top of the base parameters instead of being
-    overwritten.  It calls sim_solver.set("p", ...) internally to write the
-    disturbance directly into the C-level solver buffer.
+    overwritten.  It writes directly into the sim solver's own parameter
+    buffer (same pattern as apply_cog_disturbance / apply_motor_noise),
+    rather than rebuilding a full parameter vector from neural_mpc — the
+    controller and the simulator model can have different parameter counts
+    (e.g. the controller carries MLP weight parameters, the simulator does
+    not), so resending a controller-sized vector to the sim solver would
+    mismatch its expected length.
     The MPC controller's acados_parameters are not modified, so the controller
     continues to plan as if no external disturbance is present.
     """
-    start_idx  = neural_mpc.cog_dist_start_idx
-    end_idx    = neural_mpc.cog_dist_end_idx
-    # Build simulator-only params: copy the base controller vector and overlay
-    # the constant extra-mass gravity force (controller copy is left unchanged).
-    sim_params = neural_mpc.acados_parameters[0, :].copy()
-    sim_params[start_idx : end_idx] = 0.0
-    sim_params[start_idx + 2]       = -extra_mass_kg * g  # world z-up → downward
-    sim_solver.set("p", sim_params)
+    start_idx = neural_mpc.cog_dist_start_idx
+    end_idx   = neural_mpc.cog_dist_end_idx
+    sim_solver.acados_sim.parameter_values[start_idx:end_idx] = 0.0
+    sim_solver.acados_sim.parameter_values[start_idx + 2] = -extra_mass_kg * g  # world z-up → downward
 
 
 def apply_motor_noise(sim_solver: AcadosSimSolver, neural_mpc: NeuralMPC, u_cmd):
