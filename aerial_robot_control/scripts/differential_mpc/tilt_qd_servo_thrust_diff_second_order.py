@@ -4,7 +4,7 @@ import numpy as np
 import casadi as ca
 from nmpc.nmpc_tilt_mt.tilt_qd.qd_nmpc_base import QDNMPCBase
 from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_omni as phys_omni
-
+from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_jetson as phys_jetson
 
 class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
     """
@@ -14,7 +14,7 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
     The output of the controller is the thrust and servo angle velocities for each rotor.
     """
 
-    def __init__(self, build: bool = True, phys=phys_omni):
+    def __init__(self, build: bool = True, phys=phys_jetson):
         # Model name
         self.model_name = "tilt_qd_servo_thrust_diff_second_order_mdl"
         self.phys = phys
