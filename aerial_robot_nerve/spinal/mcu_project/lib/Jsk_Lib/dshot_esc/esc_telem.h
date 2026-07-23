@@ -18,6 +18,7 @@
 #include <spinal/ESCTelemetryArray.h>
 
 #define ESC_BUFFER_SIZE 512
+#define ESC_TELEM_FRAME_SIZE 10  // KISS telemetry frame: 9 data bytes + crc
 
 namespace
 {
@@ -44,8 +45,8 @@ public:
 
   void init(UART_HandleTypeDef* huart);
   void update(spinal::ESCTelemetry& esc_msg);
-  bool available();
-  int readOneByte();
+  uint32_t bytesAvailable();
+  void flush();
 
   bool is_update_all_msg_ = false;
 

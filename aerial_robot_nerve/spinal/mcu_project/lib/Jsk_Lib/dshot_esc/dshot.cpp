@@ -63,6 +63,9 @@ void DShot::write(uint16_t* motor_value_array, bool is_telemetry)
         }
       }
 
+      /* Re-synch in case of overlap of multiple telemetry packages */
+      esc_reader_.flush();
+
       id_telem_prev_ = id_telem_;
       id_telem_++;
 
