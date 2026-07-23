@@ -127,6 +127,7 @@ void AttitudeController::baseInit()
   max_rpm_ = 0;
   rpm_convert_ratio_ = 0;
   rpm_convert_bias_ = 0;
+  rpm_mode_max_thrust_ = 0;
   pwm_pub_last_time_ = 0;
   pwm_test_flag_ = false;
 
@@ -216,22 +217,24 @@ void AttitudeController::pwmsControl(void)
   uint16_t motor_value[4] = { 0, 0, 0, 0 };
   for (int i = 0; i < 4; i++)
   {
-    // if (!start_control_flag_)
-    // {
-    //   // DShot value 0 = motor stop; required for AM32 to arm (>= 1s of continuous zero frames)
-    //   motor_value[i] = 0;
-    //   continue;
-    // }
+    if (!start_control_flag_ && !pwm_test_flag_)
+    {
+      /* ESC arms after 1s of only zeros; DShot 48 is not zero */
+      motor_value[i] = 0;
+      continue;
+    }
 
     // target_pwm_: 0.5 ~ 1.0
-    uint16_t motor_v = (uint16_t)((target_pwm_[i] - 0.5) / 0.5 * DSHOT_RANGE + DSHOT_MIN_THROTTLE);
+    float motor_v = (target_pwm_[i] - 0.5f) / 0.5f * DSHOT_RANGE + DSHOT_MIN_THROTTLE;
 
-    if (motor_v > DSHOT_MAX_THROTTLE)
-      motor_v = DSHOT_MAX_THROTTLE;
-    else if (motor_v < DSHOT_MIN_THROTTLE)
+    /* Negated form also catches NaN */
+    if (!(motor_v > DSHOT_MIN_THROTTLE))
       motor_v = DSHOT_MIN_THROTTLE;
-    
-    motor_value[i] = motor_v;
+    else if (motor_v > DSHOT_MAX_THROTTLE)
+      motor_v = DSHOT_MAX_THROTTLE;
+
+    /* round instead of truncate: truncation biases every command half a DShot count low */
+    motor_value[i] = (uint16_t)(motor_v + 0.5f);
   }
 
   dshot_->write(motor_value, dshot_->is_telemetry_);
@@ -624,12 +627,27 @@ void AttitudeController::pwmInfoCallback(const spinal::PwmInfo& info_msg)
     sim_voltage_ = motor_info_[0].voltage;
 #endif
 
-  if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE)
+  if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE && motor_info_.size() > 0)
   {
     min_rpm_ = info_msg.min_rpm;
     max_rpm_ = info_msg.max_rpm;
-    rpm_convert_ratio_ = info_msg.motor_info[0].krpm_square_to_thrust_ratio;  // N / kRPM^2
-    rpm_convert_bias_ = info_msg.motor_info[0].krpm_square_to_thrust_bias;    // N
+    /* the model is voltage independent, so any reference entry carries the same coefficients */
+    rpm_convert_ratio_ = motor_info_[0].krpm_square_to_thrust_ratio;  // N / kRPM^2
+    rpm_convert_bias_ = motor_info_[0].krpm_square_to_thrust_bias;    // N
+
+    /* The RPM window, not the motor, is what caps the thrust in this mode: the ESC will never be
+       asked for more than max_rpm. Keeping the real ceiling here stops the saturation logic below
+       from believing in thrust that can never be commanded, which otherwise shows up as the outer
+       loop winding up against a rail it cannot see. */
+    if (rpm_convert_ratio_ > 0 && max_rpm_ > min_rpm_)
+    {
+      float max_krpm = max_rpm_ * 0.001f;
+      rpm_mode_max_thrust_ = rpm_convert_ratio_ * max_krpm * max_krpm + rpm_convert_bias_;
+    }
+    else
+    {
+      rpm_mode_max_thrust_ = 0;
+    }
   }
 
 #ifndef SIMULATION
@@ -927,10 +945,13 @@ void AttitudeController::pwmConversion()
         break;
       }
       case spinal::MotorInfo::RPM_MODE: {
-        /* Closed-loop RPM on ESC: 
+        /* Closed-loop RPM on ESC:
          * Invert: thrust = krpm_square_to_thrust_ratio * krpm^2 + * krpm_square_to_thrust_bias,
          * then map linearly onto [min_rpm_, max_rpm_].
          * This PWM value is decoded on ESC in the same way to get the desired RPM in the low-level PID controller. */
+        if (rpm_convert_ratio_ <= 0 || max_rpm_ <= min_rpm_)
+          return IDLE_DUTY;
+
         float krpm2 = (scaled_thrust - rpm_convert_bias_) / rpm_convert_ratio_;
         float rpm_desired = (krpm2 > 0) ? sqrtf(krpm2) * 1000.0f : 0;
         float frac = (rpm_desired - min_rpm_) / (max_rpm_ - min_rpm_);
@@ -1005,7 +1026,8 @@ void AttitudeController::pwmConversion()
       }
     }
 
-    if (min_thrust_ > 0)
+    /* RPM_MODE has an idle floor of: min_rpm + model bias; even for zero min thrust */
+    if (min_thrust_ > 0 || pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE)
       min_duty_ = convert(min_thrust_);
 
     voltage_update_last_time_ = HAL_GetTick();
@@ -1016,6 +1038,11 @@ void AttitudeController::pwmConversion()
   float base_thrust_decreasing_rate = 0;
   float yaw_decreasing_rate = 0;
   float thrust_limit = motor_info_[motor_ref_index_].max_thrust / v_factor_;
+
+  /* In RPM_MODE the maximum reachable thrust can be constrained by max_rpm as well */
+  if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE && rpm_mode_max_thrust_ > 0 &&
+      rpm_mode_max_thrust_ < thrust_limit)
+    thrust_limit = rpm_mode_max_thrust_;
 
   /* check saturation level 2: z control saturation */
   float max_thrust = 0;

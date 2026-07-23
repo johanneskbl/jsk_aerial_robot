@@ -27,6 +27,7 @@ void DShot::initTelemetry(UART_HandleTypeDef* huart)
 {
   esc_reader_.init(huart);
   is_telemetry_ = true;
+  /* Must equal the ESC's own `motor_poles`!!! */
   esc_reader_.num_motor_mag_pole_ = 14; // TODO: should be set by onboard PC
 }
 
