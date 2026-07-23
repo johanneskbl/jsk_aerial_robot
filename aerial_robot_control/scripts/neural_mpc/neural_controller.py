@@ -9,8 +9,8 @@ from utils.geometry_utils import quaternion_inverse, v_dot_q
 from utils.model_utils import load_model, get_output_mapping, get_device
 from utils.model_utils import cross_check_params
 
-import l4casadi as l4c
-
+#import l4casadi as l4c
+l4c = None
 # Tiltable-Quadrotor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from nmpc.nmpc_tilt_mt.rh_base import RecedingHorizonBase
