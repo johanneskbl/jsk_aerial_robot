@@ -9,6 +9,7 @@ from nmpc_tilt_mt.utils.nmpc_viz import Visualizer
 
 # Quadrotor
 import nmpc_tilt_mt.tilt_qd.phys_param_beetle_omni as phys_omni
+import nmpc_tilt_mt.tilt_qd.phys_param_beetle_jetson as phys_jetson
 import nmpc_tilt_mt.archive.phys_param_beetle_art as phys_art
 
 # - Naive models
@@ -29,6 +30,7 @@ import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from differential_mpc.tilt_qd_servo_thrust_diff import NMPCTiltQdServoThrustDiff
 from differential_mpc.tilt_qd_servo_thrust_diff_second_order import NMPCTiltQdServoThrustDiffSecondOrder
+from differential_mpc.tilt_qd_servo_diff_second_order import NMPCTiltQdServoDiffSecondOrder
 
 # - Consider the absolute servo angle command in cost
 from nmpc_tilt_mt.archive.tilt_qd_servo_old_cost import NMPCTiltQdServoOldCost
@@ -68,13 +70,16 @@ def main(args):
         elif args.model == 3:
             nmpc = NMPCTiltQdServoThrust(phys=phys_art)
         elif args.model == 4:
-            nmpc = NMPCTiltQdServoThrustDiff(phys=phys_omni)
+            nmpc = NMPCTiltQdServoThrustDiff(phys=phys_jetson)
             a_c_integ = np.zeros(4)
             ft_c_integ = np.zeros(4)
         elif args.model == 5:
-            nmpc = NMPCTiltQdServoThrustDiffSecondOrder(phys=phys_omni)
+            nmpc = NMPCTiltQdServoThrustDiffSecondOrder(phys=phys_jetson)
             a_c_integ = np.zeros(4)
             ft_c_integ = np.zeros(4)
+        elif args.model == 6:
+            nmpc = NMPCTiltQdServoDiffSecondOrder(phys=phys_jetson)
+            a_c_integ = np.zeros(4)
 
         elif args.model == 21:
             nmpc = NMPCTiltQdServoDist(phys=phys_omni)
@@ -149,9 +154,9 @@ def main(args):
         elif args.sim_model == 1:
             sim_nmpc = NMPCTiltQdServoThrustDrag(phys=sim_phy)  # Also consider drag in wrench formulation
         elif args.sim_model == 2:
-            sim_nmpc = NMPCTiltQdServoThrustDiff(phys=phys_omni)  # Consider differential servo and thrust models
+            sim_nmpc = NMPCTiltQdServoThrustDiff(phys=phys_jetson)  # Consider differential servo and thrust models
         elif args.sim_model == 3:
-            sim_nmpc = NMPCTiltQdServoThrustDiffSecondOrder(phys=phys_omni)
+            sim_nmpc = NMPCTiltQdServoThrustDiffSecondOrder(phys=phys_jetson)
         else:
             raise ValueError(f"Invalid sim model {args.sim_model}.")
 
@@ -421,18 +426,14 @@ def main(args):
                 print(f"Round {i}: acados ocp_solver returned status {ocp_solver.status}. Exiting.")
                 break
 
-            if type(sim_nmpc) is not NMPCTiltQdServoThrustDiff and \
-               type(sim_nmpc) is not NMPCTiltQdServoThrustDiffSecondOrder:
-                # If simulator is also a differential model, the control inputs stay as the derivative
-                # Integrate thrust velocity command translating to the thrust command
-                if nmpc.include_thrust_derivative:
-                    ft_c_integ += u_cmd[0:4] * ts_ctrl
-                    u_cmd[0:4] = ft_c_integ
-
-                # Integrate servo angle velocity command translating to the servo angle command
-                if nmpc.include_servo_derivative:
-                    a_c_integ += u_cmd[4:8] * ts_ctrl
-                    u_cmd[4:8] = a_c_integ  # convert from delta input to real input
+            # If simulator is also a differential model, the control inputs stay as the derivative
+            # But if not, we integrate the actuator velocity command translating to the absolute command
+            if nmpc.include_thrust_derivative and not sim_nmpc.include_thrust_derivative:
+                ft_c_integ += u_cmd[0:4] * ts_ctrl
+                u_cmd[0:4] = ft_c_integ
+            if nmpc.include_servo_derivative and not sim_nmpc.include_servo_derivative:
+                a_c_integ += u_cmd[4:8] * ts_ctrl
+                u_cmd[4:8] = a_c_integ
 
             # Nullspace control for differential allocation
             # TODO: Understand and verify this (especially if indexing is correct)

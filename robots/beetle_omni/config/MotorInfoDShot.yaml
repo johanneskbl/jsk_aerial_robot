@@ -17,7 +17,7 @@ motor_info:
   # Inverts thrust = krpm_square_to_thrust_ratio * krpm^2 + krpm_square_to_thrust_bias to get the target RPM,
   # then linearly normalizes it onto [min_rpm, max_rpm] to get target_pwm in [0.5, 1.0], which DShot then
   # maps 1:1 onto the ESC's own RPM window -- so min_rpm/max_rpm MUST equal the ESC firmware's RPM window
-  # (e.g. AM32 RPM_CONTROL_MIN_RPM / MAX_RPM).
+  # (e.g. AM32 MINIMUM_RPM_SPEED_CONTROL / MAX_RPM).
   # This relationship is voltage-independent.
   # Reference: attitude_control.cpp, AttitudeController::pwmConversion(), case spinal::MotorInfo::RPM_MODE
   min_rpm: 785.0   # [RPM] must match the ESC's RPM_CONTROL_MIN_RPM!!!

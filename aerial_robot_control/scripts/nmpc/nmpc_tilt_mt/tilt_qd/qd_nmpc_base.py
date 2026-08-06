@@ -102,9 +102,9 @@ class QDNMPCBase(RecedingHorizonBase):
             raise ValueError("Thrust derivative can only work with thrust defined as state.")
         if self.include_thrust_second_order and not self.include_thrust_derivative:
             raise ValueError("Second-order thrust dynamics can only work when thrust derivative is included.")
-        if self.include_differential_allocation and not (self.include_servo_model and self.include_thrust_model):
-            raise ValueError("Differential allocation currently only works with servo angle and thrust defined as states.")
-        if self.include_differential_allocation and not (self.include_servo_derivative and self.include_thrust_derivative):
+        if self.include_differential_allocation and not (self.include_servo_model or self.include_thrust_model):
+            raise ValueError("Differential allocation needs at least servo angle or thrust defined as states.")
+        if self.include_differential_allocation and not (self.include_servo_derivative or self.include_thrust_derivative):
             raise ValueError("Differential allocation currently assumes controls to be servo angle and thrust velocity at some points.")
         if self.include_nullspace_control and not self.include_differential_allocation:
             raise ValueError("Nullspace projection can only be used if differential allocation is included.")
@@ -577,25 +577,31 @@ class QDNMPCBase(RecedingHorizonBase):
             # dw/dt = dw/d(ft) * d(ft)/dt + dw/da * da/dt
             # Jacobian J = [dw/d(ft), dw/da]
             # dw/dt = J @ (ftd, ad)
-            stacked_actuator_states = ca.vertcat(self.ft_s, self.a_s)
+            if self.include_thrust_model:
+                stacked_actuator_states = ca.vertcat(self.ft_s, self.a_s)
+            else:
+                stacked_actuator_states = self.a_s
             jacobian_fu_b = ca.simplify(ca.jacobian(fu_b_expr, stacked_actuator_states))
             jacobian_tau_b = ca.simplify(ca.jacobian(tau_b_expr, stacked_actuator_states))
 
             # Actuator velocities d(ft)/dt and da/dt
             # Priority: Use state if possible, else use control input, else use first-order model
-            if self.include_thrust_second_order:
-                thrust_velocity = self.ftd_s
-            elif self.include_thrust_derivative:
-                thrust_velocity = self.ftd_c
-            else:
-                thrust_velocity = (self.ft_c - self.ft_s) / self.t_rotor
             if self.include_servo_second_order:
                 servo_velocity = self.ad_s
-            elif self.include_servo_derivative:
-                servo_velocity = self.ad_c
+            # elif self.include_servo_derivative:  # NOTE: Cost function cannot depend on u
+            #     servo_velocity = self.ad_c
             else:
                 servo_velocity = (self.a_c - self.a_s) / self.t_servo
-            stacked_actuator_velocities = ca.vertcat(thrust_velocity, servo_velocity)
+            if self.include_thrust_model:
+                if self.include_thrust_second_order:
+                    thrust_velocity = self.ftd_s
+                # elif self.include_thrust_derivative:  # NOTE: Cost function cannot depend on u
+                #     thrust_velocity = self.ftd_c
+                else:
+                    thrust_velocity = (self.ft_c - self.ft_s) / self.t_rotor
+                stacked_actuator_velocities = ca.vertcat(thrust_velocity, servo_velocity)
+            else:
+                stacked_actuator_velocities = servo_velocity
 
             ds[self.wrench_state_start_idx:self.wrench_state_end_idx] = ca.vertcat(
                 ca.mtimes(jacobian_fu_b, stacked_actuator_velocities),

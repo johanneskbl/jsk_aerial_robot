@@ -1,0 +1,55 @@
+mpc_solver_name: aerial_robot_control::mpc_solver::TiltQdServoDiffSecondOrderMdlMPCSolver
+aerial_robot_control_name: aerial_robot_control/differential_mpc_controller/tilt_mt/servo_diff_second_order_mpc
+
+controller:
+  alloc:
+    type: 0  # 0: pseudo allocation, 1: heuristic allocation,
+    ft_thresh: 1.0  # N
+
+  nmpc:
+    T_samp: 0.01  # 100 Hz  TODO: should be adjusted by main_rate
+    T_horizon: 2.0  # seconds
+    T_step: 0.1  # seconds
+
+    # constraint
+    w_min: -6
+    w_max: 6  # 1 rad/s ~ 57 deg/s
+
+    v_min: -1
+    v_max: 1
+
+    thrust_min: 0  # N
+    thrust_max: 23   # N
+
+    a_min: -3.15
+    a_max: 3.15  # 180 deg + a little bit
+
+    a_vel_min: -8  # 3 (from Claude due to urdf)  # 8 (from Eugenio)  # rad/s
+    a_vel_max: 8  # rad/s
+
+    Qp_xy: 300
+    Qp_z: 400
+    Qv_xy: 10
+    Qv_z: 10
+    Qq_xy: 300
+    Qq_z: 600
+    Qw_xy: 5
+    Qw_z: 5
+    Qa: 0.0 # 0.1
+    Qad: 0.1
+    Qfu: 0.01 # Generated body force
+    Qtau: 0.001 # Generated body torque
+
+    Rt_c: 0.1  # Punishing thrust position
+    Rad_c: 0.01 # Punishing servo acceleration which can generally be high
+
+    # Nullspace control:
+    # rate [1/s] at which the actuators are pulled toward their rest values (servo angle 0,
+    # thrust 0) within the nullspace of the Jacobian
+    nullspace_servo_gain: 3.0  # [1/s]
+
+    is_attitude_ctrl: false
+    is_body_rate_ctrl: false
+
+    is_print_phys_params: false
+    is_debug: false

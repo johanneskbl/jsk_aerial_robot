@@ -3,15 +3,14 @@
 import numpy as np
 import casadi as ca
 from nmpc.nmpc_tilt_mt.tilt_qd.qd_nmpc_base import QDNMPCBase
-from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_omni as phys_omni
 from nmpc.nmpc_tilt_mt.tilt_qd import phys_param_beetle_jetson as phys_jetson
 
 class NMPCTiltQdServoThrustDiff(QDNMPCBase):
     """
     Controller Name: Tiltable Quadrotor NMPC including Differential Servo and Thrust Model 
-    The controller itself is constructed in base class. The control inputs are the rates of the tilt and thrust commands.
+    The controller itself is constructed in base class.
     This file is used to define the properties of the controller, specifically, the weights and cost function for the acados solver.
-    The output of the controller is the thrust and servo angle velocities for each rotor.
+    The output of the controller is the thrust and servo angle velocities for each arm.
     """
 
     def __init__(self, build: bool = True, phys=phys_jetson):
@@ -42,7 +41,7 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         # Create acados model & solver and generate c code
         super().__init__(method="differential_mpc", build=build)
 
-    def get_cost_function(self, lin_acc_w=None, ang_acc_b=None, nullspace_proj=None, nullspace_proj_dot=None):
+    def get_cost_function(self, lin_acc_w=None, ang_acc_b=None, nullspace_proj=None):
         # fmt: off
         # Cost function
         # see https://docs.acados.org/python_interface/#acados_template.acados_ocp_cost.AcadosOcpCost for details
