@@ -619,7 +619,8 @@ class QDNMPCBase(RecedingHorizonBase):
                 # Damped pseudo-inverse for numerical stability at singularities
                 # (e.g. the servo columns of J vanish when the corresponding thrust is zero)
                 # Reference: https://robotics.caltech.edu/~jwb/courses/ME115/handouts/damped.pdf
-                pseudo_inverse_jacobian_wrench = ca.mtimes(jacobian_wrench.T, ca.inv(ca.mtimes(jacobian_wrench, jacobian_wrench.T) + 1e-6 * ca.MX.eye(jacobian_wrench.shape[0])))
+                damping_factor = 0.1  # 1e-6  # CHange to higher damping to allow for more non-zero thrust values to map to nullspace
+                pseudo_inverse_jacobian_wrench = ca.mtimes(jacobian_wrench.T, ca.inv(ca.mtimes(jacobian_wrench, jacobian_wrench.T) + damping_factor * ca.MX.eye(jacobian_wrench.shape[0])))
                 nullspace_projector = ca.simplify(ca.MX.eye(jacobian_wrench.shape[1]) - ca.mtimes(pseudo_inverse_jacobian_wrench, jacobian_wrench))
 
                 #### FROM EUGENIO FOR ACCELERATION BASED NULLSPACE ####
