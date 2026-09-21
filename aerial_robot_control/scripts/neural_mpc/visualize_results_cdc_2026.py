@@ -1,16 +1,21 @@
 import os
 import sys
 import shutil
+import subprocess
+import tempfile
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from scipy.signal import filtfilt
 
 import torch
 
 from config.configurations import DirectoryConfig, EnvConfig
 from utils.data_utils import undo_jsonify
+from utils.filter_utils import butter_lowpass
+from utils.analyze_recorded_acceleration import load_run, resolve_bag
 from utils.geometry_utils import v_dot_q, quaternion_inverse
 from sim_environment.forward_prop import init_forward_prop
 from utils.model_utils import load_model
@@ -34,6 +39,32 @@ LOOSELY_DASHED = (0, (3.0, 2.5))
 VERY_LOOSELY_DASHED = (0, (3.0, 4.0))
 VERY_VERY_LOOSELY_DASHED = (0, (2.0, 7.0))
 
+# Acceleration drawn in the acceleration and smoothness figures:
+#   "measured" -- the IMU acceleration recorded in flight, read from the bag at
+#                 the sensor's own 200 Hz.  This is the very signal
+#                 utils/analyze_recorded_acceleration.py analyses
+#                 (`acc_non_bias_world_frame`: world frame, gravity removed and
+#                 bias corrected, see aerial_robot_estimation/imu.cpp).
+#   "modeled"  -- the analytical model, plus the neural residual on the neural runs.
+ACC_SOURCE = "measured"
+
+# Bags the datasets were cut from, and the cache of their extracted arrays; read
+# only for ACC_SOURCE = "measured".
+BAG_DIR = "/home/jojo_ws/rosbags"
+ACC_CACHE_DIR = "~/.cache/jsk_neural_mpc/accel_analysis"
+
+# Smoothness figure: the MPC can
+# only shape acceleration well below 10 Hz, so jerk is evaluated in that band,
+# and the statistics are rolled over a 1 s window.
+SMOOTHNESS_BAND_HZ = 10.0
+SMOOTHNESS_WINDOW_S = 1.0
+
+# Smoothness figure: time windows to highlight (e.g. aggressive maneuvers),
+# shaded across the full y range.
+SMOOTHNESS_HIGHLIGHT_INTERVALS_S = [(2.1, 4.0), (10.25, 12.0), (18.25, 20.0)]
+SMOOTHNESS_HIGHLIGHT_COLOR = "#9A9A9A"
+SMOOTHNESS_HIGHLIGHT_ALPHA = 0.2
+
 # Figure title placement: keep titles close to the axes without overlap.
 # NOTE: `tight_layout(rect=...)` does not automatically reserve space for
 # `suptitle`, so we explicitly reserve a small top margin.
@@ -42,6 +73,35 @@ FIG_TIGHT_LAYOUT_TOP = 0.94
 
 # Legend box transparency (explicit calls below override rcParams).
 LEGEND_FRAME_ALPHA = 0.85
+
+
+def _latex_actually_works() -> bool:
+    """Try a minimal compile to catch broken/incomplete TeX installs.
+
+    A present `latex` binary doesn't guarantee the packages matplotlib's
+    default preamble needs (e.g. cm-super's type1ec.sty) are installed.
+    """
+    tex_source = (
+        r"\documentclass{article}"
+        r"\usepackage{type1cm}\usepackage[T1]{fontenc}"
+        r"\begin{document}x\end{document}"
+    )
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tex_path = os.path.join(tmpdir, "probe.tex")
+            with open(tex_path, "w") as f:
+                f.write(tex_source)
+            subprocess.run(
+                ["latex", "-interaction=nonstopmode", "-halt-on-error", "probe.tex"],
+                cwd=tmpdir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=True,
+            )
+        return True
+    except Exception:
+        return False
 
 
 def setup_plot_style():
@@ -59,9 +119,14 @@ def setup_plot_style():
 
     # Prefer LaTeX rendering (Computer Modern) if a TeX install exists.
     # This matches the ICRA plotting script, but we keep a fallback for machines
-    # without LaTeX to avoid runtime crashes.
-    has_latex = shutil.which("latex") is not None
-    use_tex = bool(has_latex)
+    # without LaTeX to avoid runtime crashes. `shutil.which` alone isn't enough:
+    # the `latex` binary can exist while required packages (e.g. cm-super's
+    # type1ec.sty) are missing, which only surfaces as a crash mid-render.
+    use_tex = (
+        shutil.which("latex") is not None
+        and shutil.which("dvipng") is not None
+        and _latex_actually_works()
+    )
 
     font_size = 17
     plt.rcParams.update(
@@ -135,7 +200,6 @@ def latex_heading(text: str) -> str:
         return rf"\textsc{{{safe}}}"
     return text
 
-
 def load_data(file_subpath):
     filepath = os.path.join(DirectoryConfig.DATA_DIR, file_subpath)
     df = pd.read_csv(filepath)
@@ -164,6 +228,49 @@ def compute_errors(state, state_ref):
     q_err = np.linalg.norm(state[:, 6:10] - state_ref[:, 6:10], axis=1)
     
     return p_err, q_err
+
+
+def load_measured_acc(bag_name: str, t_start: float, t_end: float):
+    """IMU acceleration of one segment, at the sensor's native 200 Hz.
+
+    The dataset CSVs carry the IMU resampled onto the MPC's logging rate, which
+    differs per controller (100 Hz analytical, ~58 Hz neural); that resampling
+    folds the rotor vibration into the control band unevenly and biases the jerk
+    of the slower-logged runs.  Reading the bag keeps every run on one grid.
+
+    ``t_start``/``t_end`` are bag time, i.e. the `timestamp` column written by
+    create_dataset_from_bag.py.  The returned clock is relative to ``t_start``.
+    """
+    run = load_run(resolve_bag(bag_name, BAG_DIR), cache_dir=os.path.expanduser(ACC_CACHE_DIR))
+    acc = run["acc"]
+    idx = np.where((acc[:, 0] >= t_start) & (acc[:, 0] <= t_end))[0]
+    if len(idx) < 10:
+        raise ValueError(
+            f"{bag_name}: no IMU samples in [{t_start:.2f}, {t_end:.2f}] s of bag time. "
+            "The dataset timestamps have to be bag-relative (create_dataset_from_bag.py)."
+        )
+    # Columns 1:4 are acc_non_bias_world_frame.
+    return acc[idx, 0] - t_start, acc[idx, 1:4]
+
+
+def rolling_smoothness(ts: np.ndarray, acc: np.ndarray):
+    """Control-band $\|a\|$, rolling RMS $\|\dot{a}\|$ and rolling std of $\|a\|$."""
+    fs = 1.0 / float(np.median(np.diff(ts)))
+    b, a = butter_lowpass(SMOOTHNESS_BAND_HZ, fs, order=4)
+    acc = filtfilt(b, a, acc, axis=0)
+
+    n = max(3, int(SMOOTHNESS_WINDOW_S * fs))
+    kern = np.ones(n) / n
+    # `mode="same"` zero-pads, which fabricates a spike over the first and last
+    # half window -- and this figure starts at t=0.  Dividing by the kernel
+    # weight keeps the edges honest: the window just shrinks there.
+    weight = np.convolve(np.ones(len(ts)), kern, mode="same")
+    a_norm = np.linalg.norm(acc, axis=1)
+    jerk_norm = np.linalg.norm(np.gradient(acc, ts, axis=0), axis=1)
+    roll_mean = np.convolve(a_norm, kern, mode="same") / weight
+    roll_jerk = np.sqrt(np.convolve(jerk_norm ** 2, kern, mode="same") / weight)
+    roll_std = np.sqrt(np.maximum(np.convolve(a_norm ** 2, kern, mode="same") / weight - roll_mean ** 2, 0.0))
+    return a_norm, roll_jerk, roll_std
 
 
 def velocity_mapping(state_sequence: np.ndarray) -> np.ndarray:
@@ -284,13 +391,13 @@ def visualize_results():
 
     # Read data
     paths = [
-        ("Analytical MPC", analytical_result_path, None),
-        ("RTNMPC", neural_result_1_path, 211),
-        ("Ours", neural_result_3_path, 214),
+        ("Analytical MPC", analytical_result_path, None, "2026-03-29-09-22-46_mode_10_success.bag"),
+        ("RTNMPC", neural_result_1_path, 211, "2026-03-29-09-30-56_mode_11_model_211_success.bag"),
+        ("Ours", neural_result_3_path, 214, "2026-03-29-09-49-16_mode_11_model_214_success.bag"),
     ]
 
     data = {}
-    for name, path, model_id in paths:
+    for name, path, model_id, bag in paths:
         d = load_data(path)
         ts = d["timestamp"] - d["timestamp"][0]
         data[name] = {
@@ -300,11 +407,15 @@ def visualize_results():
             "control": d["control"],
             "dt": d["dt"],
             "model_id": model_id,
+            "bag": bag,
+            # Start of this segment in bag time, to cut the same window out of the IMU.
+            "t0": float(d["timestamp"][0]),
             "filepath": d["filepath"],
         }
 
     figsize = (7, 7)
     single_figsize = (7, 4)
+    double_figsize = (7, 5.5)
 
     if "TAKEOFF" in analytical_result_path:
         title = "Takeoff Trajectory"
@@ -492,46 +603,49 @@ def visualize_results():
     # axs_err[0].legend()
     # axs_err[1].legend()
 
-    # --- Acceleration comparison (analytical vs analytical + neural compensation)
+    # --- Acceleration comparison (measured, or analytical + neural compensation)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     fig_a = plt.figure(figsize=figsize)
     axs_a = [plt.subplot(3, 1, i + 1) for i in range(3)]
-    a_labels = [r"$a_x$ [m/s$^2$]", r"$a_y$ [m/s$^2$]", r"$a_z$ [m/s$^2$]"]
+    a_labels = [r"$a_x \left[\mathrm{m}/\mathrm{s}^2\right]$", r"$a_y \left[\mathrm{m}/\mathrm{s}^2\right]$", r"$a_z \left[\mathrm{m}/\mathrm{s}^2\right]$"]
 
+    accs, accs_ts = {}, {}
     for name, d in data.items():
         ts = d["ts"]
         state = d["state"]
         control = d["control"]
-        if control is None:
-            continue
 
-        lin_acc = compute_analytical_linear_acc(state, control)
+        if ACC_SOURCE == "measured":
+            # 200 Hz from the bag, not the dataset's per-controller logging rate.
+            accs_ts[name], accs[name] = load_measured_acc(
+                d["bag"], d["t0"] + float(ts[0]), d["t0"] + float(ts[-1])
+            )
+        else:
+            if control is None:
+                continue
+            accs_ts[name] = ts
+            # Nominal acceleration from the analytical model, plus the neural
+            # compensation on the neural runs
+            accs[name] = compute_analytical_linear_acc(state, control)
+            if d["model_id"] is not None:
+                comp = compute_neural_compensation(d["model_id"], state, control, device=device)
+                accs[name] = accs[name] + comp
 
         if d["model_id"] is None:
-            # Nominal acceleration from the analytical model
-            for i in range(3):
-                axs_a[i].plot(
-                    ts,
-                    lin_acc[:, i],
-                    color=colors.get(name, None),
-                    linestyle=VERY_LOOSELY_DASHED,
-                    alpha=0.95,
-                    label=f"{name}" if i == 0 else None,
-                )
-
-        # Neural compensated acceleration (only for neural runs)
-        if d["model_id"] is not None:
-            comp = compute_neural_compensation(d["model_id"], state, control, device=device)
-            acc_comp = lin_acc + comp
-            for i in range(3):
-                axs_a[i].plot(
-                    ts,
-                    acc_comp[:, i],
-                    color=colors.get(name, None),
-                    linestyle="-",
-                    alpha=1.0,
-                    label=f"{name}" if i == 0 else None,
-                )
+            linestyle = VERY_LOOSELY_DASHED
+            alpha = 0.95
+        else:
+            linestyle = "-"
+            alpha = 1.0
+        for i in range(3):
+            axs_a[i].plot(
+                accs_ts[name],
+                accs[name][:, i],
+                color=colors.get(name, None),
+                linestyle=linestyle,
+                alpha=alpha,
+                label=f"{name}" if i == 0 else None,
+            )
 
     for i in range(3):
         axs_a[i].set_ylabel(a_labels[i])
@@ -549,6 +663,78 @@ def visualize_results():
     axs_a[0].legend(loc="upper right", ncol=1, fancybox=True, framealpha=LEGEND_FRAME_ALPHA)
 
     plt.tight_layout(rect=[0, 0, 1, FIG_TIGHT_LAYOUT_TOP])
+
+    # --- Smoothness (cf. utils/analyze_recorded_acceleration.py: smoothness_<phase>)
+    # Drawn twice: the rolling statistics alone, and with the acceleration norm
+    # the two statistics are derived from on top.
+    print("--- Acceleration Smoothness ---")
+    with_norm = False
+    fig_s, axs_s = plt.subplots(
+        1, 1, figsize=single_figsize, sharex=True
+    )
+    # fig_s, axs_s = plt.subplots(
+    #     2, 1, figsize=figsize, sharex=True
+    # )
+    s_labels = ([r"$\|\boldsymbol{a}\| \left[\mathrm{m}/\mathrm{s}^2\right]$"] if with_norm else []) + [
+        r"$\|\dot{\boldsymbol{a}}\| \left[\mathrm{m}/\mathrm{s}^3\right]$",
+        r"$\sigma_{\|\boldsymbol{a}\|} \left[\mathrm{m}/\mathrm{s}^2\right]$",
+    ]
+
+    for start, end in SMOOTHNESS_HIGHLIGHT_INTERVALS_S:
+        axs_s.axvspan(
+            start, end,
+            color=SMOOTHNESS_HIGHLIGHT_COLOR,
+            alpha=SMOOTHNESS_HIGHLIGHT_ALPHA,
+            zorder=0,
+        )
+
+    for name, acc in accs.items():
+        ts = accs_ts[name]
+        a_norm, roll_jerk, roll_std = rolling_smoothness(ts, acc)
+        if data[name]["model_id"] is None:
+            linestyle = VERY_LOOSELY_DASHED
+            alpha = 0.95
+        else:
+            linestyle = "-"
+            alpha = 1.0
+        series = ([a_norm] if with_norm else []) + [roll_jerk]#, roll_std]
+        # for ax, y in zip(axs_s, series):
+        #     ax.plot(
+        #         ts,
+        #         y,
+        #         color=colors.get(name, None),
+        #         linestyle=linestyle,
+        #         alpha=alpha,
+        #         label=name if ax is axs_s[0] else None,
+        #     )
+        axs_s.plot(
+                ts,
+                series[0],
+                color=colors.get(name, None),
+                linestyle=linestyle,
+                alpha=alpha,
+                label=name,
+            )
+
+        if not with_norm:
+            print(f"{name}:")
+            print(f"  Rolling RMS Jerk: {np.mean(roll_jerk):.4f} m/s^3")
+            print(f"  Rolling Std Acc:  {np.mean(roll_std):.4f} m/s^2")
+
+        # for ax, label in zip(axs_s, s_labels):
+        #     ax.set_ylabel(label)
+        #     ax.grid("on")
+        #     ax.set_xlim(0.0, min_dur)
+        axs_s.set_ylabel(s_labels[0])
+        axs_s.grid("on")
+        axs_s.set_xlim(0.0, min_dur)
+        axs_s.set_title(latex_heading(title))
+        # axs_s[-1].set_xlabel(r"$t$ [s]")
+        # axs_s[0].legend(loc="upper right", ncol=1, fancybox=True, framealpha=LEGEND_FRAME_ALPHA)
+        axs_s.set_xlabel(r"$t$ [s]")
+        axs_s.legend(loc="upper right", ncol=1, fancybox=True, framealpha=LEGEND_FRAME_ALPHA)
+        fig_s.tight_layout(rect=[0, 0, 1, FIG_TIGHT_LAYOUT_TOP])
+
     plt.show()
 
 if __name__ == "__main__":
