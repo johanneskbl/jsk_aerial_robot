@@ -15,7 +15,7 @@ from utils.geometry_utils import unit_quaternion, euclidean_dist, quaternion_dis
 from utils.visualization_utils import initialize_plotter, draw_robot, animate_robot, plot_trajectory, plot_disturbances
 from config.configurations import EnvConfig
 from neural_controller import NeuralMPC
-
+from online_learning.core.online_neural_controller import OnlineNeuralMPC
 
 def main(model_options, solver_options, dataset_options, sim_options, run_options):
     """
@@ -40,7 +40,7 @@ def main(model_options, solver_options, dataset_options, sim_options, run_option
     # ------------------------
 
     # --- Initialize controller ---
-    neural_mpc = NeuralMPC(
+    neural_mpc = OnlineNeuralMPC(
         model_options=model_options,
         solver_options=solver_options,
         sim_options=sim_options,

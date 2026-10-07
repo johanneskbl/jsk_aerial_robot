@@ -125,5 +125,8 @@ tags
 **/results/model_fitting/residual_mlp/plot/
 **/results/model_fitting/residual_vae/plot/
 
+# Online learning results
+**/neural_mpc/online_learning/results/
+
 # Simulation results
 **/sim_plots/

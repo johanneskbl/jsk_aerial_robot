@@ -2,6 +2,45 @@ import os
 from datetime import datetime
 
 
+# ----------------------------------------------------------------------
+# Time-profile builders for TIME-VARYING disturbance magnitudes.
+# Each returns a callable f(t) -> value, with t = simulation time [s].
+# Use them (or any lambda) as a disturbance magnitude in sim_options,
+# e.g.  "wind_x": sine(amp=2.0, period=20.0).
+# A plain number still works and stays constant (backward-compatible).
+# ----------------------------------------------------------------------
+def const(value):
+    """Constant value (same as passing the number directly)."""
+    return lambda t: value
+
+
+def step(t_on, value, before=0.0):
+    """`before` until t_on, then `value` (e.g. a payload dropped at t_on)."""
+    return lambda t: value if t >= t_on else before
+
+
+def pulse(t_on, t_off, value, outside=0.0):
+    """`value` while t_on <= t < t_off, else `outside` (a transient gust/load)."""
+    return lambda t: value if t_on <= t < t_off else outside
+
+
+def ramp(t0, t1, v0, v1):
+    """Linear ramp from v0 (at t0) to v1 (at t1), clamped outside [t0, t1]."""
+    def _f(t):
+        if t <= t0:
+            return v0
+        if t >= t1:
+            return v1
+        return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return _f
+
+
+def sine(amp, period, offset=0.0, phase=0.0):
+    """offset + amp * sin(2*pi*t/period + phase) (e.g. an oscillating wind)."""
+    w = 2.0 * np.pi / period
+    return lambda t: offset + amp * np.sin(w * t + phase)
+
+
 class DirectoryConfig:
     """
     Class for storing directories within the package.
@@ -10,6 +49,11 @@ class DirectoryConfig:
     _dir_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     SAVE_DIR = _dir_path + "/results/model_fitting"
     RESULTS_DIR = _dir_path + "/results"
+    # Everything the ONLINE adaptation produces lives inside its own package, so
+    # the package is self-contained and can be read (or handed over) on its own.
+    # The trained networks stay in SAVE_DIR above: they are shared with the
+    # offline neural MPC and are not an online-learning artefact.
+    ONLINE_RESULTS_DIR = _dir_path + "/online_learning/results"
     SIMULATION_DIR = _dir_path + "/sim_plots/" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     CONFIG_DIR = _dir_path + "/config"
     DATA_DIR = _dir_path + "/data"
@@ -44,6 +88,7 @@ class EnvConfig:
             "only_use_nominal": False,
             "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp"
             "neural_model_instance": "neuralmodel_209",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
+            "online_neural_mpc": False,  # Whether to train the neural model online
             # "neural_model_name": "residual_vae",
             # "neural_model_instance": "neuralmodel_009",
             # ---- all before dont have standalone solver ----
@@ -180,7 +225,29 @@ class EnvConfig:
             "linearize_order": 1,  # Order of Taylor Expansion (first or second)
             "use_l4casadi": False,  # Set order with "linearize_order"
             "use_gpu": False,  # Call neural model and its Jacobian & Hessian batched on GPU for MLP linearization (currently not set for L4casadi)
-            "refactor_mlp": False,  # Call MLP outside of acados and pass the output as a parameter to the acados model
+            # --- Safety: hard bound on the residual the NN injects into ds ---
+            # Smoothly saturates the network output inside the CasADi graph:
+            #   f(x) = x / (1 + (x/a)^6)^(1/6),  |f| <= a,  f ~= x for |x| << a.
+            # Baked in at build time, so it applies to the nominal/static/online
+            # controller alike and cannot be bypassed by a diverged update.
+            # Sizing for this robot (m = 3.146 kg): the configured disturbances
+            # need at most ~4 m/s2 of residual (payload 0.5 kg -> 1.56, ground
+            # effect k=0.15 -> ~1.5, wind 3 N -> 0.95), while full thrust gives
+            # ~38 m/s2. 10 m/s2 (~1 g) therefore leaves the useful range
+            # untouched (0.07% shrink at 4 m/s2) and still caps a runaway well
+            # below the control authority. Set to 0 to disable.
+            "residual_sat": 10.0,  # [m/s^2]
+            # --- Which MLP weights become acados parameters ---
+            # "all"        : every layer. Required whenever the whole network
+            #                adapts, which is the default.
+            # "last_layer" : only the output layer — 99 parameters pushed to the
+            #                solver every step instead of 1699, with the trunk
+            #                baked into the CasADi graph as constants. Valid only
+            #                when the trunk really is frozen, i.e. together with
+            #                dataset_options["n_frozen_layers"] >= 1; otherwise
+            #                the trunk would be trained and never flown. The
+            #                check at the bottom of this file enforces that.
+            "parametric_scope": "all",
         }
     )
 
@@ -190,27 +257,239 @@ class EnvConfig:
         "terminal_cost": True,  # TODO actually implement this
         "include_floor_bounds": False,  # Not in C++ implemented; also unnecessarily makes it heavier
         "include_soft_constraints": True,
-        "include_quaternion_constraint": False,  # Not in C++ implemented; also unnecessarily makes it heavier (works better without)
-        "include_delta_u": False,  # TODO implement
-        "include_energy_cost": False,  # TODO implement
+        "include_quaternion_constraint": False,
+        "include_delta_u": False,
+        "include_energy_cost": False,
+        # --- Stage-0 thrust-rate penalty ---------------------------------
+        # Adds  Rt_d * || ft_c(0) - ft_applied_previously ||^2  to the stage-0
+        # cost only, through acados' native cost_y_expr_0 / W_0 / yref_0.
+        #
+        # Why: measured on a 45 s flight, online adaptation puts 46% of the
+        # thrust command's energy above 2 Hz (nominal and static MLP: 0.4%),
+        # with successive command increments anti-correlated at -0.51 — i.e. the
+        # command flips direction almost every control step. The cause is that
+        # the model is rewritten at 100 Hz while SQP_RTI performs a single QP
+        # iteration per step, so the solution keeps jumping. This penalty acts
+        # directly on the signal that chatters: the thrust actually applied.
+        #
+        # Only stage 0 is touched, so the planned trajectory over the horizon
+        # keeps its usual cost. NONLINEAR_LS only (see OnlineNeuralMPC).
+        "include_thrust_rate_cost": True,
+        # The single knob, set by MEASUREMENT — a first guess of 100, sized to
+        # make the rate term comparable to the existing thrust and servo-rate
+        # terms, turned out to be 10x too large. Swept on a 45 s flight:
+        #
+        #   Rt_d      RMSE pos   chatter   corr lag1   rms dU
+        #   (none)      0.2513     46.3%      -0.51     0.648
+        #      10       0.2016      1.2%      +0.14     0.027   <-- best
+        #     100       0.4337      0.9%      +0.51     0.029   over-damped
+        #    1000       0.2709     16.3%      -0.27     0.133   worse again
+        #   nominal     0.2312      0.4%      +0.11     0.016   (reference)
+        #
+        # At 10 the chatter is back to the nominal level, the tracking beats
+        # both nominal and the static MLP, and adaptation is not slowed
+        # (recovery after the payload step: 8.7 s vs 11.1 s without the term).
+        # At 100 the command is over-damped and tracking collapses. Above that
+        # the trend REVERSES — do not assume "more damping is safer".
+        "Rt_d": 10.0,
     }
 
-    dataset_options = {"ds_name_suffix": "dataset_neural_sim_nominal_control"}  # "compare_nominal_neural_sim"}
+
+
+# ----------------------------------------------------------------------
+# Online hyperparameters: where the values below come from.
+#
+# Run `search03` (results/tuning/search03/), 631 flights, 0 failures. 64
+# candidates by Latin hypercube -> 16 -> 4, confirmed on 12 flights held out
+# from the selection. Disturbances are drawn per flight and keyed by the seed,
+# so a held-out flight is unseen in BOTH senses: trajectory and disturbance.
+#
+# The four finalists, on the 12 held-out flights (paired sign test vs nominal):
+#
+#   candidate           rmse     vs nominal   wins    rough   p99.9
+#   #1 adopted        18.01 cm     -31.8%    12/12    2.3x    5.99 ms
+#   #2                18.26 cm     -30.9%    12/12    2.2x    5.54 ms
+#   #3                18.38 cm     -30.5%    12/12    2.3x    5.80 ms
+#   #4                18.79 cm     -29.0%    12/12    2.3x    5.51 ms
+#   previous config   19.12 cm     -27.6%    12/12    2.0x    5.60 ms
+#   nominal           26.52 cm          -        -    1.0x    1.67 ms
+#   frozen MLP        26.55 cm      +0.8%     6/12    1.1x    5.05 ms
+#
+# #1 beats the previous configuration on 12 flights out of 12 (p = 0.0002) but
+# by only 5.9 %, and costs 15 % more command roughness (2.3x vs 2.0x nominal).
+# That is a trade, not a free win — #2 is 1.5 % worse and slightly smoother. If
+# smoothness matters more than the last centimetre, #2 is the defensible choice:
+#   lr 1.017e-3, max_step_rel 0.03284, trust_region_rel 1.331,
+#   lambda_anchor 3.020, train_every 1, forget_tau 6.30, buffer_size 630
+#
+# READ THE ATTRIBUTION TABLE BEFORE BUILDING A STORY ON THESE NUMBERS. Of the
+# tracking error each disturbance costs nominal MPC, the adopted controller
+# recovers 72 % of the wind's, 30 % of the ground effect's and 6 % of the drag's
+# (3/4 flights, p = 0.31 — indistinguishable from chance). It is mostly learning
+# a slowly varying force bias, not a state-dependent model.
+# ----------------------------------------------------------------------
+
+
+    dataset_options = {
+        "ds_name_suffix": "dataset_neural_sim_nominal_control",
+        # Online dataset parameters
+        "buffer_size":     383,   # max (X, Y) pairs stored in the circular training buffer
+                                  # = forget_tau / T_samp; the two must agree
+        "min_samples":     256,    # minimum matured samples before training starts
+        "batch_size":      64,     # mini-batch size for each gradient step
+        "window_size":     1,      # sliding-window context length; 1 = single-step (no context)
+        # Forgetting horizon of the recency-weighted sampling, IN SECONDS:
+        # P(sample) ~ exp(-age / forget_tau).
+        # Replaces the former "weighted_decay", which weighted by POSITION in the
+        # buffer and therefore had no fixed horizon at all — it was nearly
+        # uniform at 256 stored samples and concentrated on the last ~10 s once a
+        # 10000-sample buffer had filled, so the effective horizon drifted during
+        # the flight. NOTE: the buffer itself also forgets — at 100 Hz,
+        # buffer_size=700 only holds 7 s, so forget_tau above that barely bites.
+        "forget_tau":      3.828,   # [s]  (0 = uniform sampling)
+        # ---------------- Adaptation: Adam on the residual network ----------
+        # These values are NOT hand-tuned. They come from the hyperparameter
+        # search in online_learning/tools/tune_online.py (run "search02", whose
+        # full log is under results/tuning/search02/): 32 candidates drawn by
+        # Latin hypercube over 6 dimensions, narrowed to 10, then to 3, and
+        # confirmed on 8 flights that took no part in the selection.
+        #
+        # Measured on those 8 held-out flights, against the frozen offline model:
+        #     tracking error   17.9 cm  vs  24.8 cm      (-28%)
+        #     better on        8 flights out of 8        (p = 0.004)
+        #     undisturbed      -22% — it does not degrade a calm flight
+        #     command roughness 1.4x nominal MPC          (the previous default
+        #                                                  was 8.9x, i.e. visibly
+        #                                                  chattering)
+        #     cost             4.6 ms/step of a 10 ms budget
+        #
+        # Three candidates survived confirmation and their tracking errors are
+        # statistically INDISTINGUISHABLE (best pairwise test 6/8, p = 0.145), so
+        # the choice was made on the two axes that do separate them: this one is
+        # the smoothest and the cheapest. The other two are in the log if the
+        # trade-off ever changes; do not re-derive them by hand.
+        #
+        # Re-run the search with:  python3 -m online_learning.tools.tune_online
+        "lr":              2.416e-3,  # Adam learning rate
+        "grad_clip_norm":  1,    # max gradient L2 norm (0 = disabled)
+        "n_frozen_layers": 0,      # number of initial layers kept frozen during online training
+        "warmup_steps":    40,      # linear LR warmup steps (0 = no warmup)
+        "train_every":     2,     # gradient step every N control iterations
+        # Decoupled (AdamW-style) pull toward the pre-trained weights, applied
+        # AFTER the optimizer step:  W <- W - lr*lambda_anchor*(W - W_0).
+        # lr*lambda_anchor is the fraction of the distance to the baseline
+        # removed per step, so unlike the previous in-loss penalty (whose
+        # strength Adam rescaled per parameter) this is a real forgetting rate.
+        "lambda_anchor":   3.701,  # (0 = disabled)
+        # ---------------- Safety layer (see OnlineTrainer) ----------------
+        # Bounds on what online training may do to the weights. Sized on
+        # neuralmodel_209 by measurement, not by guess: honest adaptation to the
+        # configured disturbances moves the weights by 0.47-1.24 * ||W_0|| and
+        # takes steps of at most 0.022 * ||W_0||, while an unguarded divergence
+        # reaches ~250 * ||W_0||. Both defaults therefore sit far above what
+        # learning needs and far below a runaway. Check the end-of-run summary:
+        # a guard firing on many steps means the learning rate is wrong, not
+        # that the guard is doing its job.
+        "trust_region_rel":    1.895,  # ||W - W_0||     <= this * ||W_0||   (0 = off)
+        "max_step_rel":        0.006362,  # ||W_k - W_k-1|| <= this * ||W_0|| (0 = off)
+                                     # protects the SQP_RTI warm start, which
+                                     # assumes the model changes slowly between
+                                     # the single QP iterations it performs.
+        "supervisor_every":     50,  # compare against the frozen baseline every N steps (0 = off)
+        "supervisor_window":   256,  # newest matured samples used for that comparison
+        "supervisor_tol":      1.0,  # fail when mse_online > tol * mse_baseline
+        "supervisor_patience":   3,  # consecutive failures before reverting to W_0
+        "revert_lr_decay":     0.5,  # lr multiplier on each revert (1.0 = keep lr)
+    }
     sim_options = {
         "disturbances": {
-            "cog_dist": False,  # Disturbance forces and torques on CoG
+            # --- NOT WIRED UP: enabling either of these changes nothing ---
+            # apply_cog_disturbance() and apply_motor_noise() write into
+            # sim_solver.acados_sim.parameter_values, which the compiled solver
+            # never reads, and they run BEFORE the set("p", ...) that overwrites
+            # the whole vector anyway. They are kept only so old configuration
+            # files still load. Anything below this pair goes through
+            # apply_cog_disturbances(), which does reach the integrator.
+            "cog_dist": False,  # Disturbance forces and torques on CoG (INERT)
             "cog_dist_model": "mu = 1 / (abs(z)+1)**2 * cog_dist_factor * max_thrust * 4 | std = 0",
             "cog_dist_factor": 0.2,  # 0.1
-            "motor_noise": False,  # Asymmetric noise in the rotor thrust and servo angles
-            "drag": False,  # 2nd order polynomial aerodynamic drag effect TODO implement
-            "payload": False,  # External force in world z-axis TODO implement
+            "motor_noise": False,  # Asymmetric rotor/servo noise (INERT)
+            "payload": False,  # Payload force in the Z axis (superseded by extra_mass)
+            # --- Step 3.1: fixed extra mass at CoG ---
+            # Applies a constant downward force = extra_mass_kg * g (world z-up).
+            # Cannot be combined with cog_dist (both write the same parameter slot).
+            # CAN be combined with ground_effect (their CoG forces are summed).
+            "extra_mass": True,  # enable constant payload mass disturbance
+            "extra_mass_kg": step(t_on=30.0, value=0.5),  # payload appears at t = 30 s
+            # --- ground effect: extra lift near the ground ---
+            # Upward world-z force = T_vert * k / (1 + (z/z0)^2), where
+            # T_vert = current total rotor thrust and z = height above ground.
+            # Summed into the same CoG slot as extra_mass; exclusive with cog_dist.
+            "ground_effect": True,     # enable ground-effect lift disturbance
+            "ground_effect_k": 0.20,     # strength: extra lift fraction of thrust at z->0
+            "ground_effect_z0": 0.5,    # characteristic height [m] (effect halves at z0)
+            # --- wind: constant horizontal force (world frame), x and y only ---
+            # F_x = wind_x, F_y = wind_y  [N]. No z component (kept simple).
+            # Summed into the CoG slot; combines with extra_mass / ground_effect;
+            # exclusive with cog_dist.
+            "wind": True,     # enable wind force disturbance
+            "wind_x": sine(amp=2.0, period=20.0),          # oscillating crosswind [N]
+            "wind_y": ramp(t0=10.0, t1=40.0, v0=0.0, v1=3.0),  # wind builds up 10->40 s [N]
+            # --- aerodynamic drag: 2nd-order polynomial in the velocity ---
+            # F = -(k1 * v + k2 * ||v|| * v), v = world-frame velocity [m/s].
+            # Each coefficient is a scalar (isotropic) or one value per axis;
+            # both may also be callables f(t) like every magnitude above.
+            #
+            # Why it earns its place: extra_mass and wind are forces that depend
+            # on TIME alone, so three estimated constants reproduce them exactly
+            # and they cannot justify a network. Ground effect and drag are the
+            # only STATE-dependent sources here — and drag is the one the MLP is
+            # equipped to learn, since vx, vy, vz are among its 16 inputs
+            # (state_feats below) while nothing angular is.
+            #
+            # Sizing is set by MEASUREMENT, and the first guess was wrong by a
+            # factor of five. Three 120 s nominal flights (seeds 897/4242/31337)
+            # give a ground speed of mean 0.29, p95 0.56, max 0.92 m/s — these
+            # trajectories are slow. Textbook quadrotor coefficients (k1 ~ 0.3,
+            # k2 ~ 0.1) then produce 0.06 m/s^2, which is 6 % of the wind and
+            # would make drag invisible to the search: a disturbance nothing can
+            # measure teaches nothing about the method.
+            #
+            # The values below give, on a 3.146 kg airframe:
+            #     0.56 m/s (p95)  ->  1.35 N  =  0.43 m/s^2
+            #     0.92 m/s (max)  ->  3.15 N  =  1.00 m/s^2
+            # i.e. the same order as the wind (0.95 m/s^2) and the payload
+            # (1.56 m/s^2) — a full participant, not the dominant term — and far
+            # under the 10 m/s^2 residual saturation at any speed reachable here.
+            # About two thirds of the force comes from the QUADRATIC term at p95,
+            # which is the point: that part is nonlinear in the state and no
+            # constant-force estimator can absorb it.
+            #
+            # Read them as a stand-in for the velocity-dependent aerodynamics a
+            # rigid-body model omits — rotor drag, blade flapping, induced flow,
+            # downwash recirculation — sized to matter at the speeds actually
+            # flown, NOT as a calibrated fuselage drag model for this airframe.
+            # z gets the larger coefficients because the rotor disc presents its
+            # full area to vertical motion.
+            "drag": True,                       # enable aerodynamic drag
+            "drag_linear":    [0.8, 0.8, 1.2],  # k1 [N/(m/s)]
+            "drag_quadratic": [3.0, 3.0, 4.5],  # k2 [N/(m/s)^2]
+            # --- Time dependence (online learning shines on time-varying loads) ---
+            # ANY magnitude above (extra_mass_kg, ground_effect_k/z0, wind_x/wind_y)
+            # may be a constant OR a function f(t) -> value, t = sim time [s].
+            # Use the Disturbance profile helpers, e.g.:
+            #   "wind_x": sine(amp=2.0, period=20.0)      # oscillating crosswind
+            #   "extra_mass_kg": step(t_on=30.0, value=0.5)   # payload appears at 30 s
+            #   "wind_y": ramp(t0=10, t1=40, v0=0.0, v1=3.0)  # wind builds up
         },
-        "use_nominal_simulator": False,  # Use nominal model as simulator
+        "use_nominal_simulator": True,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
         "max_sim_time": 100,  # [s] of simulated time
         "world_radius": 2,  # [m]
         "seed": 897,
+        "T_sim":     0.005,  # inner simulation step size (seconds)
+        "T_takeoff": 5.0,    # duration of the takeoff phase (seconds)
     }
 
     # Run options
@@ -256,12 +535,51 @@ class EnvConfig:
         }
     )
 
+    # Neural model run options
+    run_options.update(
+        {
+            "useMLP": True,     # Load and use the neural residual model
+            "onlineMLP": True,  # Train the NN online during simulation (requires useMLP=True)
+        }
+    )
+
+    if model_options["online_neural_mpc"] and model_options["only_use_nominal"]:
+        raise ValueError("Conflict in options.")
+    if model_options.get("parametric_scope", "all") == "last_layer":
+        # Only the parametrised layers reach the solver, so any layer that is
+        # BOTH trainable and unparametrised would be updated and then silently
+        # ignored — the flown model would differ from the trained one. The
+        # combination is legitimate exactly when the trunk is frozen, which is
+        # also where it pays: 99 solver parameters instead of 1699.
+        # This count was 2, commented "neuralmodel_209: one hidden + one
+        # output". The network actually has THREE parameterised layers
+        # (16->32->32->3), so the check demanded n_frozen_layers >= 1 where 2 is
+        # needed: with 1, the second hidden layer stayed trainable while only the
+        # output layer reached the solver — trained every step and never flown.
+        # The real count is asserted against the loaded model in
+        # OnlineNeuralMPC, which is the only place that knows it; this stays as
+        # an early, cheap check.
+        n_trainable_layers = 3      # neuralmodel_209: two hidden + one output
+        if dataset_options.get("n_frozen_layers", 0) < n_trainable_layers - 1:
+            raise ValueError(
+                "parametric_scope='last_layer' requires the trunk to be frozen: "
+                f"set dataset_options['n_frozen_layers'] >= {n_trainable_layers - 1}, "
+                "or use parametric_scope='all'."
+            )
     if model_options["linearize_mlp"] and model_options["use_l4casadi"]:
         raise ValueError("Conflict in options.")
     if (model_options["linearize_mlp"] or model_options["use_l4casadi"]) and model_options["linearize_order"] not in [1, 2]:
         raise ValueError("Only first and second order linearization supported.")
     if not (model_options["linearize_mlp"] or model_options["use_l4casadi"]) and model_options["use_gpu"]:
         raise ValueError("acados does not support GPU usage natively in optimization framework. GPU can only be used with linearization.")
+    if sim_options["disturbances"]["extra_mass"] and sim_options["disturbances"]["cog_dist"]:
+        raise ValueError("extra_mass and cog_dist both write the CoG parameter slot — enable only one at a time.")
+    if sim_options["disturbances"].get("ground_effect", False) and sim_options["disturbances"]["cog_dist"]:
+        raise ValueError("ground_effect and cog_dist both write the CoG parameter slot — enable only one at a time "
+                         "(ground_effect may be combined with extra_mass, not with cog_dist).")
+    if sim_options["disturbances"].get("wind", False) and sim_options["disturbances"]["cog_dist"]:
+        raise ValueError("wind and cog_dist both write the CoG parameter slot — enable only one at a time "
+                         "(wind may be combined with extra_mass / ground_effect, not with cog_dist).")
     if sim_options["use_real_world_simulator"] and sim_options["use_nominal_simulator"]:
         raise ValueError("Conflict in options.")
     if sim_options["use_real_world_simulator"]:
@@ -274,12 +592,14 @@ class EnvConfig:
 
 class NetworkConfig:
     # ============================= MODEL SELECTION =============================
-    # Choose between "MLP" or "VAE" for the neural network architecture
-    model_type = "MLP"  # Options: "MLP", "VAE"
+    # Choose between "MLP", "OMLP" or "VAE" for the neural network architecture
+    model_type = "MLP"  # Options: "MLP", "VAE", "OMLP"
     
     # Define characteristics of the MLP model with its name
     if model_type == "MLP":
         model_name = "residual_mlp"
+    elif model_type == "OMLP":
+        model_name = "residual_omlp"
     elif model_type == "VAE":
         model_name = "residual_vae"
     else:
@@ -291,7 +611,7 @@ class NetworkConfig:
         model_name = f"delay_{model_name}"
 
     # Number of neurons in each hidden layer
-    if model_type == "MLP":
+    if model_type == "MLP" or model_type == "OMLP":
         # hidden_sizes = [8, 8]
         hidden_sizes = [32]
         # hidden_sizes = [64]
@@ -406,10 +726,10 @@ class ModelFitConfig:
     save_plots = False
 
     # ------- Dataset loading -------
-    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
+    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ENTIRE_HORIZON"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ENTIRE_HORIZON_DEBUG"
-    train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
+    # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_ONLY_JOY"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_TRAIN_WITH_REF_ALL_PROP"
     # train_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_FULL"
@@ -428,8 +748,8 @@ class ModelFitConfig:
     # real machine GROUND_EFFECT_ONLY: hovering and ground effect data only (48k datapoints)
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_FOR_PAPER"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_WITH_REF_ALL_PROP"
-    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
-    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
+    val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL"
+    # val_ds_name = "NMPCTiltQdServo" + "_" + "real_machine" + "_dataset_VAL_ENTIRE_HORIZON"
     # val_ds_name = "NMPCTiltQdServo" + "_" + "residual_dataset_neural_sim_nominal_control_03"
     val_ds_instance = "dataset_001"
     # === FROM HERE WITH MOVING AVERAGE FILTER APPLIED ===

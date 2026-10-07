@@ -321,6 +321,98 @@ def set_temporal_states_as_params_sim(sim_neural_mpc, sim_solver: AcadosOcpSolve
     sim_neural_mpc.acados_parameters[:, sim_neural_mpc.temporalize_start_idx : sim_neural_mpc.temporalize_end_idx] = mlp_out.flatten()
 
 
+def mlp_parametric_layer_indices(neural_model, scope: str = "all") -> list:
+    """
+    Indices of the layers whose weights are exposed as acados parameters.
+
+    scope="all"        : every caLinear / caBatchNorm1D layer. Required when the
+                         whole network adapts online (SGD).
+    scope="last_layer" : only the output caLinear. Enough when the trunk is
+                         frozen, and much cheaper: the trunk is then baked
+                         into the CasADi graph as constants, which lets CasADi
+                         constant-fold it and shrinks the per-node parameter
+                         block by ~17x on the current network (1699 -> 99). It
+                         also makes the residual exactly affine in the adapted
+                         parameters.
+
+    Raising the scope requires a solver rebuild; every run rebuilds anyway.
+    """
+    from network_architecture.casadi_layers import caLinear, caBatchNorm1D
+    stack = neural_model.fully_connected_stack
+    if scope == "last_layer":
+        lin = [i for i, l in enumerate(stack) if isinstance(l, caLinear)]
+        if not lin:
+            raise ValueError("Model has no caLinear layer to parametrise.")
+        return [lin[-1]]
+    if scope != "all":
+        raise ValueError(f"Unknown parametric_scope '{scope}' "
+                         "(expected 'all' or 'last_layer').")
+    return [i for i, l in enumerate(stack)
+            if isinstance(l, (caLinear, caBatchNorm1D))]
+
+
+def _build_mlp_weight_vector(neural_model, scope: str = "all") -> np.ndarray:
+    """
+    Flatten the parametrised weights of the MLP into a single 1-D numpy array,
+    using the same order and column-major (Fortran) flattening that was used when
+    building the symbolic CasADi parameter vector in create_acados_model().
+
+    Order per layer (same as the parametric CasADi path):
+      caLinear   : W.flatten(order='F')  then  b.flatten()
+      caBatchNorm1D : gamma.flatten()    then  beta.flatten()
+    Activation / dropout layers have no trainable parameters and are skipped.
+
+    `scope` must match the scope the solver was BUILT with — see
+    mlp_parametric_layer_indices().
+    """
+    from network_architecture.casadi_layers import caLinear, caBatchNorm1D
+    keep = set(mlp_parametric_layer_indices(neural_model, scope))
+    parts = []
+    for l_idx, layer in enumerate(neural_model.fully_connected_stack):
+        if l_idx not in keep:
+            continue
+        if isinstance(layer, caLinear):
+            parts.append(layer.weight.detach().cpu().numpy().flatten(order='F'))
+            if layer.bias is not None:
+                parts.append(layer.bias.detach().cpu().numpy().flatten())
+        elif isinstance(layer, caBatchNorm1D):
+            parts.append(layer.weight.detach().cpu().numpy().flatten())  # gamma
+            parts.append(layer.bias.detach().cpu().numpy().flatten())    # beta
+    return np.concatenate(parts)
+
+
+def set_mlp_params(neural_mpc) -> None:
+    """
+    Sync the current PyTorch weights of neural_mpc.neural_model into
+    neural_mpc.acados_parameters[:, mlp_weight_start_idx : mlp_weight_end_idx].
+
+    Call this after the online update. The parameter-setting loop
+        for j in range(N+1): ocp_solver.set(j, "p", acados_parameters[j, :])
+    at the top of the next MPC iteration will forward the updated weights to
+    the running acados solver automatically.
+
+    Only applicable when model_options["online_neural_mpc"] = True
+    (i.e. the solver was built with the parametric-weight CasADi path).
+    """
+    if not hasattr(neural_mpc, 'mlp_weight_start_idx'):
+        raise AttributeError(
+            "set_mlp_params() requires the solver to have been built with "
+            "model_options['online_neural_mpc']=True and linearize_mlp=False."
+        )
+    scope = getattr(neural_mpc, "mlp_param_scope", "all")
+    weight_flat = _build_mlp_weight_vector(neural_mpc.neural_model, scope)
+    block = neural_mpc.mlp_weight_end_idx - neural_mpc.mlp_weight_start_idx
+    if weight_flat.size != block:
+        raise ValueError(
+            f"MLP weight vector has {weight_flat.size} entries but the solver "
+            f"reserved {block}. The scope used to build the solver "
+            f"('{scope}') does not match the one used here."
+        )
+    neural_mpc.acados_parameters[
+        :, neural_mpc.mlp_weight_start_idx : neural_mpc.mlp_weight_end_idx
+    ] = weight_flat
+
+
 def get_output_mapping(state_dim, y_reg_dims, label_transform=False, only_vz=False):
     M = np.zeros((state_dim, len(y_reg_dims)))
     for i in range(len(y_reg_dims)):
