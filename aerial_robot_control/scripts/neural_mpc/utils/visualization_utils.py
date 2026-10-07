@@ -1426,10 +1426,20 @@ def plot_trajectory_comparison(
         ax_l = axes[i, 0]
         ax_r = axes[i, 1]
 
-        # Left: position tracking
-        ax_l.plot(T_s, ref_s[:, i], color=C_REF,     lw=LW_REF,  ls='--', alpha=0.70, label='Reference')
+        # Left: position tracking — each method plotted against its OWN reference.
+        # Per-run references can drift out of phase with each other: each run's
+        # "reached_init" transition timing depends on its own real dynamics
+        # (euclidean_dist(state_curr, pose_init) < 0.1), which differs across
+        # methods precisely because they track differently under the
+        # disturbance. Using a single shared reference line here would visually
+        # misattribute that timing drift as a tracking offset — the RMSE/MAE
+        # metrics elsewhere are unaffected since they already use each run's
+        # own reference (err_n = pos_n - ref_n, etc.).
         if show_nominal:
+            ax_l.plot(T_n, ref_n[:, i], color=C_NOMINAL, lw=LW_REF, ls='--', alpha=0.45)
             ax_l.plot(T_n, pos_n[:, i], color=C_NOMINAL, lw=LW_MAIN, alpha=0.75, label='Nominal MPC')
+        ax_l.plot(T_s, ref_s[:, i], color=C_REF,    lw=LW_REF, ls='--', alpha=0.70, label='Reference (static run)')
+        ax_l.plot(T_o, ref_o[:, i], color=C_ONLINE, lw=LW_REF, ls='--', alpha=0.45)
         ax_l.plot(T_s, pos_s[:, i], color=C_STATIC,  lw=LW_MAIN, alpha=0.90, label='Static MLP')
         ax_l.plot(T_o, pos_o[:, i], color=C_ONLINE,  lw=LW_MAIN, alpha=0.90, label='Online MLP')
         ax_l.set_ylabel(pos_lbl, fontsize=FS_LABEL)
