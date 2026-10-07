@@ -8,11 +8,9 @@ sim_options["disturbances"]["motor_noise"] = False
 sim_options["disturbances"]["drag"] = False
 sim_options["disturbances"]["payload"] = False
 
-
 controller_list = []
 controller_list.append("nominal")
-controller_list.append("neural_plus")
-# controller_list.append("neural_minus")
+controller_list.append("neural")
 
 if "nominal" in controller_list:
     print("Generating nominal controller...")
@@ -28,18 +26,16 @@ if "nominal" in controller_list:
     print("Successfully generated nominal controller!")
     print("========================================")
 
-if "neural_plus" in controller_list:
-    print("Generating neural plus controller...")
+if "neural" in controller_list:
+    print("Generating neural controller...")
     model_options["only_use_nominal"] = False
-    model_options["plus_neural"] = True
-    model_options["minus_neural"] = False
     neural_mpc = NeuralMPC(
         model_options=model_options,
         solver_options=EnvConfig.solver_options,
         sim_options=EnvConfig.sim_options,
         run_options=EnvConfig.run_options,
     )
-    print("Successfully generated neural plus controller!")
+    print("Successfully generated neural controller!")
     print("========================================")
 
 if "neural_minus" in controller_list:

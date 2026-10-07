@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-import numpy as np
 
 
 # ----------------------------------------------------------------------
@@ -87,7 +86,7 @@ class EnvConfig:
     model_options.update(
         {
             "only_use_nominal": False,
-            "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp" or "temporal_residual_mlp"
+            "neural_model_name": "residual_mlp",  # "residual_mlp" or "residual_vae" or "delayed_residual_mlp"
             "neural_model_instance": "neuralmodel_209",  # 185, 161, 129, 120, 113, 90, 88, 87, 63, 58, 60, 29, 31, 35
             "online_neural_mpc": False,  # Whether to train the neural model online
             # "neural_model_name": "residual_vae",
@@ -256,7 +255,7 @@ class EnvConfig:
         "cost_function_type": "NONLINEAR_LS",  # "NONLINEAR_LS" or "EXTERNAL"
         "solver_type": "PARTIAL_CONDENSING_HPIPM",  # TODO actually implement this
         "terminal_cost": True,  # TODO actually implement this
-        "include_floor_bounds": False,
+        "include_floor_bounds": False,  # Not in C++ implemented; also unnecessarily makes it heavier
         "include_soft_constraints": True,
         "include_quaternion_constraint": False,
         "include_delta_u": False,
@@ -403,7 +402,6 @@ class EnvConfig:
         "revert_lr_decay":     0.5,  # lr multiplier on each revert (1.0 = keep lr)
     }
     sim_options = {
-        # Choice of disturbances modeled in our Simplified Simulator
         "disturbances": {
             # --- NOT WIRED UP: enabling either of these changes nothing ---
             # apply_cog_disturbance() and apply_motor_noise() write into
@@ -487,8 +485,8 @@ class EnvConfig:
         "use_nominal_simulator": True,  # Use nominal model as simulator
         "use_real_world_simulator": False,  # Use neural model trained on real world data as simulator
         "sim_neural_model_instance": "neuralmodel_185",  # 113, 90, 87, 58  # Used when use_real_world_simulator = True
-        "max_sim_time": 120,
-        "world_radius": 2,
+        "max_sim_time": 100,  # [s] of simulated time
+        "world_radius": 2,  # [m]
         "seed": 897,
         "T_sim":     0.005,  # inner simulation step size (seconds)
         "T_takeoff": 5.0,    # duration of the takeoff phase (seconds)
@@ -496,10 +494,11 @@ class EnvConfig:
 
     # Run options
     run_options = {
-        "real_machine": True,
+        "recording": False,
     }
 
     # Trajectory tracking options
+    # Options: "step", "hover", "takeoff", "smooth_takeoff", "circle", "helix", "lemniscate_I", "lemniscate_II", "roll", "pitch"
     run_options.update(
         {
             "trajectories": [
@@ -510,7 +509,7 @@ class EnvConfig:
                 "lemniscate_II",
                 "roll",
                 "pitch",
-            ],  # "step", "hover", "takeoff", "smooth_takeoff", "circle", "helix", "lemniscate_I", "lemniscate_II", "roll", "pitch"
+            ],
             "trajectory_length": 15.0,
         }
     )
@@ -523,13 +522,6 @@ class EnvConfig:
             "initial_state": None,
             "initial_guess": None,
             "aggressive": False,
-        }
-    )
-
-    # Recording options
-    run_options.update(
-        {
-            "recording": False,
         }
     )
 
@@ -593,13 +585,9 @@ class EnvConfig:
     if sim_options["use_real_world_simulator"]:
         for value in sim_options["disturbances"].values():
             if value == True:
-                raise ValueError("Simulated disturbances not meaningful when using real world simulator.")
-    if solver_options["cost_function_type"] == "NONLINEAR_LS" and solver_options["include_energy_cost"]:
-        raise ValueError("NONLINEAR_LS cost function does not support energy cost as it is an additional term.")
-    # if run_options["real_machine"]:
-    #     for value in sim_options["disturbances"].values():
-    #         if value == True:
-    #             raise ValueError("No simulated disturbances allowed on real machine.")
+                raise ValueError("Simulated disturbances most likely not meaningful when using real world simulator since this flag intends to simulate real-world conditions.")
+    if solver_options["cost_function_type"] == "NONLINEAR_LS" and (solver_options["include_delta_u"] or solver_options["include_energy_cost"]):
+        raise ValueError("NONLINEAR_LS cost function does not support additional terms, need to use custom cost function.")
 
 
 class NetworkConfig:
@@ -621,11 +609,6 @@ class NetworkConfig:
     delay_horizon = 0  # Number of time steps into the past to consider (set to 0 to only use current state)
     if delay_horizon > 0:
         model_name = f"delay_{model_name}"
-
-    # Predict entire horizon at once
-    temporalize = True
-    if temporalize:
-        model_name = f"temporal_{model_name}"
 
     # Number of neurons in each hidden layer
     if model_type == "MLP" or model_type == "OMLP":
@@ -684,7 +667,7 @@ class NetworkConfig:
     # L1 regularization
     l1_lambda = 0.0  #1e-4  # Set to 0.0 to disable
     # Energy regularization
-    energy_lambda = 0.0 #1e3  # for relative 1e3 / for absolute 1e-5  # Set to 0.0 to disable
+    energy_lambda = 1e3  # for relative 1e3 / for absolute 1e-5  # Set to 0.0 to disable
     # Penalize gradients
     gradient_lambda = 0.0 #1e0  # Set to 0.0 to disable
     # Output consistency regularization epsilon

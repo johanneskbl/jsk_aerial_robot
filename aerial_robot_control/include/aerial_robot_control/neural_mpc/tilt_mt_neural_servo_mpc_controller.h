@@ -2,8 +2,8 @@
 // Created by lijinjie on 23/11/29.
 //
 
-#ifndef TILT_MT_NEURAL_SERVO_PLUS_MPC_CONTROLLER_H
-#define TILT_MT_NEURAL_SERVO_PLUS_MPC_CONTROLLER_H
+#ifndef TILT_MT_NEURAL_SERVO_MPC_CONTROLLER_H
+#define TILT_MT_NEURAL_SERVO_MPC_CONTROLLER_H
 
 #include "aerial_robot_control/nmpc/base_mpc_controller.h"
 
@@ -56,11 +56,11 @@ namespace aerial_robot_control
 namespace nmpc
 {
 
-class TiltMtNeuralServoPlusMPC : public BaseMPC
+class TiltMtNeuralServoMPC : public BaseMPC
 {
 public:
-  TiltMtNeuralServoPlusMPC() = default;  // note that constructor should not have arguments as the rule of rospluginlib
-  ~TiltMtNeuralServoPlusMPC() override = default;
+  TiltMtNeuralServoMPC() = default;  // note that constructor should not have arguments as the rule of rospluginlib
+  ~TiltMtNeuralServoMPC() override = default;
   void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
                   boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
                   boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
@@ -270,4 +270,4 @@ private:
 
 }  // namespace aerial_robot_control
 
-#endif  // TILT_MT_NEURAL_SERVO_PLUS_MPC_CONTROLLER_H
+#endif  // TILT_MT_NEURAL_SERVO_MPC_CONTROLLER_H

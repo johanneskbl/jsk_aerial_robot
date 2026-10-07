@@ -1083,11 +1083,8 @@ if __name__ == "__main__":
 
     apply_temporal_filter = True
 
-    # Prediction horizon
-    # Full horizon
-    N = neural_mpc.N
     # Single-step prediction dataset
-    # N = 1
+    N = 1
 
     # Select which recordings to process
     rosbag_dir = "~/ros/rosbag_files/csv"
@@ -1152,7 +1149,7 @@ if __name__ == "__main__":
 
     print(f"Finished loading all csvs!")
     if len(csv_files) > 1:
-        # TODO not meaningful for temporal neural networks!!
+        # TODO not meaningful for delayed neural networks!!
         print(f"Combining dicts..."),
         data = combine_dicts(data_dicts, T_samp)
         print(f"{len(csv_files)} dictionaries successfully combined!")

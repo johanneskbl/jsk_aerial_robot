@@ -472,8 +472,6 @@ def main():
         ocp_solver_nominal = nominal_mpc.get_ocp_solver()
 
         model_options["only_use_nominal"] = False
-        model_options["plus_neural"] = True
-        model_options["minus_neural"] = False
         neural_mpc = NeuralMPC(model_options, solver_options, sim_options, run_options)
         ocp_solver_neural = neural_mpc.get_ocp_solver()
 

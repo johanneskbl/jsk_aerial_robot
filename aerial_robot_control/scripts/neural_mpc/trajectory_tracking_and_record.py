@@ -139,8 +139,6 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
     T_horizon = neural_mpc.T_horizon
     T_samp = neural_mpc.T_samp  # Time step for the control loop
     T_step = neural_mpc.T_step  # Time step in MPC (= T_horizon / N)
-    # reference_over_sampling = 1     # TODO what is this?
-    # control_period = T_horizon / (N * reference_over_sampling)    # The time period between two control inputs
 
     # Sanity check: The optimization should be faster or equal than the duration of the optimization time step
     assert T_samp <= T_horizon / N
@@ -204,7 +202,6 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
     for _ in range(20):
         u_temp = ocp_solver.solve_for_x0(state_curr)
         sim_solver.simulate(x=state_curr_sim, u=u_temp, p=sim_solver.acados_sim.parameter_values)
-    x_l = []
 
     # --- Initial guess ---
     # TODO Provide a new initial guess when changing target
@@ -464,8 +461,12 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
                 set_l4casadi_params(neural_mpc, ocp_solver)
 
             # --- Prepare delayed neural network input ---
-            if neural_mpc.use_mlp and "delay" in neural_mpc.mlp_metadata["NetworkConfig"]["model_name"]:
+            if neural_mpc.use_mlp and neural_mpc.mlp_metadata["NetworkConfig"]["delay_horizon"] > 0:
                 set_delayed_states_as_params(neural_mpc, ocp_solver, history, u_cmd)
+
+            # -- Prepare temporal neural network input ---
+            if neural_mpc.use_mlp and model_options["refactor_mlp"]:
+                set_temporal_states_as_params(neural_mpc, ocp_solver)
 
             # --- Set parameters in OCP solver ---
             for j in range(ocp_solver.N + 1):
@@ -496,12 +497,9 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
 
             # --- Plot realtime ---
             if run_options["real_time_plot"]:
-                raise NotImplementedError("Rethink.")
+                raise NotImplementedError("Overthink.")
                 # Note: Simulation is without disturbance here !
-                #########################################
-                # TODO OVERTHINK THIS!!!
                 state_traj = simulate_trajectory(ocp_solver, sim_solver, state_curr)
-                #########################################
                 draw_robot(
                     art_pack,
                     None,  # TODO also display reference trajectory
@@ -533,7 +531,7 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
                 # the simulation (i.e. measurement + estimation) is run
                 # in parallel to the real-time control loop.
                 # Increment global time at every simulation step since the
-                # control loop runs in parallel and is assumpted to be idle at some times
+                # control loop runs in parallel and is assumed to be idle at some times
                 t_now += T_sim
 
                 # --- Set disturbance forces as parameters ---
@@ -690,7 +688,22 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
 
             # Timing (info only): one entry per control step (0.0 when no training ran).
             train_times.append(train_dt)
-        
+ 
+            ## --- Record out data ---
+            #if recording or plot:
+            #    # State after simulation
+            #    rec_dict["state_out"] = np.append(rec_dict["state_out"], state_curr_sim[np.newaxis, :], axis=0)
+
+            #    # Compute next state prediction through more precise and undisturbed integration
+            #    state_prop = forward_prop(
+            #        discretized_dynamics,
+            #        state_curr[np.newaxis, :],
+            #        u_cmd[np.newaxis, :],
+            #        T_prop_horizon=T_samp,
+            #        T_prop_step=T_prop_step,
+            #    )
+            #    state_prop = state_prop[-1, :]  # Get last predicted state
+            #    rec_dict["state_pred"] = np.append(rec_dict["state_pred"], state_prop[np.newaxis, :], axis=0)
 
             # --- Log trajectory for real-time plot ---
             if run_options["real_time_plot"]:
