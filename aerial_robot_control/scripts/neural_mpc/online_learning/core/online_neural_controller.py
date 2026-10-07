@@ -9,8 +9,11 @@ from utils.geometry_utils import quaternion_inverse, v_dot_q
 from utils.model_utils import load_model, get_output_mapping, get_device
 from utils.model_utils import cross_check_params, _build_mlp_weight_vector
 
+l4c = None
+
 # Tiltable-Quadrotor
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))))  # -> scripts/
 from nmpc.nmpc_tilt_mt.rh_base import RecedingHorizonBase
 from nmpc.nmpc_tilt_mt.tilt_qd.qd_reference_generator import QDNMPCReferenceGenerator
 import nmpc.nmpc_tilt_mt.tilt_qd.phys_param_beetle_omni as phys_omni
@@ -39,6 +42,34 @@ class OnlineNeuralMPC(RecedingHorizonBase):
 
         else:
             identifier = "neural"
+
+        # Anything that changes the SIZE of the acados parameter vector must
+        # also change the model name. The generated C code and its shared
+        # library are keyed by name, so two builds that share a name but not a
+        # parameter layout collide — within one process the second run loads the
+        # first one's library and acados aborts with
+        #   "trying to set N parameters ... external function has M parameters".
+        # Only the options introduced alongside online adaptation are appended
+        # here: the existing names are consumed by the C++ headers under
+        # include/aerial_robot_control/neural_mpc/<model_name>/ and must not move.
+        if model_options["online_neural_mpc"] and \
+                model_options.get("parametric_scope", "all") == "last_layer":
+            identifier += "_lastlayer"      # 99 weight params instead of 1699
+        if solver_options.get("include_thrust_rate_cost", False):
+            identifier += "_dthrust"        # stage 0 carries 4 extra residuals,
+                                            # so ny_0 differs from the plain build
+
+        # Parallel sweeps only (tune_online.py). acados generates its C code and
+        # runs `make` inside include/aerial_robot_control/neural_mpc/<model_name>/,
+        # and rh_base._mkdir() os.chdir()s into it. Two processes building the
+        # SAME model name therefore compile into the same object files at the same
+        # time and corrupt each other's build. Giving every worker its own arena
+        # gives every worker its own directory. Empty (the default) changes
+        # nothing, so single-process runs keep the canonical names that the C++
+        # headers depend on.
+        arena = os.environ.get("NEURAL_MPC_BUILD_ARENA", "").strip()
+        if arena:
+            identifier += f"_{arena}"
 
         if use_as_simulator:
             identifier2 = "_sim"
@@ -76,10 +107,14 @@ class OnlineNeuralMPC(RecedingHorizonBase):
 
         # Include disturbance parameters in model
         # NOTE: ONLY FOR SIMULATOR USAGE
-        # extra_mass also needs the CoG slot to inject its constant gravity force.
+        # Every source in COG_SOURCES injects its force through the CoG slot, so
+        # the slot must exist whenever any of them is enabled. Asking the shared
+        # helper rather than re-listing the names here is what keeps this in step
+        # with the simulation loop: a source missing from this test builds a model
+        # with no slot to write into, and the run dies on cog_dist_start_idx.
+        from sim_environment.disturbances import any_cog_disturbance
         self.include_cog_dist_parameter = (
-            sim_options["disturbances"]["cog_dist"] or
-            sim_options["disturbances"].get("extra_mass", False)
+            sim_options["disturbances"]["cog_dist"] or any_cog_disturbance(sim_options)
         )
         self.include_motor_noise_parameter = sim_options["disturbances"]["motor_noise"]
 
@@ -90,6 +125,21 @@ class OnlineNeuralMPC(RecedingHorizonBase):
         self.include_quaternion_constraint = solver_options["include_quaternion_constraint"]
         self.include_delta_u = solver_options["include_delta_u"]
         self.include_energy_cost = solver_options["include_energy_cost"]
+        # Stage-0 thrust-rate penalty: || ft_c(0) - ft_applied_previously ||^2.
+        # Damps the command chatter that online adaptation injects — the model
+        # is rewritten at 100 Hz while SQP_RTI takes a single QP iteration per
+        # step, so the solution jumps and the applied thrust alternates. Only
+        # stage 0 is affected (acados' native cost_y_expr_0 / W_0 / yref_0), so
+        # the rest of the horizon keeps its usual cost and the planned
+        # trajectory is not distorted.
+        self.include_thrust_rate_cost = solver_options.get("include_thrust_rate_cost", False)
+        self.Rt_d = float(solver_options.get("Rt_d", 0.0))
+        if self.include_thrust_rate_cost and self.cost_function_type == "EXTERNAL":
+            raise NotImplementedError(
+                "include_thrust_rate_cost is implemented for NONLINEAR_LS only. "
+                "With EXTERNAL cost the previous thrust would have to be added "
+                "as an acados parameter instead of a yref entry."
+            )
 
         # Load neural network model
         if not model_options["only_use_nominal"]:
@@ -510,11 +560,32 @@ class OnlineNeuralMPC(RecedingHorizonBase):
                         # are written into acados_parameters at every training step via
                         # set_mlp_params(). No solver rebuild needed.
                         from network_architecture.casadi_layers import caLinear, caBatchNorm1D
+                        from utils.model_utils import mlp_parametric_layer_indices
+
+                        # Which layers become acados parameters. "last_layer"
+                        # bakes the frozen trunk in as constants: 99 parameters
+                        # to push every step instead of 1699, and the residual
+                        # stays exactly affine in what actually adapts. Only
+                        # valid when the trunk really is frozen — see the check
+                        # in configurations.py.
+                        self.mlp_param_scope = self.model_options.get("parametric_scope", "all")
+                        _param_layers = set(mlp_parametric_layer_indices(
+                            self.neural_model, self.mlp_param_scope))
+
+                        # How many layers must be frozen for this scope to be
+                        # correct is decided in configurations.py, which cannot
+                        # load the model and so hard-codes the layer count.
+                        # test_casadi_sync.py asserts that constant against the
+                        # real network, because a layer that is trainable but NOT
+                        # parametrised is updated every step and never flown, and
+                        # nothing downstream can see the divergence.
 
                         self.mlp_weight_start_idx = parameters.size()[0]
                         _sym_map = {}  # layer_index → ("linear"|"bn", *sym_tensors)
 
                         for l_idx, layer in enumerate(self.neural_model.fully_connected_stack):
+                            if l_idx not in _param_layers:
+                                continue
                             if isinstance(layer, caLinear):
                                 n_out, n_in = layer.weight.shape
                                 W_s = ca.MX.sym(f"W_{l_idx}", n_out, n_in)
@@ -554,7 +625,11 @@ class OnlineNeuralMPC(RecedingHorizonBase):
                                     + ca.DM(self.neural_model.y_mean.cpu().numpy())
 
                         # Initial weight values used to initialise acados_parameters
-                        self._mlp_weight_init = _build_mlp_weight_vector(self.neural_model)
+                        self._mlp_weight_init = _build_mlp_weight_vector(
+                            self.neural_model, self.mlp_param_scope)
+                        print(f"[OnlineNeuralMPC] MLP weights exposed as acados "
+                              f"parameters: scope='{self.mlp_param_scope}', "
+                              f"{self._mlp_weight_init.size} values per node")
 
                     else:
                         mlp_out = self.neural_model.ca_forward(mlp_in)
@@ -593,6 +668,32 @@ class OnlineNeuralMPC(RecedingHorizonBase):
                     mlp_out = ca.vertcat(mlp_out[:a_idx, :], a_w, mlp_out[a_idx + 1 :, :])
                 else:
                     raise KeyError("Selected regression dimensions not expected.")
+
+            # === Safety: bound the residual injected into the dynamics ===
+            # Hard-caps what the network can add to ds, so neither a diverged
+            # online update nor an out-of-distribution input can command an
+            # unbounded acceleration. This is the one guard the optimiser cannot
+            # bypass: it is baked into the CasADi graph, not enforced in Python.
+            #
+            #   f(x) = x / (1 + (x/a)^6)^(1/6)
+            #     |f(x)| <= a  for every x        (hard bound)
+            #     f'(x)  = (1 + (x/a)^6)^(-7/6)   in (0, 1]  -> smooth AND a
+            #              contraction, so it can only shrink the residual,
+            #              never amplify it or flip its sign
+            #     f(x) ~= x for |x| << a          (rel. error 7e-4 at |x| = 0.4a)
+            #
+            # A plain tanh would have been the obvious choice but it distorts the
+            # normal operating range badly (7% shrink already at 0.5a); the 6th
+            # power keeps the pre-trained model essentially untouched below the
+            # bound while still saturating hard above it. if_else would be exact
+            # but non-smooth, which hurts the SQP/Gauss-Newton convergence.
+            residual_sat = self.model_options.get("residual_sat", 0.0) or 0.0
+            if residual_sat > 0:
+                q = mlp_out / residual_sat
+                q2 = q * q
+                q6 = q2 * q2 * q2          # squaring twice avoids power() on a
+                                           # possibly negative base entirely
+                mlp_out = mlp_out / ca.power(1 + q6, 1.0 / 6.0)
 
             # === Fuse dynamics ===
             # Map output of MLP to the state space
@@ -707,6 +808,13 @@ class OnlineNeuralMPC(RecedingHorizonBase):
         else:
             model.cost_y_expr = ca.vertcat(state_y, control_y)  # NONLINEAR_LS
             model.cost_y_expr_e = state_y_e
+            if self.include_thrust_rate_cost:
+                # Stage 0 only: the usual residuals plus the raw thrust command.
+                # track() sets the corresponding yref entries to the thrust that
+                # was actually applied on the previous control step, so those
+                # four residuals ARE ft_c(0) - ft_prev — a true rate penalty on
+                # the one signal the plant receives.
+                model.cost_y_expr_0 = ca.vertcat(state_y, control_y, self.ft_c)
 
         model.p = parameters
 
@@ -846,6 +954,21 @@ class OnlineNeuralMPC(RecedingHorizonBase):
             Q, R = self.get_weights()
             ocp.cost.W = np.block([[Q, np.zeros((nx, nu))], [np.zeros((nu, nx)), R]])
             ocp.cost.W_e = Q  # Weight matrix at terminal shooting node (N)
+            if self.include_thrust_rate_cost:
+                # Stage 0 has its own residual vector (4 extra entries), so it
+                # needs its own weight matrix and reference. Same Q and R as the
+                # other stages, plus Rt_d on the thrust-rate block: switching the
+                # penalty on must not silently retune the rest of the cost.
+                ny0 = nx + nu + 4
+                W0 = np.zeros((ny0, ny0))
+                W0[:nx, :nx] = Q
+                W0[nx:nx + nu, nx:nx + nu] = R
+                W0[nx + nu:, nx + nu:] = self.Rt_d * np.eye(4)
+                ocp.cost.cost_type_0 = self.cost_function_type
+                ocp.cost.W_0 = W0
+                ocp.cost.yref_0 = np.zeros(ny0)   # overwritten every step by track()
+                print(f"[OnlineNeuralMPC] stage-0 thrust-rate penalty enabled, "
+                      f"Rt_d = {self.Rt_d}")
 
         # Set constraints
         # - State box constraints bx
@@ -1192,6 +1315,16 @@ class OnlineNeuralMPC(RecedingHorizonBase):
 
             if self.cost_function_type != "EXTERNAL":
                 yr = np.concatenate((xr[j, :], ur[j, :]))
+                if j == 0 and self.include_thrust_rate_cost:
+                    # The four extra stage-0 residuals are ft_c(0) - ft_prev.
+                    # u_prev is the command applied on the previous control step
+                    # (track() runs before the solve, so u_cmd still holds it).
+                    # On the very first step there is no previous command: fall
+                    # back to the reference thrust so the penalty starts at zero
+                    # instead of fighting an arbitrary value.
+                    ft_prev = (np.asarray(ur[0, :4], dtype=float) if u_prev is None
+                               else np.asarray(u_prev, dtype=float)[:4])
+                    yr = np.concatenate((yr, ft_prev))
                 ocp_solver.set(j, "yref", yr)
             else:
                 self.acados_parameters[j, self.external_state_ref_start_idx : self.external_state_ref_end_idx] = xr[j, :]

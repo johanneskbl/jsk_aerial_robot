@@ -12,8 +12,11 @@ class OnlineDataset:
     At each control step (time T):
       - The MPC solver provides its first predicted node: x_hat(T + T_step).
       - The actual state at T + T_step is observed T_step / T_samp steps later.
-      - Once available, the residual label is computed as:
-            Y = actual_state(T + T_step)[state_indices] - x_hat(T + T_step)[state_indices]
+      - Once available, the residual label is computed as a *rate* (divided by
+        T_step so it has acceleration units for velocity dims, matching the
+        offline convention in model_fitting/dataset.py):
+            Y = (actual_state(T + T_step)[state_indices]
+                 - x_hat(T + T_step)[state_indices]) / T_step
       - The training input is the SLIDING WINDOW of the last window_size observations:
             X = [obs(T-(W-1)*T_samp), ..., obs(T-T_samp), obs(T)]
             with obs(t) = [state_curr(t), u_cmd(t)]  (full vectors)
@@ -41,6 +44,21 @@ class OnlineDataset:
     window_size : int Number of consecutive observations concatenated as training input X.
                       1 = no temporal context (default, backward-compatible).
                       N > 1 = sliding window of N steps; X has shape (buffer_size, N*(nx+nu)).
+    forget_tau : float
+                      Forgetting time constant IN SECONDS for the "weighted"
+                      sampling strategy: a sample of age dt is drawn with
+                      probability proportional to exp(-dt / forget_tau).
+
+                      This replaces the former `weighted_decay`, which weighted
+                      by POSITION in the buffer (exp(decay * chrono_pos)) and was
+                      therefore not a fixed horizon at all: with decay=1e-3 the
+                      newest/oldest ratio was exp(0.26) ~ 1.3 (nearly uniform) at
+                      256 stored samples but exp(10) ~ 2.2e4 (only the last ~10 s
+                      matter) once the 10000-sample buffer had filled. The
+                      effective forgetting horizon silently drifted during the
+                      flight. Weighting by age fixes the horizon at forget_tau
+                      seconds regardless of the buffer fill level.
+                      Set <= 0 to fall back to uniform sampling.
     """
 
     def __init__(
@@ -54,7 +72,7 @@ class OnlineDataset:
         batch_size: int = 64,
         state_indices: list = None,
         window_size: int = 1,
-        weighted_decay: float = 0.001,
+        forget_tau: float = 10.0,
     ):
         assert T_samp <= T_step, "T_samp must be <= T_step"
         assert window_size >= 1, "window_size must be >= 1"
@@ -68,7 +86,7 @@ class OnlineDataset:
         self.batch_size = batch_size
         self.state_indices = state_indices if state_indices is not None else list(range(nx))
         self.window_size = window_size
-        self.weighted_decay = weighted_decay
+        self.forget_tau = forget_tau
 
         n_out = len(self.state_indices)
         x_dim = window_size * (nx + nu)
@@ -76,8 +94,10 @@ class OnlineDataset:
         # Circular training buffer (pre-allocated for speed)
         self._X = np.zeros((buffer_size, x_dim))    # windowed input
         self._Y = np.zeros((buffer_size, n_out))    # residual label
+        self._T = np.zeros((buffer_size,))          # time the input window was observed [s]
         self._ptr = 0    # write pointer (wraps around)
         self._count = 0  # number of valid samples currently stored
+        self._t_last = 0.0  # most recent t_now seen by get_data(); "age zero" reference
 
         # Rolling history of (window_size) most recent [state_curr; u_cmd] pairs.
         # Each entry is a 1-D array of length nx + nu.
@@ -92,8 +112,8 @@ class OnlineDataset:
         # overwritten. Stores the complete flight history for offline analysis.
         # Only the training buffer (_X, _Y) is circular and size-limited.
         #
-        # To compute the residual offline for step k:
-        #   Y[k] = state_curr[k + T_step/T_samp] - mpc_first_pred[k]
+        # To compute the residual offline for step k (rate, /T_step):
+        #   Y[k] = (state_curr[k + T_step/T_samp] - mpc_first_pred[k]) / T_step
         # ------------------------------------------------------------------
         self._rec = {
             "timestamp":          np.zeros((0,)),
@@ -106,6 +126,17 @@ class OnlineDataset:
             "control":            np.zeros((0, nu)),
             "mpc_first_pred":     np.zeros((0, nx)),   # MPC node-1 prediction (T_step ahead)
             "nominal_first_pred": np.zeros((0, nx)),   # nominal prediction (no NN, T_step ahead)
+            # 1.0 while actually TRACKING a trajectory, 0.0 during take-off and
+            # during the repositioning between two trajectory segments.
+            #
+            # In that repositioning the reference is a sigmoid sliding from the
+            # last pose to the next segment's start, so it deliberately sits
+            # ahead of the aircraft and the position error is large by
+            # construction. Any "worst departure from the reference" computed
+            # over the whole tracking phase measures that transit, not
+            # disturbance rejection: nominal MPC scored the SMALLEST maximum of
+            # every controller (71.7 cm vs 82-91 cm) purely because of it.
+            "tracking":           np.zeros((0,)),
         }
 
     # ------------------------------------------------------------------
@@ -143,11 +174,16 @@ class OnlineDataset:
         u_cmd          = observation["u_cmd"]
         mpc_first_pred = observation["mpc_first_pred"]
 
+        # "Now" reference used to age the stored samples in sample_batch().
+        self._t_last = t_now
+
         # ---- 1. Record to _rec ----
         dt_val = (t_now - self._rec["timestamp"][-1]
                   if len(self._rec["timestamp"]) > 0 else self.T_samp)
         self._rec["timestamp"] = np.append(self._rec["timestamp"], t_now)
         self._rec["dt"]        = np.append(self._rec["dt"],        dt_val)
+        self._rec["tracking"] = np.append(
+            self._rec["tracking"], float(observation.get("tracking", 1.0)))
         self._rec["comp_time"] = np.append(
             self._rec["comp_time"], observation.get("comp_time", 0.0)
         )
@@ -190,10 +226,24 @@ class OnlineDataset:
             t_stored, X_win, pred = self._pending[0]
             if t_now >= t_stored + self.T_step - 1e-9:
                 self._pending.popleft()
-                residual = state_curr[self.state_indices] - pred[self.state_indices]
+                # Divide by T_step to obtain the residual *rate* (acceleration for
+                # velocity dims), matching the offline label convention in
+                # model_fitting/dataset.py (prop_long_horizon):
+                #     y = (state_out - state_pred) / T_step
+                # The NN output is added to ds (the continuous dynamics), so it
+                # must be an acceleration. Without this division the online label
+                # would be a plain state difference over T_step (a factor of
+                # T_step too small), and online training would drive the model
+                # toward a ~10x-too-weak residual that fails to compensate the
+                # disturbance.
+                residual = (state_curr[self.state_indices] - pred[self.state_indices]) / self.T_step
                 idx = self._ptr % self.buffer_size
                 self._X[idx] = X_win
                 self._Y[idx] = residual
+                # Timestamp of the INPUT window (t_stored), not of the moment the
+                # label matured: the sample describes the dynamics at t_stored, so
+                # that is the time its age must be measured from.
+                self._T[idx] = t_stored
                 self._ptr += 1
                 self._count = min(self._count + 1, self.buffer_size)
             else:
@@ -312,31 +362,82 @@ class OnlineDataset:
         ----------
         strategy : "random"   — uniform sampling (default)
                    "recent"   — most recent batch_size samples
-                   "weighted" — recency-weighted (recent samples more likely)
+                   "weighted" — recency-weighted by AGE IN SECONDS: a sample of
+                                age dt is drawn with probability proportional to
+                                exp(-dt / forget_tau). Unlike the previous
+                                position-based weighting, the forgetting horizon
+                                no longer depends on how full the buffer is.
 
         Returns
         -------
-        X_batch : ndarray (batch_size, window_size * (nx + nu))
-        Y_batch : ndarray (batch_size, len(state_indices))
+        X_batch : ndarray (k, window_size * (nx + nu))
+        Y_batch : ndarray (k, len(state_indices))
+                  with k = min(batch_size, n_samples)
         """
         n = self._count
+        if n == 0:
+            raise ValueError("sample_batch() called on an empty buffer.")
+        k = min(self.batch_size, n)   # never ask for more samples than are stored
+
         if strategy == "random":
             # Uniform random — chrono position = array index before wrap, irrelevant after
-            indices = np.random.choice(n, size=self.batch_size, replace=False)
+            indices = np.random.choice(n, size=k, replace=False)
             return self._X[indices], self._Y[indices]
 
         if strategy == "recent":
-            chrono_pos = np.arange(max(0, n - self.batch_size), n)
+            chrono_pos = np.arange(n - k, n)
+            indices = self._chrono_to_idx(chrono_pos)
         elif strategy == "weighted":
-            # Exponentially higher probability for more recent samples
-            chrono_pos_all = np.arange(n)
-            weights = np.exp(self.weighted_decay * chrono_pos_all)
-            weights /= weights.sum()
-            chrono_pos = np.random.choice(n, size=self.batch_size, replace=False, p=weights)
+            indices = self._weighted_indices(k)
         else:
             raise ValueError(f"Unknown sampling strategy: '{strategy}'")
 
-        indices = self._chrono_to_idx(chrono_pos)
+        return self._X[indices], self._Y[indices]
+
+    def _weighted_indices(self, k: int) -> np.ndarray:
+        """
+        Draw k distinct array indices with probability proportional to
+        exp(-age / forget_tau), age = t_last - t_sample in SECONDS.
+
+        Sampling uses the Gumbel-top-k trick: adding independent Gumbel(0,1)
+        noise to the log-weights and taking the k largest keys yields exactly
+        the same distribution as successive weighted sampling without
+        replacement (which is what np.random.choice(replace=False, p=...)
+        implements), but in O(n) instead of the O(n^2)-ish loop numpy runs — the
+        gradient step happens inside the control loop, so this matters.
+
+        Note: because indices 0..count-1 are exactly the valid slots both before
+        and after the buffer wraps, no chronological remapping is needed here —
+        the timestamps carry the ordering.
+        """
+        n = self._count
+        if k >= n:
+            return np.arange(n)
+        if self.forget_tau is None or self.forget_tau <= 0:
+            return np.random.choice(n, size=k, replace=False)
+
+        age = np.maximum(self._t_last - self._T[:n], 0.0)     # seconds
+        log_w = -age / self.forget_tau                        # <= 0, no overflow
+        # Gumbel(0,1) = -log(-log(U)); clip U away from 0 and 1 to stay finite.
+        u = np.clip(np.random.random(n), 1e-12, 1.0 - 1e-12)
+        keys = log_w - np.log(-np.log(u))
+        return np.argpartition(-keys, k - 1)[:k]
+
+
+
+    def recent_batch(self, n_samples: int) -> tuple:
+        """
+        Return the n_samples most recent (X, Y) pairs, newest last.
+
+        Used by the online trainer's supervisor to compare the adapted model
+        against the frozen baseline on fresh data. Returns None when the buffer
+        is empty.
+        """
+        n = self._count
+        if n == 0:
+            return None
+        m = min(int(n_samples), n)
+        indices = self._chrono_to_idx(np.arange(n - m, n))
         return self._X[indices], self._Y[indices]
 
     def ready_for_training(self) -> bool:
@@ -382,6 +483,7 @@ class OnlineDataset:
         """
         self._X[:] = 0
         self._Y[:] = 0
+        self._T[:] = 0
         self._ptr = 0
         self._count = 0
         self._pending.clear()

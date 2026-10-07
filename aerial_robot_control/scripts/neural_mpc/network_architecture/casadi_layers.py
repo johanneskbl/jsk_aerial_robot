@@ -61,4 +61,21 @@ class caLeakyReLU(torch.nn.LeakyReLU):
 
 class caGELU(torch.nn.GELU):
     def ca_forward(self, x):
-        return 0.5 * x * (1 + ca.tanh(ca.sqrt(2 / ca.pi) * (x + 0.044715 * ca.power(x, 3))))
+        """
+        Exact GELU, matching torch.nn.GELU()'s default (approximate='none').
+
+        This used to return the tanh approximation
+            0.5*x*(1 + tanh(sqrt(2/pi)*(x + 0.044715*x^3)))
+        which is what torch computes only with approximate='tanh'. The two
+        differ by up to 4.7e-4 per activation, so the model embedded in the MPC
+        was systematically NOT the model that was trained — measured on
+        neuralmodel_209 the residual output differed by 1.8e-4 m/s².
+
+        That is negligible against a ~1 m/s² residual, but it is a train/deploy
+        mismatch, and with online learning the two models are supposed to be the
+        same object: the trainer minimises the error of the torch model while
+        the controller flies the CasADi one. ca.erf matches torch to 4e-16, has
+        an analytic derivative, and code-generates to C99 erf() — so there is no
+        reason to keep the approximation.
+        """
+        return 0.5 * x * (1 + ca.erf(x / ca.sqrt(2)))

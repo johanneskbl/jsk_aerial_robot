@@ -50,13 +50,24 @@ class NeuralMPC(RecedingHorizonBase):
         else:
             identifier3 = ""
 
+        # Parallel sweeps only (tune_online.py) — same mechanism and same reason
+        # as in online_neural_controller.py: acados generates and compiles inside
+        # a directory keyed by the model name, so concurrent processes sharing a
+        # name corrupt each other's build. This class names the SIMULATOR, which
+        # every run builds whatever controller it is testing, so leaving it out
+        # would funnel every worker back into one shared directory. Empty (the
+        # default) changes nothing.
+        arena = os.environ.get("NEURAL_MPC_BUILD_ARENA", "").strip()
+        if arena:
+            identifier2 = f"{identifier2}_{arena}"
+
         self.model_name = f"tilt_qd_{identifier}_servo{identifier2}{identifier3}_mdl"
 
         # Read controller parameters from configuration file in the robot's package
         if model_options["only_use_nominal"]:
             yaml_file_name = "BeetleOmniNMPCNominalServo"
         elif model_options["plus_neural"]:
-            yaml_file_name = "BeetleOmniNMPCNeuralServoPlus"
+            yaml_file_name = "BeetleOmniNMPCNeuralServo"
         else:
             yaml_file_name = "BeetleOmniNMPCNeuralServoMinus"
         self.read_params("controller", "nmpc", "beetle_omni", f"{yaml_file_name}.yaml")
@@ -79,10 +90,14 @@ class NeuralMPC(RecedingHorizonBase):
 
         # Include disturbance parameters in model
         # NOTE: ONLY FOR SIMULATOR USAGE
-        # extra_mass also needs the CoG slot to inject its constant gravity force.
+        # Every source in COG_SOURCES injects its force through the CoG slot, so
+        # the slot must exist whenever any of them is enabled. Asking the shared
+        # helper rather than re-listing the names here is what keeps this in step
+        # with the simulation loop: a source missing from this test builds a model
+        # with no slot to write into, and the run dies on cog_dist_start_idx.
+        from sim_environment.disturbances import any_cog_disturbance
         self.include_cog_dist_parameter = (
-            sim_options["disturbances"]["cog_dist"] or
-            sim_options["disturbances"].get("extra_mass", False)
+            sim_options["disturbances"]["cog_dist"] or any_cog_disturbance(sim_options)
         )
         self.include_motor_noise_parameter = sim_options["disturbances"]["motor_noise"]
 

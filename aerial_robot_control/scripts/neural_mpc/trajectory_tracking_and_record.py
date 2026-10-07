@@ -1,11 +1,13 @@
 import os
 import time
 import numpy as np
+import torch
 import matplotlib.pyplot as plt
 
 from sim_environment.sim_solver import create_acados_sim_solver, simulate_trajectory
 from sim_environment.forward_prop import init_forward_prop, forward_prop
-from sim_environment.disturbances import apply_cog_disturbance, apply_motor_noise, apply_extra_mass
+from sim_environment.disturbances import (apply_cog_disturbance, apply_motor_noise,
+                                          apply_cog_disturbances, any_cog_disturbance)
 from utils.controller_utils import check_state_constraints, check_input_constraints, get_rotor_positions
 from utils.data_utils import get_recording_dict_and_file
 from utils.model_utils import set_linearization_params, set_linearization_params_sim, set_l4casadi_params, set_l4casadi_params_sim, \
@@ -15,9 +17,63 @@ from utils.geometry_utils import unit_quaternion, euclidean_dist
 from utils.visualization_utils import initialize_plotter, draw_robot, animate_robot, plot_trajectory, plot_trajectory_comparison, plot_disturbances
 from config.configurations import EnvConfig
 from neural_controller import NeuralMPC
-from online_neural_controller import OnlineNeuralMPC
-from online_data import OnlineDataset
-from online_trainer import OnlineTrainer
+from online_learning.core.online_neural_controller import OnlineNeuralMPC
+from online_learning.core.online_data import OnlineDataset
+from online_learning.core.online_trainer import OnlineTrainer
+
+
+def _report_realtime_timing(mpc_times, train_times, T_samp, T_sim, onlineMLP):
+    """
+    Print a real-time feasibility report. INFORMATION ONLY — it measures wall-
+    clock time with time.time() and prints; it does NOT change the simulation.
+
+    Real-time criterion: on the drone the per-control-step computation must
+    finish within one control period T_samp (which spans T_samp / T_sim inner
+    simulation steps). The per-step cost counted here is
+        total = MPC prep+solve  +  online gradient step (only on steps it runs).
+    Data-logging overhead (full-history np.append in _rec, label bookkeeping) is
+    a simulation artifact and is deliberately NOT counted.
+
+    Caveat: these are timings on THIS machine, not on the drone's onboard
+    computer — read them as a relative feasibility indicator, not an absolute.
+    """
+    mpc = np.asarray(mpc_times, dtype=float)
+    trn = np.asarray(train_times, dtype=float)
+    if mpc.size == 0:
+        return
+    total     = mpc + trn
+    budget_ms = T_samp * 1000.0
+    n_inner   = T_samp / T_sim
+
+    def _stats(a):
+        return np.mean(a), np.median(a), np.percentile(a, 95), np.max(a)
+
+    def _line(name, a):
+        m, med, p95, mx = _stats(a)
+        return f"  {name:<16}{m:8.3f}{med:8.3f}{p95:8.3f}{mx:8.3f}"
+
+    trained = trn[trn > 0]
+    over    = int(np.sum(total > budget_ms))
+    worst   = float(np.max(total))
+
+    print("\n" + "=" * 60)
+    print("Real-time timing report  (information only)")
+    print("=" * 60)
+    print(f"Control period T_samp = {budget_ms:.2f} ms  "
+          f"(= {n_inner:.0f} x T_sim of {T_sim * 1000:.2f} ms)")
+    print(f"Real-time budget / control step: {budget_ms:.2f} ms")
+    print(f"Control steps analysed: {mpc.size}")
+    print(f"  {'[ms]':<16}{'mean':>8}{'median':>8}{'p95':>8}{'max':>8}")
+    print(_line("MPC solve", mpc))
+    if onlineMLP and trained.size > 0:
+        print(_line("online train", trained) + f"   (over {trained.size} train steps)")
+    print(_line("TOTAL / step", total))
+    pct = 100.0 * over / total.size
+    print(f"Steps over budget: {over}/{total.size} ({pct:.1f} %)   "
+          f"worst = {worst:.3f} ms ({100 * worst / budget_ms:.0f} % of budget)")
+    verdict = "OK — fits real-time" if over == 0 else "NOT real-time on some steps"
+    print(f"Verdict: {verdict}  (max total {worst:.3f} ms vs budget {budget_ms:.2f} ms)")
+    print("=" * 60 + "\n")
 
 
 def run_simulation(model_options, solver_options, dataset_options, sim_options, run_options,
@@ -37,6 +93,13 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
     neural_mpc     : OnlineNeuralMPC (useful for plotting: neural_model, state_feats, …)
     """
     np.random.seed(sim_options["seed"])
+    # Torch has its own RNG, and it is NOT covered by np.random.seed. The
+    # residual network keeps dropout active during the online gradient step, so
+    # leaving torch unseeded made every online run draw different dropout masks:
+    # measured over four identical 120 s flights, nominal repeated bit for bit
+    # while online spread over 16.3-19.5 cm. Runs that cannot be repeated cannot
+    # be compared, so seed it here alongside numpy.
+    torch.manual_seed(sim_options["seed"])
     # Dedicated RNG for trajectory selection, seeded independently so that
     # online training (which calls np.random for batch sampling) does not
     # shift the trajectory sequence away from the static-MLP run.
@@ -221,31 +284,47 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
         batch_size=dataset_options["batch_size"],
         state_indices=list(range(nx)),
         window_size=dataset_options["window_size"],
-        weighted_decay=dataset_options["weighted_decay"],
+        forget_tau=dataset_options.get("forget_tau", 10.0),
     )
 
     # --- Online trainer (only with neural model + online training flag) ---
     if useMLP and onlineMLP and neural_mpc.use_mlp:
-        online_trainer = OnlineTrainer(
-            model=neural_mpc.neural_model,
-            nx=nx,
-            nu=nu,
-            state_feats=neural_mpc.state_feats,
-            u_feats=neural_mpc.u_feats,
-            y_reg_dims=neural_mpc.y_reg_dims,
-            state_indices=list(range(nx)),
+        # Safety-layer settings; .get() so older
+        # dataset_options dicts still work.
+        _safety = dict(
+            trust_region_rel=dataset_options.get("trust_region_rel", 3.0),
+            max_step_rel=dataset_options.get("max_step_rel", 0.1),
+            supervisor_every=dataset_options.get("supervisor_every", 50),
+            supervisor_window=dataset_options.get("supervisor_window", 256),
+            supervisor_tol=dataset_options.get("supervisor_tol", 1.0),
+            supervisor_patience=dataset_options.get("supervisor_patience", 3),
+            revert_lr_decay=dataset_options.get("revert_lr_decay", 0.5),
+        )
+        _common = dict(
+            model=neural_mpc.neural_model, nx=nx, nu=nu,
+            state_feats=neural_mpc.state_feats, u_feats=neural_mpc.u_feats,
+            y_reg_dims=neural_mpc.y_reg_dims, state_indices=list(range(nx)),
             device=neural_mpc.device,
-            lr=dataset_options["lr"],
             window_size=dataset_options["window_size"],
+            train_every=dataset_options["train_every"],
+        )
+        online_trainer = OnlineTrainer(
+            lr=dataset_options["lr"],
             grad_clip_norm=dataset_options["grad_clip_norm"],
             n_frozen_layers=dataset_options["n_frozen_layers"],
             warmup_steps=dataset_options["warmup_steps"],
-            train_every=dataset_options["train_every"],
             lambda_anchor=dataset_options["lambda_anchor"],
+            **_common, **_safety,
         )
-        print(f"[OnlineTrainer] online training enabled "
-              f"(window_size={dataset_options['window_size']}, input_dim={online_trainer.input_dim}, "
-              f"lambda_anchor={dataset_options['lambda_anchor']})")
+        print(f"[OnlineTrainer] lr={dataset_options['lr']}, "
+              f"lambda_anchor={dataset_options['lambda_anchor']}")
+        print(f"[OnlineTrainer] window_size={dataset_options['window_size']}, "
+              f"input_dim={online_trainer.input_dim}")
+        print(f"[OnlineTrainer] safety layer: trust region "
+              f"{_safety['trust_region_rel']}*||W0||, max step "
+              f"{_safety['max_step_rel']}*||W0||, supervisor every "
+              f"{_safety['supervisor_every']} steps, residual saturation "
+              f"{model_options.get('residual_sat', 0.0)} m/s^2")
     else:
         online_trainer = None
         if useMLP:
@@ -261,6 +340,11 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
     print_takeoff = True
     # True once t_now first crosses T_takeoff: guards the one-shot buffer purge.
     _takeoff_done = False
+
+    # --- Real-time timing instrumentation (information only; does NOT affect the sim) ---
+    mpc_times = []      # ms per control step: MPC prep + solve (= comp_time)
+    train_times = []    # ms per control step: online gradient step (0.0 when none)
+
     while t_now < sim_options["max_sim_time"]:
         # Get next reference
         traj = traj_rng.choice(traj_list)  # , p=[0.1, 0.3, 0.2, 0.1, 0.3])
@@ -395,6 +479,10 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
             mpc_first_pred = ocp_solver.get(1, "x")  # predicted state at t + T_step
             comp_time = (time.time() - comp_time) * 1000  # in ms
 
+            # Timing (info only): record MPC step cost; train cost set below if it runs.
+            mpc_times.append(comp_time)
+            train_dt = 0.0
+
             # --- Sanity check constraints ---
             check_input_constraints(neural_mpc, u_cmd, i)
             ############################################################################################
@@ -491,13 +579,16 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
                 # --- Set base parameters in sim solver ---
                 sim_solver.set("p", sim_neural_mpc.acados_parameters[0, :])
 
-                # --- Overlay disturbances AFTER set("p", ...) ---
-                # apply_extra_mass re-calls set("p", ...) with the disturbance force
-                # added, so the MPC controller's parameter vector stays unmodified.
-                if sim_options["disturbances"]["extra_mass"]:
-                    apply_extra_mass(
-                        sim_solver, neural_mpc,
-                        sim_options["disturbances"]["extra_mass_kg"],
+                # --- Overlay CoG-slot disturbances AFTER the base set("p", ...) ---
+                # extra_mass, ground_effect and wind are SUMMED into the CoG force
+                # slot and pushed with a single set("p", ...), replacing the base
+                # one. t_now is passed so time-varying magnitudes are evaluated at
+                # the current simulation time. (Mutating parameter_values alone
+                # would NOT reach the solver.)
+                if any_cog_disturbance(sim_options):
+                    apply_cog_disturbances(
+                        sim_solver, sim_neural_mpc, sim_options,
+                        u_cmd, state_curr_sim, t=t_now,
                     )
 
                 # Simulate
@@ -548,6 +639,9 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
             # --- Online data collection (unconditional: needed for training) ---
             online_dataset.get_data({
                 "t_now":              t_ctrl,
+                # Tracking proper: past take-off AND done repositioning onto the
+                # current segment's start pose. See _rec["tracking"].
+                "tracking":           float(t_now >= T_takeoff and reached_init),
                 "comp_time":          comp_time,
                 "state_ref":          state_ref[0, :],
                 "state_curr":         state_curr,
@@ -557,6 +651,9 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
                 "state_out":          state_curr_sim,
                 "state_pred":         state_prop,
             })
+
+            # --- Disturbance-observer baseline (tracking phase only) ---
+            # Consumes the same matured residual labels as the neural trainer,
 
             # --- Online training step (tracking phase only) ---
             if t_now >= T_takeoff:
@@ -572,15 +669,27 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
                 if (online_dataset.ready_for_training()
                         and online_trainer is not None
                         and online_trainer.should_train()):
+                    _t_train = time.time()
                     data = online_trainer.get_data(online_dataset, strategy="weighted")
                     loss = online_trainer.learn(data)
+                    # Divergence supervisor: compares the adapted model against
+                    # the frozen pre-trained baseline on the newest samples and
+                    # reverts if it has been worse several checks in a row. Runs
+                    # BEFORE the sync so a revert reaches the solver in the same
+                    # iteration; internally a no-op except every
+                    # supervisor_every gradient steps.
+                    online_trainer.supervise(online_dataset)
                     # Sync updated PyTorch weights → acados_parameters.
                     # The for-j loop at the top of the next MPC iteration
                     # forwards them to the running solver automatically.
                     set_mlp_params(neural_mpc)
+                    train_dt = (time.time() - _t_train) * 1000.0  # ms (info only)
                     if online_trainer.step_count % 100 == 0:
                         print(f"[OnlineTrainer] step {online_trainer.step_count} | loss {loss:.6f} "
                               f"| buffer {online_dataset.n_samples}/{online_dataset.buffer_size}")
+
+            # Timing (info only): one entry per control step (0.0 when no training ran).
+            train_times.append(train_dt)
         
 
             # --- Log trajectory for real-time plot ---
@@ -620,6 +729,23 @@ def run_simulation(model_options, solver_options, dataset_options, sim_options, 
             counter += 1
         animate_robot(file_path)
         print(f"Saved in directory: {file_path}")
+
+    # --- Online training / safety-layer summary ---
+    if online_trainer is not None:
+        online_trainer.report()
+
+    # --- Real-time timing report + storage (information only; sim unchanged) ---
+    _report_realtime_timing(mpc_times, train_times, T_samp, T_sim, onlineMLP)
+    dist_dict["timing"] = {
+        "mpc_ms":   np.asarray(mpc_times),
+        "train_ms": np.asarray(train_times),
+        "T_samp":   T_samp,
+        "T_sim":    T_sim,
+    }
+    # Guard activations + final distance to the pre-trained baseline, so a sweep
+    # can tell "this run was stable" from "this run was held together by the
+    # safety layer".
+    dist_dict["online"] = online_trainer.stats() if online_trainer is not None else None
 
     return online_dataset, dist_dict, neural_mpc
 
