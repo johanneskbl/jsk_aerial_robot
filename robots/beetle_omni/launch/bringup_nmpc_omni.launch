@@ -126,6 +126,14 @@
     <arg name="spawn_yaw" value="$(arg spawn_yaw)"/>
   </include>
 
+  ###########  Window Layout  ###########
+  <!-- Arrange RViz & Gazebo windows, see scripts/arrange_windows.sh -->
+  <!-- Only for convenience and only if environment variable is set -->
+  <!-- Needs X11 and wmctrl: `sudo apt install wmctrl` -->
+  <arg name="arrange_windows" default="$(optenv AERIAL_ROBOT_ARRANGE_WINDOWS false)"/>
+  <node pkg="beetle_omni" type="arrange_windows.sh" name="arrange_windows" output="screen"
+        if="$(eval arg('arrange_windows') and not arg('headless'))"/>
+
     ###########  Mount Wrench Sensor  ###########
     <node if="$(eval not arg('simulation') and arg('real_machine') and arg('end_effector') == 'sensor_ball')"
           name="forces_node" pkg="cfs_sensor" type="cfs_node" output="screen">
