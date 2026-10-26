@@ -8,6 +8,7 @@
 #include "aerial_robot_control/control/base/base.h"
 #include "aerial_robot_control/nmpc/base_mpc_solver.h"
 #include "aerial_robot_msgs/PredXU.h"
+#include "std_msgs/Float64.h"
 
 namespace aerial_robot_control
 {
@@ -27,6 +28,8 @@ protected:
   boost::shared_ptr<aerial_robot_control::mpc_solver::BaseMPCSolver> mpc_solver_ptr_;
   inline static int NN_, NX_, NU_, NP_;
 
+  ros::Publisher pub_solver_time_;
+
   /* initialize() */
   inline void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
                          boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
@@ -35,6 +38,7 @@ protected:
                          double ctrl_loop_du) override
   {
     ControlBase::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
+    pub_solver_time_ = nh_.advertise<std_msgs::Float64>("nmpc/solver_time", 1);
 
     /* init mpc solver plugin */
     mpc_solver_loader_ptr_ =
@@ -127,7 +131,14 @@ protected:
   virtual void controlCore() = 0;
   // 4. send the command to the robot
   virtual void sendCmd() = 0;
-  // 5. viz the result in RVIZ
+  // 5. publish the time of the last solve in ms
+  void publishSolverTime()
+  {
+    std_msgs::Float64 msg;
+    msg.data = mpc_solver_ptr_->getSolveTime() * 1000.0;
+    pub_solver_time_.publish(msg);
+  }
+  // 6. viz the result in RVIZ
   virtual void callbackViz(const ros::TimerEvent& event) = 0;
 };
 

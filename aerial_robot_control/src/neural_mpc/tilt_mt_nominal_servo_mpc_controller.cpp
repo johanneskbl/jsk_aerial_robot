@@ -554,6 +554,9 @@ void nmpc::TiltMtNominalServoMPC::controlCore()
     gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
     gimbal_ctrl_cmd_.position.push_back(getCommand(motor_num_ + i));
   }
+
+  /* Logging */
+  publishSolverTime();
 }
 
 void nmpc::TiltMtNominalServoMPC::sendCmd()

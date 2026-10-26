@@ -323,7 +323,6 @@ public:
       setConstraintsValue("ubu", i, ubu, false);
   }
 
-  // clang-format off
   std::vector<int> getConstraintsIdxbx() const { return getConstraintsIdx("idxbx", 1); }
   std::vector<int> getConstraintsIdxbxe() const { return getConstraintsIdx("idxbx", NN_); }
   std::vector<int> getConstraintsIdxbu() const { return getConstraintsIdx("idxbu", 1); }
@@ -337,7 +336,6 @@ public:
   std::vector<double> getConstraintsLbue() const { return getConstraintsValue("lbu", NN_); }
   std::vector<double> getConstraintsUbu() const { return getConstraintsValue("ubu", 1); }
   std::vector<double> getConstraintsUbue() const { return getConstraintsValue("ubu", NN_); }
-  // clang-format on
 
   /* Getters */
   std::vector<double> getMatrixA(int stage)
@@ -352,6 +350,14 @@ public:
     std::vector<double> mtx_B(NX_ * NU_);
     ocp_nlp_get_at_stage(nlp_solver_, stage, "B", mtx_B.data());
     return mtx_B;
+  }
+
+  // Total time of the last acados solve in seconds
+  double getSolveTime() const
+  {
+    double time_tot;
+    ocp_nlp_get(nlp_solver_, "time_tot", &time_tot);
+    return time_tot;
   }
 
   /* for debugging */

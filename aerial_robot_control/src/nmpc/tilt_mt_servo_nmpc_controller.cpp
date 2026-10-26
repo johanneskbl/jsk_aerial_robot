@@ -522,7 +522,7 @@ void nmpc::TiltMtServoNMPC::controlCore()
   {
     ROS_FATAL("NMPC solver failed. Details: %s", e.what());
   }
-  t_nmpc_prev_timestep_ = t_nmpc_timestep_; 
+  t_nmpc_prev_timestep_ = t_nmpc_timestep_;
   // The result is stored in mpc_solver_ptr_->uo_
 
   /* get result */
@@ -541,6 +541,9 @@ void nmpc::TiltMtServoNMPC::controlCore()
     gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
     gimbal_ctrl_cmd_.position.push_back(getCommand(motor_num_ + i));
   }
+
+  /* Logging */
+  publishSolverTime();
 }
 
 void nmpc::TiltMtServoNMPC::sendCmd()
