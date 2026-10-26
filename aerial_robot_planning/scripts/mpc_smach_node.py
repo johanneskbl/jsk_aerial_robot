@@ -19,6 +19,7 @@ if current_path not in sys.path:
 from pub_mpc_joint_traj import MPCTrajPtPub, MPCSinglePtPub
 from pub_mpc_pred_xu import MPCPubCSVPredXU
 from geometry_msgs.msg import Pose, Quaternion, Vector3
+from std_msgs.msg import Int32, String
 from util import pub_0066_wall_rviz, pub_hand_markers_rviz
 
 # === analytical trajectory ===
@@ -50,6 +51,42 @@ def traj_factory(traj_type, loop_num):
     return traj_cls_list[traj_type](loop_num)
 
 
+def traj_name_of(traj_type):
+    if traj_type < len(traj_cls_list):
+        return traj_cls_list[traj_type].__name__
+    return os.path.splitext(csv_files[traj_type - len(traj_cls_list)])[0]
+
+
+class TrajStatusPub:
+    """
+    Stream the current SMACH state and trajectory so that rosbags can be segmented later.
+    - /{robot_name}/nmpc/smach_state:     IDLE / INIT / TRACK / HAND_CONTROL
+    - /{robot_name}/nmpc/smach_traj_id:   traj_type index, -1 if no trajectory is active
+    - /{robot_name}/nmpc/smach_traj_name: trajectory class name or CSV file stem, "" if none
+    """
+
+    def __init__(self, robot_name, rate_hz=10.0):
+        ns = f"/{robot_name}/nmpc"
+        self.pub_state = rospy.Publisher(f"{ns}/smach_state", String, queue_size=1, latch=True)
+        self.pub_traj_id = rospy.Publisher(f"{ns}/smach_traj_id", Int32, queue_size=1, latch=True)
+        self.pub_traj_name = rospy.Publisher(f"{ns}/smach_traj_name", String, queue_size=1, latch=True)
+
+        self.state, self.traj_id, self.traj_name = "IDLE", -1, ""
+        self.publish()
+        self.timer = rospy.Timer(rospy.Duration(1.0 / rate_hz), lambda _: self.publish())
+
+    def set(self, state, traj_type=None):
+        self.state = state
+        self.traj_id = -1 if traj_type is None else int(traj_type)
+        self.traj_name = "" if traj_type is None else traj_name_of(traj_type)
+        self.publish()
+
+    def publish(self):
+        self.pub_state.publish(String(self.state))
+        self.pub_traj_id.publish(Int32(self.traj_id))
+        self.pub_traj_name.publish(String(self.traj_name))
+
+
 ###############################################
 # SMACH States
 ###############################################
@@ -60,7 +97,8 @@ class IdleState(smach.State):
     - On valid input, go INIT; otherwise, stay in IDLE.
     """
 
-    def __init__(self):
+    def __init__(self, pub_status):
+        self.pub_status = pub_status
         smach.State.__init__(
             self,
             outcomes=["go_init", "stay_idle", "shutdown", "go_hand_control_init"],
@@ -70,6 +108,7 @@ class IdleState(smach.State):
 
     def execute(self, userdata):
         rospy.loginfo("State: IDLE -- Waiting for user input...")
+        self.pub_status.set("IDLE")
 
         try:
             # print available trajectory types
@@ -98,6 +137,7 @@ class IdleState(smach.State):
                 return "shutdown"
 
             if traj_type_str.lower() == "h":
+                self.pub_status.set("HAND_CONTROL")
                 return "go_hand_control_init"
 
             traj_type = int(traj_type_str)
@@ -134,7 +174,8 @@ class InitState(smach.State):
     - Then go to TRACK.
     """
 
-    def __init__(self):
+    def __init__(self, pub_status):
+        self.pub_status = pub_status
         smach.State.__init__(
             self,
             outcomes=["go_track"],
@@ -145,6 +186,7 @@ class InitState(smach.State):
 
     def execute(self, userdata):
         rospy.loginfo("State: INIT -- Start to reach the first point of the trajectory.")
+        self.pub_status.set("INIT", userdata.traj_type)
 
         if userdata.traj_type < len(traj_cls_list):
             rospy.loginfo(f"Using trajs.{traj_cls_list[userdata.traj_type].__name__} trajectory.")
@@ -191,7 +233,8 @@ class TrackState(smach.State):
     - Then return "done_track".
     """
 
-    def __init__(self):
+    def __init__(self, pub_status):
+        self.pub_status = pub_status
         smach.State.__init__(
             self,
             outcomes=["done_track"],
@@ -205,6 +248,7 @@ class TrackState(smach.State):
             f"State: TRACK -- Starting for robot={userdata.robot_name}, "
             f"traj_type={userdata.traj_type}, loop_num={userdata.loop_num}"
         )
+        self.pub_status.set("TRACK", userdata.traj_type)
 
         if userdata.traj_type < len(traj_cls_list):
             traj = traj_factory(userdata.traj_type, userdata.loop_num)
@@ -244,6 +288,9 @@ def main(args):
     pub_0066_wall_rviz(not args.has_0066_viz)
     pub_hand_markers_rviz(args.hand_markers_viz_type)
 
+    # stream state / traj id for later bag segmentation
+    pub_status = TrajStatusPub(args.robot_name)
+
     # Create a top-level SMACH state machine
     sm = smach.StateMachine(outcomes=["DONE"])
 
@@ -257,7 +304,7 @@ def main(args):
         # IDLE
         smach.StateMachine.add(
             "IDLE",
-            IdleState(),
+            IdleState(pub_status),
             transitions={
                 "go_init": "INIT",
                 "stay_idle": "IDLE",
@@ -267,10 +314,10 @@ def main(args):
         )
 
         # INIT
-        smach.StateMachine.add("INIT", InitState(), transitions={"go_track": "TRACK"})
+        smach.StateMachine.add("INIT", InitState(pub_status), transitions={"go_track": "TRACK"})
 
         # TRACK
-        smach.StateMachine.add("TRACK", TrackState(), transitions={"done_track": "IDLE"})
+        smach.StateMachine.add("TRACK", TrackState(pub_status), transitions={"done_track": "IDLE"})
 
         smach.StateMachine.add(
             "HAND_CONTROL",
