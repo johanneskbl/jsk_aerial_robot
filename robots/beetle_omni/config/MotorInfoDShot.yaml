@@ -1,6 +1,6 @@
 motor_info:
-  # min_pwm: 0.5  # 1000 ~ dshot 0
-  # max_pwm: 0.9  # 1800 ~ dshot 1600
+  # min_pwm: 0.5  # min_rpm ~ dshot 0
+  # max_pwm: 0.9  # max_rpm ~ dshot 1600
   min_pwm: 0.5
   max_pwm: 1.0
   min_thrust: 0.0  # [N]
@@ -20,8 +20,8 @@ motor_info:
   # (e.g. AM32 MINIMUM_RPM_SPEED_CONTROL / MAX_RPM).
   # This relationship is voltage-independent.
   # Reference: attitude_control.cpp, AttitudeController::pwmConversion(), case spinal::MotorInfo::RPM_MODE
-  min_rpm: 785.0   # [RPM] must match the ESC's RPM_CONTROL_MIN_RPM!!!
-  max_rpm: 13300.0  # [RPM] must match the ESC's RPM_CONTROL_MAX_RPM!!!
+  min_rpm: 785.0   # [RPM] NEEDS to match the ESC's RPM_CONTROL_MIN_RPM!!!
+  max_rpm: 13300.0  # [RPM] NEEDS to match the ESC's RPM_CONTROL_MAX_RPM!!!
 
   # --- POLYNOMIAL Mode ---
   # Note that for SQRT mode, only poly2 is 10x, others are 1x, and the relationship is fz = f(pwm).

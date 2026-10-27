@@ -217,7 +217,9 @@ void AttitudeController::pwmsControl(void)
   uint16_t motor_value[4] = { 0, 0, 0, 0 };
   for (int i = 0; i < 4; i++)
   {
-    if (!start_control_flag_ && !pwm_test_flag_)
+    /* in pwm test mode, the motors which are not addressed by the test stay off */
+    bool motor_off = pwm_test_flag_ ? !pwm_test_active_[i] : !start_control_flag_;
+    if (motor_off)
     {
       /* ESC arms after 1s of only zeros; DShot 48 is not zero */
       motor_value[i] = 0;
@@ -477,6 +479,8 @@ void AttitudeController::reset(void)
   {
     target_thrust_[i] = 0;
     target_pwm_[i] = IDLE_DUTY;
+    pwm_test_value_[i] = IDLE_DUTY;
+    pwm_test_active_[i] = false;
 
     base_thrust_term_[i] = 0;
     roll_pitch_term_[i] = 0;
@@ -796,10 +800,62 @@ void AttitudeController::maxYawGainIndex()
   }
 }
 
-void AttitudeController::pwmTestCallback(const std_msgs::Float32& pwm_msg)
+void AttitudeController::pwmTestCallback(const spinal::PwmTest& pwm_msg)
 {
-  pwm_test_flag_ = true;
-  pwm_test_value_ = pwm_msg.data;  // 2000ms
+#ifndef SIMULATION
+  /* an empty message escapes from the pwm test mode */
+  if (!pwm_msg.pwms_length)
+  {
+    if (pwm_test_flag_)
+    {
+      pwm_test_flag_ = false;
+      nh_->logwarn("Escape from pwm test mode");
+    }
+    return;
+  }
+
+  if (!pwm_test_flag_)
+  {
+    /* start with all motors off, so that the values of a previous test do not come back */
+    for (int i = 0; i < MAX_MOTOR_NUMBER; i++)
+      pwm_test_active_[i] = false;
+    pwm_test_flag_ = true;
+    nh_->logwarn("Enter pwm test mode");
+  }
+
+  /* fail safe: an invalid (out of range or NaN) value switches the motor off */
+  auto setTestPwm = [this](int motor_index, float pwm) {
+    pwm_test_active_[motor_index] = pwm >= IDLE_DUTY && pwm <= PWM_TEST_MAX_DUTY;
+    pwm_test_value_[motor_index] = pwm_test_active_[motor_index] ? pwm : IDLE_DUTY;
+    if (!pwm_test_active_[motor_index])
+      nh_->logwarn("FAIL SAFE! Invalid PWM value for motor");
+  };
+
+  if (pwm_msg.motor_index_length)
+  {
+    /* Individual test mode */
+    if (pwm_msg.motor_index_length != pwm_msg.pwms_length)
+    {
+      nh_->logerror("The number of index does not match the number of pwms.");
+      return;
+    }
+    for (uint32_t i = 0; i < pwm_msg.motor_index_length; i++)
+    {
+      if (pwm_msg.motor_index[i] >= MAX_MOTOR_NUMBER)
+      {
+        nh_->logerror("Invalid motor index for pwm test");
+        continue;
+      }
+      setTestPwm(pwm_msg.motor_index[i], pwm_msg.pwms[i]);
+    }
+  }
+  else
+  {
+    /* Simultaneous test mode */
+    for (int i = 0; i < MAX_MOTOR_NUMBER; i++)
+      setTestPwm(i, pwm_msg.pwms[0]);
+  }
+#endif
 }
 
 void AttitudeController::setStartControlFlag(bool start_control_flag)
@@ -973,7 +1029,7 @@ void AttitudeController::pwmConversion()
   {
     for (int i = 0; i < MAX_MOTOR_NUMBER; i++)
     {
-      target_pwm_[i] = pwm_test_value_;
+      target_pwm_[i] = pwm_test_value_[i];
     }
     return;
   }
