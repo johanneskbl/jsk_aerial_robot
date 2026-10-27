@@ -48,6 +48,10 @@ controller:
     # thrust 0) within the nullspace of the Jacobian
     nullspace_servo_gain: 3.0  # [1/s]
 
+    # Slack constraint weights
+    linear_slack_weight: 10
+    quadratic_slack_weight: 100
+
     is_attitude_ctrl: false
     is_body_rate_ctrl: false
 
