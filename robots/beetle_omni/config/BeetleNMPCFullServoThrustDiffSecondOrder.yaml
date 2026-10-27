@@ -23,11 +23,14 @@ controller:
 
     # From Claude: In AM32 firmware the output_limit=50000 clamps the throttle to 5 units per ms,
     # With props, full throttle is ~13.9 kRPM so the rate caps at 33 kRPM/s
-    # In thrust, the limit is about 60 N/s per rotor at hover RPM (38 N/s at 5k RPM)
+    # Analyzing bench test data, the maximum positive rate caps at +/- 60 kRPM/s but this is for sharp throttle changes
+    # In thrust, the mapping depends on the RPM rate as well as on the RPM itself.
+    # The limit is also skewed at about +80 N/s and -120 N/s. Although, the instantaneous thrust rate is lower since the
+    # airflow is inert. Therefore, a good limit is about +65 N/s and -90 N/s.
     # From Claude: Due to setting in urdf: 100 N/s
     # From Eugenio: 200 N/s
-    thrust_vel_min: -60  # N/s
-    thrust_vel_max: 60  # N/s
+    thrust_vel_min: -90  # N/s
+    thrust_vel_max: 65  # N/s
 
     a_min: -3.15
     a_max: 3.15  # 180 deg + a little bit
