@@ -19,6 +19,7 @@
 
 #define ESC_BUFFER_SIZE 512
 #define ESC_TELEM_FRAME_SIZE 10  // KISS telemetry frame: 9 data bytes + crc
+#define ESC_TELEM_FRAME_SIZE_RPM_RATE 12  // KISS extended telemetry frame: 9 data bytes + 2 bytes eRPM rate (AM32 fork, branch measure_rate) + crc
 
 namespace
 {

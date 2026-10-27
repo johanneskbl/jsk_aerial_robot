@@ -31,6 +31,7 @@ protected:
   double servo_vel_min_;
   double servo_vel_max_;
   std::vector<double> thrust_meas_;
+  std::vector<double> thrust_rate_meas_;  // from the rpm rate estimated on the ESC
   ros::Subscriber sub_esc_telem_;
 
   int servo_start_idx_;

@@ -326,25 +326,35 @@ namespace gazebo_ros_control
           return;
         }
 
+        // the real ESC estimates the rpm rate itself, here a finite difference between two publications
+        double dt = time.toSec() - last_esc_telem_time_.toSec();
+        last_esc_telem_rpm_.resize(rotor_n_dof_, 0);
+
         for (int j = 0; j < rotor_n_dof_; j++)
         {
           hardware_interface::RotorHandle rotor = spinal_interface_.getHandle(sim_rotors_.at(j)->GetName());
           // rotor.getSpeed(); is rad/s. convert it to rpm
           auto rpm = rotor.getRPM();
+          int rpm_rate = (int)((rpm - last_esc_telem_rpm_.at(j)) / dt);
+          last_esc_telem_rpm_.at(j) = rpm;
 
           switch (j)
           {
             case 0:
               esc_telem_msg.esc_telemetry_1.rpm = rpm;
+              esc_telem_msg.esc_telemetry_1.rpm_rate = rpm_rate;
               break;
             case 1:
               esc_telem_msg.esc_telemetry_2.rpm = rpm;
+              esc_telem_msg.esc_telemetry_2.rpm_rate = rpm_rate;
               break;
             case 2:
               esc_telem_msg.esc_telemetry_3.rpm = rpm;
+              esc_telem_msg.esc_telemetry_3.rpm_rate = rpm_rate;
               break;
             case 3:
               esc_telem_msg.esc_telemetry_4.rpm = rpm;
+              esc_telem_msg.esc_telemetry_4.rpm_rate = rpm_rate;
               break;
             default:
               break;

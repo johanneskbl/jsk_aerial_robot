@@ -108,6 +108,7 @@ protected:
   double ground_truth_pub_rate_;
   double mocap_pub_rate_;
   double esc_telem_pub_rate_;
+  std::vector<int> last_esc_telem_rpm_;
 
   double mocap_rot_noise_, mocap_pos_noise_;
   double ground_truth_pos_noise_, ground_truth_vel_noise_, ground_truth_rot_noise_, ground_truth_angular_noise_;
