@@ -33,6 +33,8 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         self.include_cog_dist_parameter = False  # TODO seperation between model and parameter necessary?)
         self.include_impedance = False
 
+        self.include_soft_constraints = True
+
         # Read parameters from configuration file in the robot's package
         self.read_params(
             "controller", "nmpc", "beetle_omni", "BeetleNMPCFullServoThrustDiff.yaml"
