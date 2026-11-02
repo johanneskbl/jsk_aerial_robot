@@ -46,6 +46,10 @@ controller:
     Rtd_c: 1  # Thrust velocity
     Rad_c: 1 # Servo angle velocity
 
+    # Slack constraint weights
+    linear_slack_weight: 10
+    quadratic_slack_weight: 100
+
     is_attitude_ctrl: false
     is_body_rate_ctrl: false
 

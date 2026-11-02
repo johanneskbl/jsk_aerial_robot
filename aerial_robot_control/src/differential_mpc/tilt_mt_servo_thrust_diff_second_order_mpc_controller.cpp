@@ -219,9 +219,9 @@ void TiltMtServoThrustDiffSecondOrderMPC::initNMPCConstraints()
   mpc_solver_ptr_->setConstraintsLbu(lbu);
   mpc_solver_ptr_->setConstraintsUbu(ubu);
 
-  ROS_INFO("MPC constraints are set: \n",
-           "\tvel_min: %f, vel_max: %f, w_min: %f, w_max: %f,\n",
-           "\tthrust_min: %f, thrust_max: %f, thrust_vel_min: %f, thrust_vel_max: %f,\n",
+  ROS_INFO("MPC constraints are set: \n"
+           "\tvel_min: %f, vel_max: %f, w_min: %f, w_max: %f,\n"
+           "\tthrust_min: %f, thrust_max: %f, thrust_vel_min: %f, thrust_vel_max: %f,\n"
            "\tservo_angle_min: %f, servo_angle_max: %f, servo_angle_vel_min: %f, servo_angle_vel_max: %f",
            vel_min_, vel_max_, body_rate_min, body_rate_max,
            thrust_ctrl_min_, thrust_ctrl_max_, thrust_vel_min_, thrust_vel_max_,
@@ -302,9 +302,25 @@ std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_ce
     for (int i = 0; i < motor_num_; i++)
     {
       // ==== MODEL ====
-      double last_thrust_c = uo_prev_.at(i);
-      // double thrust_velocity = (last_thrust_c - thrust_meas_[i] + 0.2) / t_rotor_;  // 0.2 correction factor for model mismatch
-      double thrust_velocity = (last_thrust_c - thrust_meas_[i]) / t_rotor_;
+      // Rotor model: fdot = (f_cmd - f)/T_rotor
+      // -> Representing what the rate would be if the rotor were an exact first-order lag of the last command
+      // -> So the formula tells the MPC "the thrust is already on its way to my last command, arriving in about T_rotor seconds."
+      // -> BUT this doesn't include...
+      //    DEAD TIME: the rotor is still reacting to commands from over 20 ms ago and uo_prev hasn't really taken effect yet
+      //    RATE LIMIT: there is no limit on this model so it can give a way higher rate than actually possible (e.g. 128 N/s but with a 60 N/s limit)
+      //    MOMENTUM: the real rotor is second-order: it keeps accelerating after the error shrinks and overshoots
+      //    DELAY: no compensation for the fact that the measurement is 20+ ms old by the time the command goes out
+      // -> In the loop, the MPC believes thrust is arriving faster than it is
+      
+      // double last_thrust_c = uo_prev_.at(i);
+      // // double thrust_velocity = (last_thrust_c - thrust_meas_[i] + 0.2) / t_rotor_;  // 0.2 correction factor for model mismatch
+      // double thrust_velocity = (last_thrust_c - thrust_meas_[i]) / t_rotor_;
+
+      // ==== MEASUREMENT ====
+      // RPM rate estimated on the ESC (alpha-beta filter on the commutation period at ~1 kHz, ~10.1 ms lag),
+      // mapped to the thrust rate in callbackESCTelem() like the rpm to the thrust. Contains no rotor model.
+      
+      double thrust_velocity = thrust_rate_meas_[i];
 
       // ==== NUMERICAL DERIVATIVE ====
       // double thrust_velocity = (thrust_meas_[i] - prev_thrust_meas_[i]) / du_;
@@ -477,17 +493,17 @@ void TiltMtServoThrustDiffSecondOrderMPC::publishRecording()
   for (int i = 0; i < NN; ++i)
   {
     // Thrust commands
-    ref_msg.controls[i].thrust_commands.resize(motor_num_);
+    ref_msg.controls[i].thrust_cmd.resize(motor_num_);
     for (int j = 0; j < motor_num_; ++j)
     {
-      ref_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->ur_[i][j];
+      ref_msg.controls[i].thrust_cmd[j] = mpc_solver_ptr_->ur_[i][j];
     }
 
     // Servo angle commands
-    ref_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    ref_msg.controls[i].servo_angle_cmd.resize(joint_num_);
     for (int j = 0; j < joint_num_; ++j)
     {
-      ref_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
+      ref_msg.controls[i].servo_angle_cmd[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
     }
   }
   pub_record_ref_.publish(ref_msg);
@@ -561,18 +577,32 @@ void TiltMtServoThrustDiffSecondOrderMPC::publishRecording()
   
   for (int i = 0; i < NN; ++i)
   {
-    // Thrust commands
-    pred_msg.controls[i].thrust_commands.resize(motor_num_);
+    // Thrust velocity control outputs
+    pred_msg.controls[i].thrust_velocity_uo.resize(motor_num_);
     for (int j = 0; j < motor_num_; ++j)
     {
-      pred_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->uo_[i][j];
+      pred_msg.controls[i].thrust_velocity_uo[j] = mpc_solver_ptr_->uo_[i][j];
     }
 
-    // Servo angle commands
-    pred_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    // Thrust commands (integrated in getCommand())
+    pred_msg.controls[i].thrust_cmd.resize(motor_num_);
+    for (int j = 0; j < motor_num_; ++j)
+    {
+      pred_msg.controls[i].thrust_cmd[j] = flight_cmd_.base_thrust[i];
+    }
+
+    // Servo angle velocity control outputs
+    pred_msg.controls[i].servo_angle_velocity_uo.resize(joint_num_);
     for (int j = 0; j < joint_num_; ++j)
     {
-      pred_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
+      pred_msg.controls[i].servo_angle_velocity_uo[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
+    }
+
+    // Servo angle commands (integrated in getCommand())
+    pred_msg.controls[i].servo_angle_cmd.resize(joint_num_);
+    for (int j = 0; j < joint_num_; ++j)
+    {
+      pred_msg.controls[i].servo_angle_cmd[j] = gimbal_ctrl_cmd_.position[j];
     }
   }
   pub_record_pred_.publish(pred_msg);

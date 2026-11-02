@@ -21,8 +21,16 @@ controller:
     thrust_min: 0  # N
     thrust_max: 23   # N
 
-    thrust_vel_min: -200 # 100 (from Claude due to urdf)  # 200 (from Eugenio) # N/s
-    thrust_vel_max: 200  # N/s
+    # From Claude: In AM32 firmware the output_limit=50000 clamps the throttle to 5 units per ms,
+    # With props, full throttle is ~13.9 kRPM so the rate caps at 33 kRPM/s
+    # Analyzing bench test data, the maximum positive rate caps at +/- 60 kRPM/s but this is for sharp throttle changes
+    # In thrust, the mapping depends on the RPM rate as well as on the RPM itself.
+    # The limit is also skewed at about +80 N/s and -120 N/s. Although, the instantaneous thrust rate is lower since the
+    # airflow is inert. Therefore, a good limit is about +65 N/s and -90 N/s.
+    # From Claude: Due to setting in urdf: 100 N/s
+    # From Eugenio: 200 N/s
+    thrust_vel_min: -90  # N/s
+    thrust_vel_max: 65  # N/s
 
     a_min: -3.15
     a_max: 3.15  # 180 deg + a little bit
@@ -53,6 +61,10 @@ controller:
     # thrust 0) within the nullspace of the Jacobian
     nullspace_servo_gain: 3.0  # [1/s]
     nullspace_thrust_gain: 1.0  # [1/s]
+
+    # Slack constraint weights
+    linear_slack_weight: 10
+    quadratic_slack_weight: 100
 
     is_attitude_ctrl: false
     is_body_rate_ctrl: false

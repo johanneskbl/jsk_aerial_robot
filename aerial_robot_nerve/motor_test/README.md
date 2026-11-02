@@ -40,7 +40,7 @@
 
 6. Start logging by `rostopic pub -1 /start_log_cmd std_msgs/Empty "{}" `.
 
-7. Cool down your motor by sending 'rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.54" ' and when it is cool enough, send 'rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.5" '，and then start a next test.
+7. Cool down your motor by sending 'rostopic pub -1 /pwm_test spinal/PwmTest "{pwms: [0.54]}" ' and when it is cool enough, send 'rostopic pub -1 /pwm_test spinal/PwmTest "{pwms: [0.5]}" '，and then start a next test. Add e.g. 'motor_index: [1]' to address single motors only, and send an empty message 'rostopic pub -1 /pwm_test spinal/PwmTest "{}" ' to leave the pwm test mode.
 
 ## General calib for ESC:
 

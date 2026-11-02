@@ -34,8 +34,17 @@ void ESCReader::update(spinal::ESCTelemetry& esc_msg)
 
   /* Consume nothing until the whole frame has landed. The frames carry no
      delimiter, so bytes invented here to fill a half-received frame would push
-     the real ones into the next read and shift every frame that follows. */
-  if (bytesAvailable() < ESC_TELEM_FRAME_SIZE)
+     the real ones into the next read and shift every frame that follows.
+     Every slot holds the reply of exactly one ESC (flush() at each slot boundary),
+     so the number of transmitted bytes can identify whether the frame is from the
+     stock firmware or the extended version which also sends the eRPM rate. */
+  uint32_t available = bytesAvailable();
+  int frame_size;
+  if (available >= ESC_TELEM_FRAME_SIZE_RPM_RATE)
+    frame_size = ESC_TELEM_FRAME_SIZE_RPM_RATE;
+  else if (available == ESC_TELEM_FRAME_SIZE)
+    frame_size = ESC_TELEM_FRAME_SIZE;
+  else
   {
     esc_msg.crc_error = 0xFF;  // no valid frame this round
     return;
@@ -50,21 +59,23 @@ void ESCReader::update(spinal::ESCTelemetry& esc_msg)
   // Byte 6: Consumption low byte
   // Byte 7: Rpm high byte
   // Byte 8: Rpm low byte
-  // Byte 9: 8-bit CRC
+  // Byte 9: 8-bit CRC (IF stock KISS frame is sent) ! OR ! RPM rate high byte (IF extended frame is sent)
+  // Byte 10: RPM rate low byte (extended frame)
+  // Byte 11: 8-bit CRC (extended frame)
 
-  uint8_t buffer[ESC_TELEM_FRAME_SIZE];  // buffer for KISS esc telemetry data
+  uint8_t buffer[ESC_TELEM_FRAME_SIZE_RPM_RATE];  // buffer for KISS esc telemetry data
 
-  for (int i = 0; i < ESC_TELEM_FRAME_SIZE; i++)
+  for (int i = 0; i < frame_size; i++)
   {
     buffer[i] = esc_telem_rx_buf_[esc_telem_rd_ptr_];
     esc_telem_rd_ptr_ = (esc_telem_rd_ptr_ + 1) % ESC_BUFFER_SIZE;
   }
 
   /* check crc */
-  uint8_t crc = get_crc8(buffer, 9);
-  esc_msg.crc_error = crc - buffer[9];
+  uint8_t crc = get_crc8(buffer, frame_size - 1);
+  esc_msg.crc_error = crc - buffer[frame_size - 1];
 
-  if (crc != buffer[9])
+  if (crc != buffer[frame_size - 1])
     return;  // corrupt frame: keep the previous values, crc_error flags them as stale
 
   /* save data in esc_msg_1_ */
@@ -78,6 +89,21 @@ void ESCReader::update(spinal::ESCTelemetry& esc_msg)
     esc_msg.rpm = erpm * 100 / pole_pairs;
   else
     esc_msg.rpm = 0;
+
+  /* eRPM rate / 100 (two's complement), estimated on the ESC */
+  if (frame_size == ESC_TELEM_FRAME_SIZE_RPM_RATE && pole_pairs > 0)
+  {
+    // Decode the two's complement value of the eRPM rate from the extended telemetry frame
+    // Latency Note: AM32 already averages each period over about one electrical revolution before the
+    // filter gets it. That adds 1.1 ms at hover and 12 ms at 785 rpm.
+    // Including Spinal's 8 ms polling, the rate reaches Spinal's controller about
+    // 18 ms after the rotor at hover.
+    int16_t erpm_rate = (int16_t)(buffer[9] << 8 | buffer[10]);
+    esc_msg.rpm_rate = (int32_t)erpm_rate * 100 / pole_pairs;
+  }
+  else
+    // Fill RPM rate with 0 for stock firmware
+    esc_msg.rpm_rate = 0;
 }
 
 /* number of bytes the DMA has landed but we have not consumed yet */

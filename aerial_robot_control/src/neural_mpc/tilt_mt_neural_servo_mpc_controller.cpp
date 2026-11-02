@@ -1477,17 +1477,17 @@ void nmpc::TiltMtNeuralServoMPC::publishRecording()
   for (int i = 0; i < NN_; ++i)
   {
     // Thrust commands
-    ref_msg.controls[i].thrust_commands.resize(motor_num_);
+    ref_msg.controls[i].thrust_cmd.resize(motor_num_);
     for (int j = 0; j < motor_num_; ++j)
     {
-      ref_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->ur_[i][j];
+      ref_msg.controls[i].thrust_cmd[j] = mpc_solver_ptr_->ur_[i][j];
     }
 
     // Servo angle commands
-    ref_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    ref_msg.controls[i].servo_angle_cmd.resize(joint_num_);
     for (int j = 0; j < joint_num_; ++j)
     {
-      ref_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
+      ref_msg.controls[i].servo_angle_cmd[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
     }
   }
   pub_record_ref_.publish(ref_msg);
@@ -1533,17 +1533,17 @@ void nmpc::TiltMtNeuralServoMPC::publishRecording()
   for (int i = 0; i < NN_; ++i)
   {
     // Thrust commands
-    pred_msg.controls[i].thrust_commands.resize(motor_num_);
+    pred_msg.controls[i].thrust_cmd.resize(motor_num_);
     for (int j = 0; j < motor_num_; ++j)
     {
-      pred_msg.controls[i].thrust_commands[j] = mpc_solver_ptr_->uo_[i][j];
+      pred_msg.controls[i].thrust_cmd[j] = mpc_solver_ptr_->uo_[i][j];
     }
 
     // Servo angle commands
-    pred_msg.controls[i].servo_angle_commands.resize(joint_num_);
+    pred_msg.controls[i].servo_angle_cmd.resize(joint_num_);
     for (int j = 0; j < joint_num_; ++j)
     {
-      pred_msg.controls[i].servo_angle_commands[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
+      pred_msg.controls[i].servo_angle_cmd[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
     }
   }
   pub_record_pred_.publish(pred_msg);
