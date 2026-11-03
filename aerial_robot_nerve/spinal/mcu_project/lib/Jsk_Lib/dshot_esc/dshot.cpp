@@ -39,36 +39,44 @@ void DShot::write(uint16_t* motor_value_array, bool is_telemetry)
   {
     if (num_freq_divide == 1)
     {
-      // send telemetry
-      id_telem_ = id_telem_ % 4;
-      is_telemetry_array[id_telem_] = true;
+      // Receive the telemetry of the previous round
 
-      // receive the telemetry of the previous round
+      // Track progressing writes to avoid flushing unfinished 
+      bool is_read_done = true;  // False while the reply of the previous round is still arriving
       if (id_telem_prev_ != -1)
       {
         switch (id_telem_prev_)
         {
           case 0:
-            esc_reader_.update(esc_reader_.esc_msg_1_);
+            is_read_done = esc_reader_.update(esc_reader_.esc_msg_1_);
             break;
           case 1:
-            esc_reader_.update(esc_reader_.esc_msg_2_);
+            is_read_done = esc_reader_.update(esc_reader_.esc_msg_2_);
             break;
           case 2:
-            esc_reader_.update(esc_reader_.esc_msg_3_);
+            is_read_done = esc_reader_.update(esc_reader_.esc_msg_3_);
             break;
           case 3:
-            esc_reader_.update(esc_reader_.esc_msg_4_);
-            esc_reader_.is_update_all_msg_ = true;
+            is_read_done = esc_reader_.update(esc_reader_.esc_msg_4_);
+            esc_reader_.is_update_all_msg_ = is_read_done;  // Publish once the reply of ESC 4 has been read
             break;
         }
       }
 
-      /* Re-synch in case of overlap of multiple telemetry packages */
-      esc_reader_.flush();
+      /* A reply that is still arriving keeps the line for one more round:
+         no flush and no new request until it has landed, see ESCReader::update() */
+      if (is_read_done)
+      {
+        /* Re-synch in case of overlap of multiple telemetry packages */
+        esc_reader_.flush();
 
-      id_telem_prev_ = id_telem_;
-      id_telem_++;
+        // Request the telemetry of the next ESC
+        id_telem_ = id_telem_ % 4;
+        is_telemetry_array[id_telem_] = true;
+
+        id_telem_prev_ = id_telem_;
+        id_telem_++;
+      }
 
       num_freq_divide = 0;
     }

@@ -4,6 +4,14 @@
 
 #include "esc_telem.h"
 
+/* Core clock cycles since the SysTick sample `start`. SysTick is the FreeRTOS tick timer: it counts down from LOAD
+   at the core clock and wraps every 1 ms, so this only holds for intervals shorter than that */
+static uint32_t cycles_since(uint32_t start)
+{
+  uint32_t now = SysTick->VAL;
+  return (start >= now) ? start - now : start + SysTick->LOAD + 1 - now;
+}
+
 void ESCReader::init(UART_HandleTypeDef* huart)
 {
   huart_ = huart;
@@ -18,8 +26,9 @@ void ESCReader::init(UART_HandleTypeDef* huart)
   HAL_UART_Receive_DMA(huart, esc_telem_rx_buf_, ESC_BUFFER_SIZE);
 }
 
-void ESCReader::update(spinal::ESCTelemetry& esc_msg)
+bool ESCReader::update(spinal::ESCTelemetry& esc_msg)
 {
+  /* Returns true if update is finished and false if read is still expected to be ongoing */
   /* An overrun makes the HAL restart the DMA at index 0 while the read pointer
      stays where it was, which desynchronises the stream for good. Reset both. */
   if (__HAL_UART_GET_FLAG(huart_, UART_FLAG_ORE))
@@ -28,26 +37,44 @@ void ESCReader::update(spinal::ESCTelemetry& esc_msg)
     HAL_UART_AbortReceive(huart_);
     HAL_UART_Receive_DMA(huart_, esc_telem_rx_buf_, ESC_BUFFER_SIZE);
     esc_telem_rd_ptr_ = 0;
-    esc_msg.crc_error = 0xFF;  // no valid frame this round
-    return;
+    esc_msg.crc_error = ESC_TELEM_NO_FRAME;  // no valid frame this round
+    deferred_ = false;  // The restart dropped any reply that was still pending
+    return true;
   }
 
-  /* Consume nothing until the whole frame has landed. The frames carry no
-     delimiter, so bytes invented here to fill a half-received frame would push
-     the real ones into the next read and shift every frame that follows.
-     Every slot holds the reply of exactly one ESC (flush() at each slot boundary),
-     so the number of transmitted bytes can identify whether the frame is from the
-     stock firmware or the extended version which also sends the eRPM rate. */
+  /* Consume nothing until the whole frame has landed. The frames carry no delimiter, so every slot must hold the
+     reply of exactly one ESC (flush() at each slot boundary), defined by the number of expected bytes.
+     Issue: a reply still arriving at the end of its slot could be flushed and its last arriving byte then
+     shifts the next ESC's frame by one byte.
+     Fix: a reply is complete once the line went idle after it. IDLE flag: set one character after the last byte and
+     cleared by flush(). A reply missing at most its last byte is waited for (<= 174 us at 115200 baud), a later one
+     keeps the line for one more slot: update() returns false, DShot::write() neither flushes nor requests the next
+     ESC, and the next call reads the reply in full. */
   uint32_t available = bytesAvailable();
+  // Check if the request landed up to its last byte, and if so wait for that byte and the idle character after it
+  if (!deferred_ && available >= ESC_TELEM_FRAME_SIZE_RPM_RATE - 1)
+  {
+    const uint32_t start = SysTick->VAL;
+    const uint32_t timeout = ESC_TELEM_WAIT_US * (SystemCoreClock / 1000000U);
+    while (!__HAL_UART_GET_FLAG(huart_, UART_FLAG_IDLE) && cycles_since(start) < timeout) {}
+  }
+  const bool idle = __HAL_UART_GET_FLAG(huart_, UART_FLAG_IDLE);
+  available = bytesAvailable();  // Read after the flag: no byte follows once the line is idle
+  // Still arriving: keep the line for one more slot
+  if (available > 0 && !idle && !deferred_)
+  {
+    deferred_ = true;
+    return false;
+  }
+  deferred_ = false;  // On the second try, the number of bytes alone decides
+
   int frame_size;
-  if (available >= ESC_TELEM_FRAME_SIZE_RPM_RATE)
-    frame_size = ESC_TELEM_FRAME_SIZE_RPM_RATE;
-  else if (available == ESC_TELEM_FRAME_SIZE)
-    frame_size = ESC_TELEM_FRAME_SIZE;
+  if (available == ESC_TELEM_FRAME_SIZE_RPM_RATE || available == ESC_TELEM_FRAME_SIZE)
+    frame_size = available;
   else
   {
-    esc_msg.crc_error = 0xFF;  // no valid frame this round
-    return;
+    esc_msg.crc_error = ESC_TELEM_NO_FRAME;  // No reply, a truncated one, or more bytes than one frame
+    return true;
   }
 
   // Byte 0: Temperature
@@ -76,19 +103,27 @@ void ESCReader::update(spinal::ESCTelemetry& esc_msg)
   esc_msg.crc_error = crc - buffer[frame_size - 1];
 
   if (crc != buffer[frame_size - 1])
-    return;  // corrupt frame: keep the previous values, crc_error flags them as stale
+    return true;  // Corrupt frame: keep the previous values, crc_error flags them as stale
 
-  /* save data in esc_msg_1_ */
+  // Read data
+  uint16_t voltage = buffer[1] << 8 | buffer[2];
+  uint16_t erpm = buffer[7] << 8 | buffer[8];
+  int pole_pairs = num_motor_mag_pole_ / 2;
+  uint32_t rpm = (pole_pairs > 0) ? erpm * 100 / pole_pairs : 0;
+
+  /* Sanity check */
+  if (voltage > ESC_TELEM_MAX_VOLTAGE || rpm > ESC_TELEM_MAX_RPM)
+  {
+    esc_msg.crc_error = ESC_TELEM_NO_FRAME;
+    return true;
+  }
+
+  /* Save data in esc_msg_1_ */
   esc_msg.temperature = buffer[0];
-  esc_msg.voltage = buffer[1] << 8 | buffer[2];
+  esc_msg.voltage = voltage;
   esc_msg.current = buffer[3] << 8 | buffer[4];
   esc_msg.consumption = buffer[5] << 8 | buffer[6];
-  uint16_t erpm = buffer[7] << 8 | buffer[8];
-  int pole_pairs = num_motor_mag_pole_ / 2;  // erpm -> rpm
-  if (pole_pairs > 0)
-    esc_msg.rpm = erpm * 100 / pole_pairs;
-  else
-    esc_msg.rpm = 0;
+  esc_msg.rpm = rpm;
 
   /* eRPM rate / 100 (two's complement), estimated on the ESC */
   if (frame_size == ESC_TELEM_FRAME_SIZE_RPM_RATE && pole_pairs > 0)
@@ -104,6 +139,8 @@ void ESCReader::update(spinal::ESCTelemetry& esc_msg)
   else
     // Fill RPM rate with 0 for stock firmware
     esc_msg.rpm_rate = 0;
+
+  return true;
 }
 
 /* number of bytes the DMA has landed but we have not consumed yet */
@@ -114,11 +151,13 @@ uint32_t ESCReader::bytesAvailable()
 }
 
 /* Re-align the read pointer to the DMA write pointer, discarding whatever was
- * not consumed. Call this at every telemetry slot boundary: the four ESCs share
+ * not consumed, and clear IDLE so that it only reports the end of the next reply.
+ * Call this at every telemetry slot boundary: the four ESCs share
  * one line and the frames carry no delimiter, so a leftover byte would shift
  * every following frame forever. */
 void ESCReader::flush()
 {
+  __HAL_UART_CLEAR_IDLEFLAG(huart_);
   esc_telem_rd_ptr_ = (ESC_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(huart_->hdmarx)) % (ESC_BUFFER_SIZE);
 }
 

@@ -225,7 +225,10 @@ void DynamixelSerial::update()
   if(read_status_packet_flag_) {
     for (unsigned int i = 0; i < servo_num_; i++) {
       if(!servo_[i].send_data_flag_ && !servo_[i].first_get_pos_flag_) continue;
-      readStatusPacket(instruction_last_.first);
+      /* The replies were requested in the previous servo_.update() call and have arrived by now.
+         Set timeout to 0 and parse only what is in the RX buffer.
+         NOTE: This prevents that a servo did not answer and blocks the core loop for 1-2 ms per byte (worst case) */
+      readStatusPacket(instruction_last_.first, 0);
     }
     if (instruction_last_.first == INST_GET_PRESENT_POS)
     {
@@ -523,7 +526,7 @@ void DynamixelSerial::transmitInstructionPacket(uint8_t id, uint16_t len, uint8_
 }
 
 /* Receive status packet to Dynamixel */
-int8_t DynamixelSerial::readStatusPacket(uint8_t status_packet_instruction)
+int8_t DynamixelSerial::readStatusPacket(uint8_t status_packet_instruction, uint32_t timeout)
 {
 	int status_stage = READ_HEADER0;
 	uint8_t rx_data;
@@ -539,7 +542,7 @@ int8_t DynamixelSerial::readStatusPacket(uint8_t status_packet_instruction)
 	uint8_t servo_id;
 
 	while(!read_end_flag) {
-		HAL_StatusTypeDef receive_status = read(&rx_data, 1);
+		HAL_StatusTypeDef receive_status = read(&rx_data, timeout);
 		if(receive_status == HAL_TIMEOUT)
 			{
 				return -1;

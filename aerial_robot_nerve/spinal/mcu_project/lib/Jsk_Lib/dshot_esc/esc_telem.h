@@ -20,6 +20,10 @@
 #define ESC_BUFFER_SIZE 512
 #define ESC_TELEM_FRAME_SIZE 10  // KISS telemetry frame: 9 data bytes + crc
 #define ESC_TELEM_FRAME_SIZE_RPM_RATE 12  // KISS extended telemetry frame: 9 data bytes + 2 bytes eRPM rate (AM32 fork, branch measure_rate) + crc
+#define ESC_TELEM_NO_FRAME 0xFF  // Value of crc_error when a slot had no valid frame (values held from the last one)
+#define ESC_TELEM_WAIT_US 200  // Longest wait for the last byte and the idle character after it (86.8 us each at 115200 baud)
+#define ESC_TELEM_MAX_VOLTAGE 6000  // Sanity boundary [1=10mV]
+#define ESC_TELEM_MAX_RPM 50000  // Sanity boundary [RPM]
 
 namespace
 {
@@ -45,7 +49,7 @@ public:
   spinal::ESCTelemetry esc_msg_4_;
 
   void init(UART_HandleTypeDef* huart);
-  void update(spinal::ESCTelemetry& esc_msg);
+  bool update(spinal::ESCTelemetry& esc_msg);
   uint32_t bytesAvailable();
   void flush();
 
@@ -54,6 +58,8 @@ public:
   int num_motor_mag_pole_; // conversion from erpm to rpm
 
 private:
+  bool deferred_ = false;  // Current reply already got one more slot, so the next one is deferred to the next round
+
   uint8_t step_ = 0;
   uint8_t msg_id_ = 0;
   uint16_t payload_length_ = 0;

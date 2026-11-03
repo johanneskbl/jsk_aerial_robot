@@ -60,6 +60,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+// Run servo_.update() every 5th core iteration, see coreTaskFunc
+// NOTE: We choose 5 here since the main loop runs at 1kHz (1ms),
+// so only updating the servo every 5 iterations leads to an effective 200Hz (5ms) update rate.
+// This is sufficient for the Dynamixel bus, which is slow (blocking UART TX).
+// NOTE: Should be quicker than the minimal period of the servo in dynamixel_serial.h, i.e., 10ms.
+// NOTE: The sync read replies are parsed in the following call.
+#define SERVO_UPDATE_DIVIDER 5
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -99,7 +106,6 @@ osThreadId rosPublishHandle;
 osThreadId voltageHandle;
 osThreadId canRxHandle;
 osTimerId coreTaskTimerHandle;
-osTimerId ServoTimerHandle;
 osMutexId rosPubMutexHandle;
 osMutexId flightControlMutexHandle;
 osSemaphoreId coreTaskSemHandle;
@@ -147,7 +153,6 @@ void rosPublishTask(void const * argument);
 void voltageTask(void const * argument);
 void canRxTask(void const * argument);
 void coreTaskEvokeCb(void const * argument);
-void ServoCallback(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -249,14 +254,24 @@ int main(void)
   IMU_ROS_CMD::init(&nh_);
   IMU_ROS_CMD::addImu(&imu_);
 
+#if BARO_FLAG
   baro_.init(&hi2c1, &nh_, BAROCS_GPIO_Port, BAROCS_Pin);
+#endif
   battery_status_.init(&hadc1, &nh_, false);
 
 #if GPS_FLAG
   gps_.init(&huart3, &nh_, LED2_GPIO_Port, LED2_Pin);
-  estimator_.init(&imu_, &baro_, &gps_, &nh_);  // imu + baro + gps => att + alt + pos(xy)
+  #if BARO_FLAG
+  estimator_.init(&imu_, &baro_, &gps_, &nh_);  // IMU + baro + GPS => att + alt + pos(xy)
+  #else
+  estimator_.init(&imu_, NULL, &gps_, &nh_);  // IMU + GPS => att + pos(xy)
+  #endif
 #else
-  estimator_.init(&imu_, &baro_, NULL, &nh_);
+  #if BARO_FLAG
+  estimator_.init(&imu_, &baro_, NULL, &nh_);  // IMU + baro => att + alt
+  #else
+  estimator_.init(&imu_, NULL, NULL, &nh_);  // IMU only => att
+  #endif
 #endif
 
   dshot_.init(DSHOT600, &htim1, TIM_CHANNEL_1, &htim1, TIM_CHANNEL_2, &htim1, TIM_CHANNEL_3, &htim1, TIM_CHANNEL_4);
@@ -306,17 +321,10 @@ int main(void)
   osTimerDef(coreTaskTimer, coreTaskEvokeCb);
   coreTaskTimerHandle = osTimerCreate(osTimer(coreTaskTimer), osTimerPeriodic, NULL);
 
-  /* definition and creation of ServoTimer */
-  osTimerDef(ServoTimer, ServoCallback);
-  ServoTimerHandle = osTimerCreate(osTimer(ServoTimer), osTimerPeriodic, NULL);
-
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   osTimerStart(coreTaskTimerHandle, 1); // 1 ms (1kHz)
 
-#ifdef SERVO_FLAG
-  osTimerStart(ServoTimerHandle, 5); // ms  Should be quicker than the minimumal period of the servo in dynamixel_serial.h, i.e.,10ms
-#endif
 
   /* USER CODE END RTOS_TIMERS */
 
@@ -1148,6 +1156,10 @@ void coreTaskFunc(void const * argument)
 
   osSemaphoreWait(coreTaskSemHandle, osWaitForever);
 
+#if SERVO_FLAG
+  uint8_t servo_update_count = 0;  // Core iterations since the last servo_.update()
+#endif
+
   for(;;)
     {
       osSemaphoreWait(coreTaskSemHandle, osWaitForever);
@@ -1157,7 +1169,9 @@ void coreTaskFunc(void const * argument)
 #endif
 
       imu_.update();
+#if BARO_FLAG
       baro_.update();
+#endif
 #if GPS_FLAG
       gps_.update();
 #endif
@@ -1166,6 +1180,19 @@ void coreTaskFunc(void const * argument)
 
 #if NERVE_COMM
       Spine::update();
+#endif
+
+#if SERVO_FLAG
+      /* Servo update: run every SERVO_UPDATE_DIVIDER*1ms
+         NOTE: The servo update is done after the DShot write, so that its UART TX
+         delays blocks neither the motor commands nor the ESC telemetry requests.
+         Only every SERVO_UPDATE_DIVIDER*1ms = 5 ms, as each call sends a sync read
+         whose replies the next call parses. */
+      if (++servo_update_count >= SERVO_UPDATE_DIVIDER)
+        {
+          servo_update_count = 0;
+          servo_.update();
+        }
 #endif
 
       // Workaround to handle the BUSY->TIMEOUT Error problem of ETH handler in STM32H7
@@ -1295,14 +1322,6 @@ void coreTaskEvokeCb(void const * argument)
   // timer callback to evoke coreTask at 1KHz
   osSemaphoreRelease (coreTaskSemHandle);
   /* USER CODE END coreTaskEvokeCb */
-}
-
-/* ServoCallback function */
-void ServoCallback(void const * argument)
-{
-  /* USER CODE BEGIN ServoCallback */
-  servo_.update();
-  /* USER CODE END ServoCallback */
 }
 
 /* MPU Configuration */

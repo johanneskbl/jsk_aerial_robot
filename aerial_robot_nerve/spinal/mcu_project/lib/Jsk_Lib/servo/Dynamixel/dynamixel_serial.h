@@ -377,7 +377,10 @@ private:
 
 
   void transmitInstructionPacket(uint8_t id, uint16_t len, uint8_t instruction, uint8_t* parameters);
-  int8_t readStatusPacket(uint8_t status_packet_instruction);
+  /* Timeout [ms] of the wait for each byte:
+     0 only takes the bytes that have already arrived and gives up at the first missing one,
+     1 waits for one HAL tick resolution (1-2 ms) */
+  int8_t readStatusPacket(uint8_t status_packet_instruction, uint32_t timeout = 1);
 
   void cmdPing(uint8_t id);
   void cmdReboot(uint8_t id);
