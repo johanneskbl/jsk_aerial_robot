@@ -61,6 +61,7 @@ AttitudeController::AttitudeController()
                                       &AttitudeController::torqueAllocationMatrixInvCallback, this)
   , control_mode_srv_("set_control_mode", &AttitudeController::setControlModeCallback, this)
   , esc_telem_pub_("esc_telem", &esc_telem_msg_)
+  , dshots_pub_("motor_dshots", &dshots_msg_)
 {
 }
 
@@ -87,10 +88,16 @@ void AttitudeController::init(TIM_HandleTypeDef* htim1, TIM_HandleTypeDef* htim2
   HAL_TIM_PWM_Start(pwm_htim2_, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(pwm_htim2_, TIM_CHANNEL_4);
 
+  for (int i = 0; i < DSHOT_MOTOR_NUMBER; i++)
+    dshot_value_[i] = 0;
+  dshots_msg_.motor_value_length = DSHOT_MOTOR_NUMBER;
+  dshots_msg_.motor_value = dshot_value_;
+
   nh_->advertise(pwms_pub_);
   nh_->advertise(control_term_pub_);
   nh_->advertise(control_feedback_state_pub_);
   nh_->advertise(esc_telem_pub_);
+  nh_->advertise(dshots_pub_);
 
   nh_->subscribe(four_axis_cmd_sub_);
   nh_->subscribe(pwm_info_sub_);
@@ -169,6 +176,10 @@ void AttitudeController::pwmsControl(void)
   if (HAL_GetTick() - pwm_pub_last_time_ > PWM_PUB_INTERVAL)
   {
     pwm_pub_last_time_ = HAL_GetTick();
+    // Fill msg only when it is published
+    // NOTE: Conversion is done after write() in real machine
+    for (int i = 0; i < motor_number_ / (gimbal_dof_ + 1); i++)
+      pwms_msg_.motor_value[i] = target_pwm_[i] * 2000;
     pwms_pub_.publish(pwms_msg_);
   }
 
@@ -191,12 +202,6 @@ void AttitudeController::pwmsControl(void)
     }
   }
 
-  if (HAL_GetTick() - pwm_pub_last_time_ > PWM_PUB_INTERVAL)
-  {
-    pwm_pub_last_time_ = HAL_GetTick();
-    pwms_pub_.publish(&pwms_msg_);
-  }
-
   /* nerve comm type */
 #if NERVE_COMM
   for (int i = 0; i < motor_number_; i++)
@@ -213,16 +218,15 @@ void AttitudeController::pwmsControl(void)
   }
 #endif
 
-  /* direct pwm type */
-  uint16_t motor_value[4] = { 0, 0, 0, 0 };
-  for (int i = 0; i < 4; i++)
+  /* DShot: Convert from PWM and write to motors */
+  for (int i = 0; i < DSHOT_MOTOR_NUMBER; i++)
   {
     /* in pwm test mode, the motors which are not addressed by the test stay off */
     bool motor_off = pwm_test_flag_ ? !pwm_test_active_[i] : !start_control_flag_;
     if (motor_off)
     {
       /* ESC arms after 1s of only zeros; DShot 48 is not zero */
-      motor_value[i] = 0;
+      dshot_value_[i] = 0;
       continue;
     }
 
@@ -236,10 +240,10 @@ void AttitudeController::pwmsControl(void)
       motor_v = DSHOT_MAX_THROTTLE;
 
     /* round instead of truncate: truncation biases every command half a DShot count low */
-    motor_value[i] = (uint16_t)(motor_v + 0.5f);
+    dshot_value_[i] = (uint16_t)(motor_v + 0.5f);
   }
 
-  dshot_->write(motor_value, dshot_->is_telemetry_);
+  dshot_->write(dshot_value_, dshot_->is_telemetry_);
 
   if (dshot_->is_telemetry_)
   {
@@ -270,6 +274,24 @@ void AttitudeController::pwmsControl(void)
   pwm_htim2_->Instance->CCR3 = (uint32_t)(target_pwm_[6] * pwm_htim2_->Init.Period);
   pwm_htim2_->Instance->CCR4 = (uint32_t)(target_pwm_[7] * pwm_htim2_->Init.Period);
 
+  /* Publish PWM & DShot */
+  if (HAL_GetTick() - pwm_pub_last_time_ > PWM_PUB_INTERVAL)
+  {
+    pwm_pub_last_time_ = HAL_GetTick();
+
+    /* PWM signal: Converted from duty which is the ratio of the pulse width to the period */
+    /* NOTE: duty [0.5, 1.0] -> PWM [1000, 2000] */
+    /* NOTE: Only for logging if DShot is used */
+    for (int i = 0; i < motor_number_ / (gimbal_dof_ + 1); i++)
+    {
+      bool dshot_motor_off = i < DSHOT_MOTOR_NUMBER && dshot_value_[i] == 0;
+      pwms_msg_.motor_value[i] = dshot_motor_off ? 0 : target_pwm_[i] * 2000;
+    }
+    pwms_pub_.publish(&pwms_msg_);
+
+    /* DShot signal: actual values sent to the ESCs */
+    dshots_pub_.publish(&dshots_msg_);
+  }
 #endif
 }
 
@@ -1226,9 +1248,6 @@ void AttitudeController::pwmConversion()
       else if (target_pwm_[i] > max_duty_)
         target_pwm_[i] = max_duty_;
     }
-
-    /* for ros */
-    pwms_msg_.motor_value[i] = (target_pwm_[i] * 2000);
   }
 #ifdef SIMULATION
   // TODO: directly send target gimbal angles to gazebo

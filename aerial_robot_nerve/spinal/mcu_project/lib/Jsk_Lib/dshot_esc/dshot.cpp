@@ -41,7 +41,7 @@ void DShot::write(uint16_t* motor_value_array, bool is_telemetry)
     {
       // Receive the telemetry of the previous round
 
-      // Track progressing writes to avoid flushing unfinished 
+      // Track progressing writes to avoid flushing unfinished frames
       bool is_read_done = true;  // False while the reply of the previous round is still arriving
       if (id_telem_prev_ != -1)
       {

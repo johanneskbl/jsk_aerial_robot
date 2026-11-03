@@ -20,7 +20,7 @@ motor_info:
   # (e.g. AM32 MINIMUM_RPM_SPEED_CONTROL / MAX_RPM).
   # This relationship is voltage-independent.
   # Reference: attitude_control.cpp, AttitudeController::pwmConversion(), case spinal::MotorInfo::RPM_MODE
-  min_rpm: 785.0   # [RPM] NEEDS to match the ESC's RPM_CONTROL_MIN_RPM!!!
+  min_rpm: 900.0    # [RPM] NEEDS to match the ESC's RPM_CONTROL_MIN_RPM!!!
   max_rpm: 13300.0  # [RPM] NEEDS to match the ESC's RPM_CONTROL_MAX_RPM!!!
 
   # --- POLYNOMIAL Mode ---

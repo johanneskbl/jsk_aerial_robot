@@ -37,6 +37,7 @@
 #include "servo/servo.h"
 /* dshot esc */
 #include "dshot_esc/dshot.h"
+#include <spinal/DShots.h>
 #endif
 
 #include "state_estimate/state_estimate.h"
@@ -229,6 +230,9 @@ private:
   osMutexId* mutex_;
   DirectServo* servo_;
   DShot* dshot_;
+  ros::Publisher dshots_pub_;
+  spinal::DShots dshots_msg_;
+  uint16_t dshot_value_[DSHOT_MOTOR_NUMBER];
 #endif
 
   StateEstimate* estimator_;
