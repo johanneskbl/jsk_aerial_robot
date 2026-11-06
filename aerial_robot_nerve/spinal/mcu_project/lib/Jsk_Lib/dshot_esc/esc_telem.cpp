@@ -84,9 +84,9 @@ bool ESCReader::update(spinal::ESCTelemetry& esc_msg)
   // Byte 4: Current low byte
   // Byte 5: Consumption high byte
   // Byte 6: Consumption low byte
-  // Byte 7: Rpm high byte
-  // Byte 8: Rpm low byte
-  // Byte 9: 8-bit CRC (IF stock KISS frame is sent) ! OR ! RPM rate high byte (IF extended frame is sent)
+  // Byte 7: eRPM / 10 high byte
+  // Byte 8: eRPM / 10 low byte
+  // Byte 9: 8-bit CRC (if 10-byte frame is sent) ! OR ! RPM rate high byte (IF extended frame is sent)
   // Byte 10: RPM rate low byte (extended frame)
   // Byte 11: 8-bit CRC (extended frame)
 
@@ -107,9 +107,11 @@ bool ESCReader::update(spinal::ESCTelemetry& esc_msg)
 
   // Read data
   uint16_t voltage = buffer[1] << 8 | buffer[2];
-  uint16_t erpm = buffer[7] << 8 | buffer[8];
+  uint16_t erpm_field = buffer[7] << 8 | buffer[8];
+  uint32_t erpm = (uint32_t)erpm_field * ESC_TELEM_ERPM_PER_COUNT;  // Decoded eRPM from the telemetry frame
   int pole_pairs = num_motor_mag_pole_ / 2;
-  uint32_t rpm = (pole_pairs > 0) ? erpm * 100 / pole_pairs : 0;
+  // Rounded to whole rpm: truncating would read 0.5 rpm low on average
+  uint32_t rpm = (pole_pairs > 0) ? (erpm + pole_pairs / 2) / pole_pairs : 0;
 
   /* Sanity check */
   if (voltage > ESC_TELEM_MAX_VOLTAGE || rpm > ESC_TELEM_MAX_RPM)
@@ -137,7 +139,7 @@ bool ESCReader::update(spinal::ESCTelemetry& esc_msg)
     esc_msg.rpm_rate = (int32_t)erpm_rate * 100 / pole_pairs;
   }
   else
-    // Fill RPM rate with 0 for stock firmware
+    // The 10-byte frame carries no rate
     esc_msg.rpm_rate = 0;
 
   return true;

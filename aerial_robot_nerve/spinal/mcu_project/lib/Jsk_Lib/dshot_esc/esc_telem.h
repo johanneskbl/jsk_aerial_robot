@@ -20,6 +20,7 @@
 #define ESC_BUFFER_SIZE 512
 #define ESC_TELEM_FRAME_SIZE 10  // KISS telemetry frame: 9 data bytes + crc
 #define ESC_TELEM_FRAME_SIZE_RPM_RATE 12  // KISS extended telemetry frame: 9 data bytes + 2 bytes eRPM rate (AM32 fork, branch measure_rate) + crc
+#define ESC_TELEM_ERPM_PER_COUNT 10  // eRPM per count of the eRPM field
 #define ESC_TELEM_NO_FRAME 0xFF  // Value of crc_error when a slot had no valid frame (values held from the last one)
 #define ESC_TELEM_WAIT_US 200  // Longest wait for the last byte and the idle character after it (86.8 us each at 115200 baud)
 #define ESC_TELEM_MAX_VOLTAGE 6000  // Sanity boundary [1=10mV]
