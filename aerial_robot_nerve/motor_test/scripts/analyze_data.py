@@ -11,6 +11,33 @@ def rms(residual):
     return np.sqrt(np.mean(residual ** 2))
 
 
+def fit_power_law(x, y, exponents):
+    '''
+    Fit the models y = k * x^s through the origin, one per exponent s of exponents, minimizing the RMS of the absolute
+    residual y - k * x^s, so that the large y, where the system is more sensitive, weigh the most. For a given s the
+    model is linear in k, so the least-squares k is k = sum(y * x^s) / sum(x^(2s)). The exponent is not fitted but
+    searched: the one with the lowest RMS residual is the best of the given exponents, i.e. the step of a grid is the
+    resolution.
+    Returns k and the RMS residual of y for each exponent.
+    '''
+    x_s = np.asarray(x, dtype=float)[np.newaxis, :] ** np.asarray(exponents, dtype=float)[:, np.newaxis]  # row per s
+    k = x_s @ y / np.sum(x_s ** 2, axis=1)
+    rms_residual = np.sqrt(np.mean((y - k[:, np.newaxis] * x_s) ** 2, axis=1))
+    return k, rms_residual
+
+
+def fit_two_term(x, y):
+    '''
+    Fit y = a * x^2 + b * x^3 through the origin, minimizing the RMS of the absolute residual like fit_power_law().
+    The model is linear in (a, b), i.e. ordinary least squares.
+    Returns a, b and the RMS residual of y.
+    '''
+    x = np.asarray(x, dtype=float)
+    regressors = np.column_stack((x ** 2, x ** 3))
+    (a, b), _, _, _ = np.linalg.lstsq(regressors, y, rcond=None)
+    return a, b, rms(y - regressors @ np.array([a, b]))
+
+
 def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_reverse):
     file_path = folder_path + file_name
     column_names = []
@@ -209,7 +236,7 @@ def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_r
     plt.show()
 
 
-def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples):
+def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, exponent_range=(1.5, 3.0, 0.001)):
     '''
     Identify the rotor as f_t = k_t * Omega^2 and tau_t = k_tau * Omega^2, with Omega [rad/s] the rotor speed that
     the ESC of the tested motor measures (motor_index of motor_test, motor 0 if all motors are tested), from a one-shot
@@ -223,6 +250,13 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples):
     in time (column 'time', the mean time of the rows). This removes a linear drift of the sensor during the step,
     which the rest rows alone would overcorrect, as they come after the valid rows.
     Both fits go through the origin, since the model has no bias.
+
+    In addition, two models, both fitted through the origin by the RMS of the absolute residual, check whether the
+    thrust grows faster than quadratically:
+    - fz = k * kRPM^s, fitted for each exponent s of the grid exponent_range = (s_min, s_max, s_step)
+    - fz = a * kRPM^2 + b * kRPM^3
+    kRPM is the mean RPM of the step / 1000, whose variation within the step is small enough that
+    mean(kRPM^s) = mean(kRPM)^s.
     '''
     file_path = folder_path + file_name
     column_names = ["PWM", "fx", "fy", "fz", "f_norm", "mx", "my", "mz", "currency", "RPM", "temperature", "voltage", "State", "time"]
@@ -327,6 +361,36 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples):
     print("k_tau / k_t: {:.4f}  # m, m_f_rate".format(k_tau / k_t))
     print()
 
+    ''' fit fz = k * kRPM^s for a grid of exponents s, and fz = a * kRPM^2 + b * kRPM^3 '''
+
+    kRPM = steps['RPM'].to_numpy() / 1000
+    s_min, s_max, s_step = exponent_range
+    exponents = np.arange(s_min, s_max + s_step / 2, s_step)
+    k_s, rms_s = fit_power_law(kRPM, fz, exponents)
+    i_best = np.argmin(rms_s)
+    s_best, k_best = exponents[i_best], k_s[i_best]
+
+    print("Fitting Equation (x:kRPM y:fz): fz = k * kRPM^s, s from {:.3f} to {:.3f} in steps of {:.4g}".format(s_min, s_max, s_step))
+    exponents_shown = np.unique(np.round(np.append([2.0, 2.05, 2.08, 2.1, 2.15, 2.2], s_best), 6))
+    k_shown, rms_shown = fit_power_law(kRPM, fz, exponents_shown)
+    print("      s   k [N/kRPM^s]   RMS residual [N]")
+    for s, k, rms_residual in zip(exponents_shown, k_shown, rms_shown):
+        print("  {:.3f}   {:12.5f}   {:16.4f}{}".format(s, k, rms_residual, "  <- best" if s == round(s_best, 6) else ""))
+    if i_best in (0, len(exponents) - 1):
+        print("WARNING: the best exponent is at the end of the range, widen --exponent_range")
+    fit_eq_power = "fz = {:.4f} * kRPM^{:.3f}".format(k_best, s_best)
+    print("Best fit: {}".format(fit_eq_power))
+    print("k: {:.4e}  # N/(rad/s)^{:.3f}".format(k_best / KRPM_TO_RAD_S ** s_best, s_best))
+    print("RMS residual: {:.4f}  # N, {:.4f} N for s = 2".format(rms_s[i_best], rms(fz_residual)))
+    print()
+
+    a_2, b_3, rms_two_term = fit_two_term(kRPM, fz)
+    fit_eq_two_term = "fz = {:.4f} * kRPM^2 + {:.4e} * kRPM^3".format(a_2, b_3)
+    print("Fitting Equation (x:kRPM y:fz): {}".format(fit_eq_two_term))
+    print("fz = {:.4e} * Omega^2 + {:.4e} * Omega^3  # N, Omega in rad/s".format(a_2 / KRPM_TO_RAD_S ** 2, b_3 / KRPM_TO_RAD_S ** 3))
+    print("RMS residual: {:.4f}  # N".format(rms_two_term))
+    print()
+
     ''' plot the data '''
 
     omega2_line = np.linspace(0, np.max(omega2), 100)
@@ -374,9 +438,60 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples):
 
     # title with the file name
     fig.suptitle(file_name)
+    fig.tight_layout()
 
-    # Adjust layout and show plot
-    plt.tight_layout()
+    ''' plot the fits: k * kRPM^2 (the fit of fz vs Omega^2 above), k * kRPM^s with the best s, a * kRPM^2 + b * kRPM^3 '''
+
+    k_2 = k_t * KRPM_TO_RAD_S ** 2  # N/kRPM^2
+    model_2 = k_2 * kRPM ** 2
+    model_power = k_best * kRPM ** s_best
+    model_two_term = a_2 * kRPM ** 2 + b_3 * kRPM ** 3
+    kRPM_line = np.linspace(0, np.max(kRPM), 200)
+    label_2 = 'k * kRPM^2'
+    label_power = 'k * kRPM^{:.3f}'.format(s_best)
+    label_two_term = 'a * kRPM^2 + b * kRPM^3'
+
+    fig_s, axs_s = plt.subplots(1, 3, figsize=(18, 5))
+
+    # Plot 1: x:kRPM y:fz
+    axs_s[0].scatter(kRPM, fz, color='blue', alpha=0.5, label='Data points')
+    axs_s[0].plot(kRPM_line, k_2 * kRPM_line ** 2, color='gray', linestyle='--', label=label_2)
+    axs_s[0].plot(kRPM_line, k_best * kRPM_line ** s_best, color='red', label=label_power)
+    axs_s[0].plot(kRPM_line, a_2 * kRPM_line ** 2 + b_3 * kRPM_line ** 3, color='purple', linestyle='-.',
+                  label=label_two_term)
+    axs_s[0].set_title('fz vs kRPM')
+    axs_s[0].set_xlabel('kRPM')
+    axs_s[0].set_ylabel('fz (N)')
+    axs_s[0].grid()
+    axs_s[0].legend(loc='upper left')
+    axs_s[0].text(0.95, 0.05, fit_eq_power + '\n' + fit_eq_two_term, horizontalalignment='right',
+                  verticalalignment='bottom', transform=axs_s[0].transAxes, fontsize=10, color='green')
+
+    # Plot 2: RMS residual vs exponent
+    axs_s[1].plot(exponents, rms_s, color='blue')
+    axs_s[1].scatter([2.0], [rms(fz - model_2)], color='gray', zorder=3, label=label_2)
+    axs_s[1].scatter([s_best], [rms_s[i_best]], color='red', zorder=3, label=label_power)
+    axs_s[1].axhline(rms_two_term, color='purple', linestyle='-.', label=label_two_term)
+    axs_s[1].set_title('RMS residual of fz = k * kRPM^s vs s')
+    axs_s[1].set_xlabel('s')
+    axs_s[1].set_ylabel('RMS residual (N)')
+    axs_s[1].grid()
+    axs_s[1].legend(loc='upper center')
+
+    # Plot 3: residual of fz vs kRPM
+    axs_s[2].scatter(kRPM, fz - model_2, color='gray', marker='s', alpha=0.7, label=label_2)
+    axs_s[2].scatter(kRPM, fz - model_power, color='red', alpha=0.7, label=label_power)
+    axs_s[2].scatter(kRPM, fz - model_two_term, color='purple', marker='^', alpha=0.7, label=label_two_term)
+    axs_s[2].axhline(0, color='black', linewidth=0.8)
+    axs_s[2].set_title('fz residual vs kRPM')
+    axs_s[2].set_xlabel('kRPM')
+    axs_s[2].set_ylabel('fz - model (N)')
+    axs_s[2].grid()
+    axs_s[2].legend(loc='upper left')
+
+    fig_s.suptitle(file_name)
+    fig_s.tight_layout()
+
     plt.show()
 
 
@@ -391,11 +506,13 @@ if __name__ == '__main__':
     parser.add_argument('--if_reverse', "-r", help='if the force sensor is reversed,0 or 1', default='0')
     parser.add_argument('--rpm_mode', "-m", help='identify f = k_t * Omega^2 and tau = k_tau * Omega^2 from a test in rpm mode, 0 or 1', default='0')
     parser.add_argument('--zero_samples', "-z", help='rpm mode: number of rows at rest at the end of each brake phase for the zero reference, int', default=50)
+    parser.add_argument('--exponent_range', "-e", help='rpm mode: grid of the exponent s of fz = k * kRPM^s', nargs=3, type=float,
+                        metavar=('S_MIN', 'S_MAX', 'S_STEP'), default=[1.5, 3.0, 0.001])
     args = parser.parse_args()
 
     if int(args.rpm_mode):
         if not int(args.has_telemetry):
             parser.error("rpm mode needs the measured RPM, i.e. has_telemetry 1")
-        analyze_data_rpm_mode(args.folder_path, args.file_name, int(args.if_reverse), int(args.zero_samples))
+        analyze_data_rpm_mode(args.folder_path, args.file_name, int(args.if_reverse), int(args.zero_samples), args.exponent_range)
     else:
         analyze_data(args.folder_path, args.file_name, int(args.has_telemetry), float(args.set_voltage), int(args.order), int(args.if_reverse))
