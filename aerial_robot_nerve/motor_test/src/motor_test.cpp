@@ -263,19 +263,13 @@ private:
 
     std::lock_guard<std::mutex> lock(mutex_);
 
-    /* file name: <YYYYMMDD>_motor_test[_motor<index>].txt with the local date, e.g. 20261107_motor_test_motor2.txt.
-       A single tested motor is part of the name. A later test of the same day gets the suffix _2, _3, ... instead of
-       overwriting the earlier log */
+    /* file name: <YYYYMMDD>_<HHMM>_motor_test.txt with the local date and time of the start, e.g. 20261107_2146_motor_test.txt */
     std::time_t now = ros::Time::now().sec;
     std::tm local_time;
     localtime_r(&now, &local_time);
-    char date[9];
-    std::strftime(date, sizeof(date), "%Y%m%d", &local_time);
-    std::string base_name = std::string(date) + std::string("_motor_test") +
-      ((motor_index_ >= 0) ? std::string("_motor") + std::to_string(motor_index_) : std::string(""));
-    std::string file_name = base_name + std::string(".txt");
-    for (int i = 2; std::ifstream(file_name).good(); i++)
-      file_name = base_name + std::string("_") + std::to_string(i) + std::string(".txt");
+    char date_time[14];
+    std::strftime(date_time, sizeof(date_time), "%Y%m%d_%H%M", &local_time);
+    std::string file_name = std::string(date_time) + std::string("_motor_test.txt");
     ofs_.open(file_name, std::ios::out);
     ROS_INFO("log file: %s", file_name.c_str());
 
