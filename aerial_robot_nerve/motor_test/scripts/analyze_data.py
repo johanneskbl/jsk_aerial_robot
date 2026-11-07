@@ -7,6 +7,10 @@ RPM_TO_RAD_S = 2 * np.pi / 60  # [rad/s] per [RPM]
 KRPM_TO_RAD_S = 1000 * RPM_TO_RAD_S  # [rad/s] per [kRPM]
 
 
+def rms(residual):
+    return np.sqrt(np.mean(residual ** 2))
+
+
 def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_reverse):
     file_path = folder_path + file_name
     column_names = []
@@ -75,21 +79,26 @@ def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_r
         slope_kRPM2, intercept_kRPM2 = np.polyfit(kRPM2, fz, 1)
         fit_eq_kRPM2 = "fz = {:.4f} * kRPM^2 + {:.4f}".format(slope_kRPM2, intercept_kRPM2)
         print("Fitting Equation (x:kRPM^2 y:fz): {}".format(fit_eq_kRPM2))
+        print("RMS residual: {:.4f}  # N".format(rms(fz - (slope_kRPM2 * kRPM2 + intercept_kRPM2))))
 
         # Linear fit for x: pwm_ratio y: kRPM
         slope_kRPM_PWM_ratio, intercept_kRPM_PWM_ratio = np.polyfit(PWM_ratio, kRPM, 1)
         fit_eq_kRPM_PWM_ratio = "kRPM = {:.4f} * PWM_Ratio_% + {:.4f}".format(slope_kRPM_PWM_ratio, intercept_kRPM_PWM_ratio)
         print("Fitting Equation (x:PWM_Ratio_% y:kRPM): {}".format(fit_eq_kRPM_PWM_ratio))
+        print("RMS residual: {:.4f}  # kRPM".format(rms(kRPM - (slope_kRPM_PWM_ratio * PWM_ratio + intercept_kRPM_PWM_ratio))))
 
     # Linear fit for x:fz y:mz, note that the intercept must be 0. Only y=kx form.
     slope_mz_fz, intercept_mz_fz = np.polyfit(fz, mz, 1)
     fit_eq_mz_fz = "mz = {:.4f} * fz".format(slope_mz_fz)
     print("Fitting Equation (x:fz y:mz): {}".format(fit_eq_mz_fz))
+    # Residual of the printed and plotted model mz = slope * fz, i.e. without the intercept of the fit
+    print("RMS residual: {:.6f}  # N*m".format(rms(mz - slope_mz_fz * fz)))
 
     # 2nd-order polynomial fit for x:fz y:currency
     coeffs_currency_fz = np.polyfit(fz, currency, 2)
     fit_eq_currency_fz = "currency = {:.4f} * fz^2 + {:.4f} * fz + {:.4f}".format(coeffs_currency_fz[0], coeffs_currency_fz[1], coeffs_currency_fz[2])
     print("Fitting Equation (x:fz y:currency): {}".format(fit_eq_currency_fz))
+    print("RMS residual: {:.4f}  # A".format(rms(currency - np.polyval(coeffs_currency_fz, fz))))
 
     # n-th order polynomial fit for x:PWM_ratio y:fz
     coeffs_PWM_ratio_fz = np.polyfit(PWM_ratio, fz, order)
@@ -100,6 +109,7 @@ def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_r
     print("Fitting Equation (x:PWM_Ratio_% y:fz): {}".format(fit_eq_PWM_ratio_fz))
     for i in range(order + 1):
         print("polynomial{}: {:.8f}  # x10^{}".format(order - i, pow(10, order - i) * coeffs_PWM_ratio_fz[i], order -i))
+    print("RMS residual: {:.4f}  # N".format(rms(fz - np.polyval(coeffs_PWM_ratio_fz, PWM_ratio))))
     print()
 
     # n-th order polynomial fit for x:fz y:PWM_ratio
@@ -112,6 +122,7 @@ def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_r
     print("max_thrust: {:.4f} # N".format(np.max(fz)))
     for i in range(order + 1):
         print("polynomial{}: {:.8f}  # x10^{}".format(order - i, pow(10, order - i) * coeffs_fz_PWM_ratio[i], order - i))
+    print("RMS residual: {:.4f}  # %".format(rms(PWM_ratio - np.polyval(coeffs_fz_PWM_ratio, fz))))
     print()
 
     # Create 3x3 subplots
@@ -301,7 +312,7 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples):
     print("Fitting Equation (x:Omega^2 y:fz): {}".format(fit_eq_fz))
     print("k_t: {:.4e}  # N/(rad/s)^2".format(k_t))
     print("k_t: {:.4f}  # N/kRPM^2, krpm_square_to_thrust_ratio with krpm_square_to_thrust_bias: 0".format(k_t * KRPM_TO_RAD_S ** 2))
-    print("RMS residual: {:.4f}  # N".format(np.sqrt(np.mean(fz_residual ** 2))))
+    print("RMS residual: {:.4f}  # N".format(rms(fz_residual)))
     print("Affine fit for comparison: fz = {:.4e} * Omega^2 + {:.4f}  # bias in N, should be close to 0".format(slope_affine, intercept_affine))
     print()
 
@@ -309,7 +320,7 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples):
     print("Fitting Equation (x:Omega^2 y:mz): {}".format(fit_eq_mz))
     print("k_tau: {:.4e}  # N*m/(rad/s)^2".format(k_tau))
     print("k_tau: {:.6f}  # N*m/kRPM^2".format(k_tau * KRPM_TO_RAD_S ** 2))
-    print("RMS residual: {:.6f}  # N*m".format(np.sqrt(np.mean(mz_residual ** 2))))
+    print("RMS residual: {:.6f}  # N*m".format(rms(mz_residual)))
     print()
 
     # Same quantity as the slope of mz vs fz in analyze_data()

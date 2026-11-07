@@ -78,7 +78,7 @@ Combine it with `has_dshot_telemetry:=true` (the measured RPM to identify the ro
 
 **analysis**: identify `f_t = k_t * Omega^2` and `tau_t = k_tau * Omega^2` with `Omega` the measured rotor speed in rad/s:
 ```
-$ python3 scripts/analyze_data.py motor_test_motor<motorid>_<time>.txt 1 --rpm_mode 1
+$ python3 scripts/analyze_data.py <YYYYMMDD>_motor_test_motor<motorid>.txt 1 --rpm_mode 1
 ```
 Add `--if_reverse 1` if the thrust points along -z of the force sensor (the script warns then).
 

@@ -1,5 +1,6 @@
 #include <ros/ros.h>
 #include <cmath>
+#include <ctime>
 #include <fstream>
 #include <mutex>
 #include <geometry_msgs/WrenchStamped.h>
@@ -262,10 +263,21 @@ private:
 
     std::lock_guard<std::mutex> lock(mutex_);
 
-    /* a single tested motor is part of the file name, e.g. motor_test_motor2_<time>.txt */
-    std::string motor_name = (motor_index_ >= 0) ? std::string("motor") + std::to_string(motor_index_) + std::string("_") : std::string("");
-    std::string file_name  = std::string("motor_test_") + motor_name + std::to_string((int)ros::Time::now().toSec()) + std::string(".txt");
+    /* file name: <YYYYMMDD>_motor_test[_motor<index>].txt with the local date, e.g. 20261107_motor_test_motor2.txt.
+       A single tested motor is part of the name. A later test of the same day gets the suffix _2, _3, ... instead of
+       overwriting the earlier log */
+    std::time_t now = ros::Time::now().sec;
+    std::tm local_time;
+    localtime_r(&now, &local_time);
+    char date[9];
+    std::strftime(date, sizeof(date), "%Y%m%d", &local_time);
+    std::string base_name = std::string(date) + std::string("_motor_test") +
+      ((motor_index_ >= 0) ? std::string("_motor") + std::to_string(motor_index_) : std::string(""));
+    std::string file_name = base_name + std::string(".txt");
+    for (int i = 2; std::ifstream(file_name).good(); i++)
+      file_name = base_name + std::string("_") + std::to_string(i) + std::string(".txt");
     ofs_.open(file_name, std::ios::out);
+    ROS_INFO("log file: %s", file_name.c_str());
 
     pwm_value_ = min_pwm_value_;
 
