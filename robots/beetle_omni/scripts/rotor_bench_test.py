@@ -24,8 +24,11 @@ Test plan, each group starts after a short rest at rpm_min:
   chirp     sine with exponentially increasing frequency, excites the rotor dynamics
             over a whole frequency band (e.g. for a Bode plot)
 
-The segment name is published on ~segment and the commanded RPM on ~target_rpm, so a
-recorded bag can be split into training and held-out data afterwards.
+Every RPM change is slew-rate limited to max_rpm_rate. This covers the steps, the transitions
+between segments and the final stop, so the commanded RPM ramps and never jumps.
+
+The segment name is published on ~segment and the commanded (rate-limited) RPM on ~target_rpm,
+so a recorded bag can be split into training and held-out data afterwards.
 
 Usage:
   roslaunch spinal bridge.launch
@@ -35,16 +38,21 @@ Optional args (every field of BenchTestConfig), e.g.:
   _n_steps:=10 _step_hold:=2.0 _seed:=0
   _dry_run:=true               # only print the test plan
 
-When the plan ends or on Ctrl-C, the motors are set to idle and spinal leaves PWM test mode.
+When the plan ends or on Ctrl-C, the RPM ramps down to rpm_min at max_rpm_rate and stays there
+for stop_settle seconds. Then spinal leaves PWM test mode. Press Ctrl-C a second time during the
+ramp-down to stop the motors immediately.
 """
 
 import math
+import os
 import random
 import time
 from dataclasses import dataclass, field, fields
 from typing import Callable, Dict, List, Tuple
 
+import rospkg
 import rospy
+import yaml
 from std_msgs.msg import Float32, String
 
 try:
@@ -75,8 +83,11 @@ class BenchTestConfig:
     start_delay: float = 3.0  # [s] warning period before the motors spin up
 
     # ESC RPM window, must match RPM_MIN / RPM_MAX of the ESC firmware
-    rpm_min: float = 785.0
+    rpm_min: float = 900.0
     rpm_max: float = 13300.0
+    # Rotor protection
+    max_rpm_rate: float = 10000.0  # [RPM/s] slew limit of every commanded RPM change, all segments and the stop
+    stop_settle: float = 1.0  # [s] hold rpm_min after the final ramp-down, before leaving PWM test mode
 
     # Held-out bands: [hover - gap - width, hover - gap] and [hover + gap, hover + gap + width]
     rpm_hover: float = 8000.0
@@ -112,15 +123,29 @@ def as_list(value) -> list:
     return [value]
 
 
+def load_rpm_window(motor_info_file: str) -> Tuple[float, float]:
+    """min_rpm / max_rpm of a MotorInfoDShot.yaml, the RPM window the ESC decodes the PWM onto."""
+    with open(motor_info_file) as f:
+        motor_info = yaml.safe_load(f)["motor_info"]
+    return float(motor_info["min_rpm"]), float(motor_info["max_rpm"])
+
+
 def load_config() -> BenchTestConfig:
-    """Read every BenchTestConfig field from the private ROS namespace (~<field>)."""
+    """Read every BenchTestConfig field from the private ROS namespace (~<field>).
+
+    The RPM window defaults to min_rpm / max_rpm of motor_info_file, explicit _rpm_min / _rpm_max override it.
+    """
     cfg = BenchTestConfig()
+    motor_info_file = os.path.join(rospkg.RosPack().get_path("beetle_omni"), "config", "MotorInfoDShot.yaml")
+    cfg.rpm_min, cfg.rpm_max = load_rpm_window(motor_info_file)
     for f in fields(cfg):
         setattr(cfg, f.name, rospy.get_param("~" + f.name, getattr(cfg, f.name)))
 
     cfg.motor_indices = [int(i) for i in as_list(cfg.motor_indices)]
     cfg.segments = [str(s) for s in as_list(cfg.segments)]
+    cfg.rpm_min, cfg.rpm_max = float(cfg.rpm_min), float(cfg.rpm_max)
     validate_config(cfg)
+    rospy.loginfo("ESC RPM window [%.0f, %.0f] (motor info: %s)", cfg.rpm_min, cfg.rpm_max, motor_info_file)
     return cfg
 
 
@@ -133,6 +158,9 @@ def validate_config(cfg: BenchTestConfig):
     require(not unknown, f"Unknown segments {sorted(unknown)}, choose from {SEGMENT_GROUPS}")
     require(cfg.motor_indices, "motor_indices must not be empty")
     require(cfg.rpm_min < cfg.rpm_max, "rpm_min must be smaller than rpm_max")
+    require(cfg.rate > 0, "rate must be > 0")
+    require(cfg.max_rpm_rate > 0, "max_rpm_rate must be > 0")
+    require(cfg.stop_settle >= 0, "stop_settle must be >= 0")
     require(cfg.heldout_gap > 0, "heldout_gap must be > 0 so that the held-out bands exclude the hover RPM")
     require(
         cfg.rpm_min <= cfg.rpm_hover - cfg.heldout_gap - cfg.heldout_width
@@ -200,6 +228,52 @@ def build_rpm_splits(cfg: BenchTestConfig) -> Tuple[Dict[str, List[RpmBand]], Di
         for name, lo, hi in zip(("low", "middle", "high"), edges[:-1], edges[1:])
     }
     return train_splits, heldout_splits
+
+
+# ---------------------------------------------------------------------------
+# Rotor protection
+# ---------------------------------------------------------------------------
+def clamp_rpm(cfg: BenchTestConfig, rpm: float) -> float:
+    return min(max(rpm, cfg.rpm_min), cfg.rpm_max)
+
+
+class RateLimiter:
+    """Moves the output toward each new target by at most `max_step` per call.
+
+    It is called once per published command. At `rate` Hz, max_step = max_rpm_rate / rate.
+    If the loop runs slower than `rate`, the ramps get slower, which errs on the safe side.
+    """
+
+    def __init__(self, max_step: float, initial: float):
+        self.max_step = max_step
+        self.value = initial
+
+    def __call__(self, target: float) -> float:
+        self.value += min(max(target - self.value, -self.max_step), self.max_step)
+        return self.value
+
+
+def make_rpm_limiter(cfg: BenchTestConfig) -> RateLimiter:
+    # Start at rpm_min: entering PWM test mode with DShot 48 is the smallest command the ESC accepts
+    return RateLimiter(cfg.max_rpm_rate / cfg.rate, cfg.rpm_min)
+
+
+def simulate_rate_limit(cfg: BenchTestConfig, plan: List["Segment"]) -> Tuple[List[float], float]:
+    """Run the plan through the RPM limiter at the nominal publish rate.
+
+    Returns the fraction of each segment during which the commanded RPM differs from the profile
+    (it is still ramping), and the commanded RPM at the end of the plan.
+    """
+    limiter = make_rpm_limiter(cfg)
+    fractions = []
+    for segment in plan:
+        n = max(1, math.ceil(segment.duration * cfg.rate))
+        limited = 0
+        for k in range(n):
+            target = clamp_rpm(cfg, segment.rpm_at(k / cfg.rate))
+            limited += limiter(target) != target
+        fractions.append(limited / n)
+    return fractions, limiter.value
 
 
 # ---------------------------------------------------------------------------
@@ -320,26 +394,47 @@ def build_test_plan(cfg: BenchTestConfig) -> List[Segment]:
 
 
 def log_plan(cfg: BenchTestConfig, plan: List[Segment]):
-    total = sum(s.duration for s in plan)
+    limited_fractions, final_rpm = simulate_rate_limit(cfg, plan)
+    ramp_down = (final_rpm - cfg.rpm_min) / cfg.max_rpm_rate
+    total = sum(s.duration for s in plan) + ramp_down + cfg.stop_settle
     rospy.loginfo(
-        "Rotor bench test: motors %s, seed %d, %d segments, %.1f s in total",
+        "Rotor bench test: motors %s, seed %d, %d segments, %.1f s in total, RPM slew limit %.0f RPM/s",
         cfg.motor_indices,
         cfg.seed,
         len(plan),
         total,
+        cfg.max_rpm_rate,
     )
-    for i, segment in enumerate(plan, 1):
-        rospy.loginfo("  %2d. %-20s %6.1f s  %s", i, segment.name, segment.duration, segment.info)
+    rospy.loginfo("  'ramp' = share of the segment during which the slew limit holds the command off the profile")
+    for i, (segment, limited) in enumerate(zip(plan, limited_fractions), 1):
+        rospy.loginfo(
+            "  %2d. %-20s %6.1f s  ramp %3.0f%%  %s", i, segment.name, segment.duration, 100 * limited, segment.info
+        )
+    rospy.loginfo(
+        "  %2d. %-20s %6.1f s  ramp %.0f -> %.0f RPM, then hold %.0f RPM for %.1f s",
+        len(plan) + 1,
+        "stop",
+        ramp_down + cfg.stop_settle,
+        final_rpm,
+        cfg.rpm_min,
+        cfg.rpm_min,
+        cfg.stop_settle,
+    )
 
 
 # ---------------------------------------------------------------------------
 # ROS interface
 # ---------------------------------------------------------------------------
 class RotorCommandPublisher:
-    """Converts RPM setpoints into spinal PWM test commands and publishes the segment labels."""
+    """Converts RPM setpoints into spinal PWM test commands and publishes the segment labels.
+
+    Every command passes through the RPM slew limiter, so no caller can make the RPM jump.
+    """
 
     def __init__(self, cfg: BenchTestConfig):
         self.cfg = cfg
+        self.limiter = make_rpm_limiter(cfg)
+        self.motors_commanded = False  # True once a PWM test command was sent, i.e. the motors may spin
         self.pwm_pub = rospy.Publisher(cfg.topic, PwmTest, queue_size=10)
         self.rpm_pub = rospy.Publisher("~target_rpm", Float32, queue_size=10)
         self.segment_pub = rospy.Publisher("~segment", String, queue_size=10, latch=True)
@@ -356,19 +451,41 @@ class RotorCommandPublisher:
             rospy.logwarn("No subscriber on %s, is 'roslaunch spinal bridge.launch' running?", self.cfg.topic)
 
     def send_rpm(self, rpm: float):
-        rpm = min(max(rpm, self.cfg.rpm_min), self.cfg.rpm_max)
+        """Command one step toward `rpm`, moving at most max_rpm_rate / rate from the last command."""
+        rpm = self.limiter(clamp_rpm(self.cfg, rpm))
         pwms = [self.rpm_to_pwm(rpm)] * len(self.cfg.motor_indices)
         self.pwm_pub.publish(PwmTest(motor_index=self.cfg.motor_indices, pwms=pwms))
         self.rpm_pub.publish(Float32(rpm))
+        self.motors_commanded = True
 
     def set_segment(self, name: str):
         self.segment_pub.publish(String(name))
 
+    def ramp_down(self):
+        """Ramp to rpm_min at max_rpm_rate, then hold rpm_min for stop_settle seconds."""
+        rospy.loginfo(
+            "Ramping down from %.0f RPM to %.0f RPM (Ctrl-C again to stop immediately)",
+            self.limiter.value,
+            self.cfg.rpm_min,
+        )
+        # Plain sleeps instead of rospy.Rate, so the ramp also runs while rospy is shutting down
+        period = 1.0 / self.cfg.rate
+        while self.limiter.value > self.cfg.rpm_min:
+            self.send_rpm(self.cfg.rpm_min)
+            time.sleep(period)
+        settle_end = time.monotonic() + self.cfg.stop_settle
+        while time.monotonic() < settle_end:
+            self.send_rpm(self.cfg.rpm_min)
+            time.sleep(period)
+
     def stop(self):
-        """Command idle, then send an empty command, which makes spinal leave PWM test mode."""
+        """Ramp down to idle, then send an empty command, which makes spinal leave PWM test mode."""
         self.set_segment("stop")
-        self.send_rpm(self.cfg.rpm_min)
-        time.sleep(0.2)
+        if self.motors_commanded:
+            try:
+                self.ramp_down()
+            except KeyboardInterrupt:
+                rospy.logwarn("Ramp-down aborted by user, stopping the motors immediately")
         self.pwm_pub.publish(PwmTest())
         time.sleep(0.2)  # let the publisher thread flush before the node shuts down
 

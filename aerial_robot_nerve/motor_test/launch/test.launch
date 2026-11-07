@@ -9,7 +9,13 @@
   <!-- parameters for oneshot -->
   <arg name="raise_duration" default="2.0" />
   <arg name="brake_duration" default="4.0" />
+  <!-- rpm mode: for an ESC with closed-loop RPM control, where the pwm value commands a target RPM -->
+  <arg name="rpm_mode" default="false" />
   <arg name="has_dshot_telemetry" default="false" />
+  <arg name="calib_read_new_frames" default="false" /> <!-- force sensor calibration averages new frames -->
+  <!-- -1: all motors; 0, 1, ...: only this motor, index as in spinal/PwmTest (0 is M1), also selects its ESC telemetry -->
+  <arg name="motor_index" default="-1" />
+  <arg name="pwm_ramp_rate" default="0.0" /> <!-- [pwm value / s] rate limit of the command, also at start and stop; 0: no ramp -->
 
   <arg name="force_sensor" default="CFS034CA301U" /> <!-- other sensor: PFS055YA501U6 -->
 
@@ -17,6 +23,7 @@
 
   <node name="forces_node" pkg="cfs_sensor" type="cfs_node"  output="screen" >
     <rosparam file="$(find cfs_sensor)/config/$(arg force_sensor).yaml" command="load" />
+    <param name="calib_read_new_frames" value="$(arg calib_read_new_frames)" />
   </node>
 
 <!--  <include file="$(find rosserial_server)/launch/serial.launch" >-->
@@ -36,5 +43,8 @@
     <param name="raise_duration" value="$(arg raise_duration)" />
     <param name="brake_duration" value="$(arg brake_duration)" />
     <param name="has_dshot_telemetry" value="$(arg has_dshot_telemetry)" />
+    <param name="rpm_mode" value="$(arg rpm_mode)" />
+    <param name="motor_index" value="$(arg motor_index)" />
+    <param name="pwm_ramp_rate" value="$(arg pwm_ramp_rate)" />
   </node>
 </launch>
