@@ -18,6 +18,8 @@
   <arg name="pwm_ramp_rate" default="0.0" /> <!-- [pwm value / s] rate limit of the command, also at start and stop; 0: no ramp -->
 
   <arg name="force_sensor" default="CFS034CA301U" /> <!-- other sensor: PFS055YA501U6 -->
+  <!-- directory of the log files: motor_test_results/ in the root of the catkin workspace (<ws>/src/jsk_aerial_robot/aerial_robot_nerve/motor_test) -->
+  <arg name="log_dir" default="$(find motor_test)/../../../../motor_test_results" />
 
   <node name="power_node"  pkg="takasako_sps" type="scpi_tcp_client_node" output="screen" />
 
@@ -46,5 +48,6 @@
     <param name="rpm_mode" value="$(arg rpm_mode)" />
     <param name="motor_index" value="$(arg motor_index)" />
     <param name="pwm_ramp_rate" value="$(arg pwm_ramp_rate)" />
+    <param name="log_dir" value="$(arg log_dir)" />
   </node>
 </launch>

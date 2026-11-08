@@ -1,6 +1,7 @@
 #include <ros/ros.h>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <geometry_msgs/WrenchStamped.h>
@@ -86,6 +87,19 @@ public:
 
     ROS_WARN("run: %f, raise: %f, brake: %f", run_duration_, raise_duration_, brake_duration_);
 
+    /* directory of the log files, created if missing. test.launch sets motor_test_results/ in the root of the catkin
+       workspace. Empty: the working directory of the node, i.e. ~/.ros/ with roslaunch and rosrun */
+    nhp_.param("log_dir", log_dir_, std::string(""));
+    if (!log_dir_.empty())
+      {
+        log_dir_ = std::filesystem::path(log_dir_).lexically_normal().string();
+        std::error_code ec;
+        std::filesystem::create_directories(log_dir_, ec);
+        if (ec)
+          ROS_ERROR("Failed to create log dir %s: %s", log_dir_.c_str(), ec.message().c_str());
+      }
+    ROS_WARN("log dir: %s", log_dir_.empty() ? "working directory" : log_dir_.c_str());
+
     calib_client_ = nh_.serviceClient<std_srvs::Empty>("/cfs_sensor_calib");
 
     /* rpm mode: wait for the force sensor node, a call before it advertises the service fails and leaves the sensor uncalibrated */
@@ -154,6 +168,7 @@ private:
   float currency_ = 0.0;
   ros::Time init_time_;
 
+  std::string log_dir_; // empty: working directory
   std::ofstream ofs_;
 
   /* dshot measurement */
@@ -269,8 +284,13 @@ private:
     localtime_r(&now, &local_time);
     char date_time[14];
     std::strftime(date_time, sizeof(date_time), "%Y%m%d_%H%M", &local_time);
-    std::string file_name = std::string(date_time) + std::string("_motor_test.txt");
+    std::string file_name = (std::filesystem::path(log_dir_) / (std::string(date_time) + "_motor_test.txt")).string();
     ofs_.open(file_name, std::ios::out);
+    if (!ofs_.is_open())
+      {
+        ROS_ERROR("Failed to open log file %s, do not start pwm test", file_name.c_str());
+        return;
+      }
     ROS_INFO("log file: %s", file_name.c_str());
 
     pwm_value_ = min_pwm_value_;

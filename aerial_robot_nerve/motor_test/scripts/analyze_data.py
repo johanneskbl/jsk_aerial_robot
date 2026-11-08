@@ -1,10 +1,13 @@
 import argparse
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 RPM_TO_RAD_S = 2 * np.pi / 60  # [rad/s] per [RPM]
 KRPM_TO_RAD_S = 1000 * RPM_TO_RAD_S  # [rad/s] per [kRPM]
+# log_dir of test.launch: motor_test_results/ in the root of the catkin workspace (<ws>/src/jsk_aerial_robot/aerial_robot_nerve/motor_test/scripts)
+LOG_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), *[os.pardir] * 5, 'motor_test_results'))
 
 
 def rms(residual):
@@ -39,7 +42,7 @@ def fit_two_term(x, y):
 
 
 def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_reverse):
-    file_path = folder_path + file_name
+    file_path = os.path.join(os.path.expanduser(folder_path), file_name)
     column_names = []
     if not has_telemetry:
         column_names = ["PWM", "fx", "fy", "fz", "f_norm", "mx", "my", "mz", "currency", "State"]
@@ -258,7 +261,7 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
     kRPM is the mean RPM of the step / 1000, whose variation within the step is small enough that
     mean(kRPM^s) = mean(kRPM)^s.
     '''
-    file_path = folder_path + file_name
+    file_path = os.path.join(os.path.expanduser(folder_path), file_name)
     column_names = ["PWM", "fx", "fy", "fz", "f_norm", "mx", "my", "mz", "currency", "RPM", "temperature", "voltage", "State", "time"]
 
     data = pd.read_csv(file_path, sep=' ', names=column_names)
@@ -502,7 +505,7 @@ if __name__ == '__main__':
     parser.add_argument('has_telemetry', help='has telemetry, 0 or 1')
     parser.add_argument("--set_voltage", "-s", help="the voltage set in the test, float", default=0.0)
     parser.add_argument("--order", "-o", help="fitting order of fz vs PWM_ratio", default=2)
-    parser.add_argument('--folder_path', "-f", help='path to folder', default='~/.ros/')
+    parser.add_argument('--folder_path', "-f", help='path to folder, default: motor_test_results/ of the workspace', default=LOG_DIR)
     parser.add_argument('--if_reverse', "-r", help='if the force sensor is reversed,0 or 1', default='0')
     parser.add_argument('--rpm_mode', "-m", help='identify f = k_t * Omega^2 and tau = k_tau * Omega^2 from a test in rpm mode, 0 or 1', default='0')
     parser.add_argument('--zero_samples', "-z", help='rpm mode: number of rows at rest at the end of each brake phase for the zero reference, int', default=50)
