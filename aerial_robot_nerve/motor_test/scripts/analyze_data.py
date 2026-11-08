@@ -248,10 +248,12 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
 
     Each step (one PWM value, i.e. one target RPM) is reduced to the mean of its 'valid' rows minus the zero offset of
     the force sensor at that time. The calibration right before the step zeroes the sensor (offset 0 at the first row
-    of the step), and the last zero_samples 'brake' rows of the step in which the ESC reports RPM 0 (the rotor turns too
-    slowly for the ESC to detect, if at all) measure the offset again. In between, the offset is interpolated linearly
-    in time (column 'time', the mean time of the rows). This removes a linear drift of the sensor during the step,
-    which the rest rows alone would overcorrect, as they come after the valid rows.
+    of the step, up to the noise of the single frame that the calibration of cfs_sensor takes as offset), and the last
+    zero_samples 'brake' rows of the step in which the ESC reports RPM 0 (the rotor turns too slowly for the ESC to
+    detect, if at all) measure the offset again. In between, the offset is interpolated linearly in time (column
+    'time', the mean time of the rows). This removes a linear drift of the sensor during the step, which the rest rows
+    alone would overcorrect, as they come after the valid rows. The noise of the calibration frame remains as a random
+    error of each step, which averages out over the steps instead of biasing the fit.
     Both fits go through the origin, since the model has no bias.
 
     In addition, two models, both fitted through the origin by the RMS of the absolute residual, check whether the

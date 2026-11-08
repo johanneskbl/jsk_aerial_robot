@@ -177,7 +177,7 @@ private:
   int temperature_ = 0;
   float voltage_ = 0.0;
 
-  /* Zero the force sensor. The call blocks while the sensor node averages (~1 s), the rotor must be at rest meanwhile */
+  /* Zero the force sensor. The call blocks for ~1 s in the sensor node, the rotor must be at rest meanwhile */
   bool calibrateForceSensor()
   {
     std_srvs::Empty srv;

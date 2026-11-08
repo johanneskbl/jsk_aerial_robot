@@ -29,7 +29,6 @@
    - `motor_index`: -1 (default) commands all motors at once and records the ESC telemetry of motor 0. `0, 1, ...` command only the given motor and records its ESC telemetry.
    - `pwm_ramp_rate`: [pwm value / s] limits the rate of change of the command, also from and to `stop_pwm_value` when the motor starts and stops. The phases `raise`, `valid` and `brake` only count when a ramp is done, and in one-shot mode the log labels the rows of the ramps `ramp`. 0 (default) disables it, the command jumps.
    - `has_dshot_telemetry`: logs RPM, temperature and voltage from the ESC of the tested motor (default: false).
-   - `calib_read_new_frames`: the force sensor calibration averages 1 s of new frames, instead of the latest frame repeated 50 times (default: false).
    - `log_dir`: the directory of the log files `<YYYYMMDD>_<HHMM>_motor_test.txt`, created if missing. Default: `motor_test_results/` in the root of the catkin workspace, e.g. `jojo_ws/motor_test_results/`.
 
    **sample**:
@@ -60,7 +59,7 @@ e.g. for an RPM window of 900 / 13300 RPM: target RPM ≈ 900 + 12.4 * (pwm valu
 - waits for the force sensor node and zeroes the force sensor right before the first step.
 - adds the time stamp of each force measurement as the last column of the log.
 
-Combine it with `has_dshot_telemetry:=true` (the measured RPM to identify the rotor with), `calib_read_new_frames:=true` and a `pwm_ramp_rate`. The rotor must be at rest when the test starts, i.e. spinal outside the pwm test mode.
+Combine it with `has_dshot_telemetry:=true` (the measured RPM to identify the rotor with) and a `pwm_ramp_rate`. The rotor must be at rest when the test starts, i.e. spinal outside the pwm test mode.
 
 **step by step**:
 1. The RPM window of the ESC firmware (AM32 `MINIMUM_RPM_SPEED_CONTROL` / `MAXIMUM_RPM_SPEED_CONTROL`) defines the RPM of a pwm value, see above. The motor pole count of the ESC and of spinal (`num_motor_mag_pole_` in `dshot.cpp`) must both equal the magnet pole count of the motor.
@@ -69,9 +68,9 @@ Combine it with `has_dshot_telemetry:=true` (the measured RPM to identify the ro
 4. Only if the force sensor is not `/dev/ttyACM0`: `rosparam set /cfs_device_name /dev/ttyACM1`.
 5. Terminal 2:
    ```
-   $ roslaunch motor_test test.launch force_sensor:=PFS055YA501U6 rpm_mode:=true has_dshot_telemetry:=true calib_read_new_frames:=true motor_index:=2 pwm_ramp_rate:=200 min_pwm_value:=1000 max_pwm_value:=1900 pwm_incremental_value:=50 raise_duration:=1.0 run_duration:=2.0 brake_duration:=4.0
+   $ roslaunch motor_test test.launch force_sensor:=PFS055YA501U6 rpm_mode:=true has_dshot_telemetry:=true motor_index:=2 pwm_ramp_rate:=200 min_pwm_value:=1000 max_pwm_value:=1900 pwm_incremental_value:=50 raise_duration:=1.0 run_duration:=2.0 brake_duration:=4.0
    ```
-   The output shows the parameters, `Averaged ... new frames` and `done force sensor init calib`. Without a Takasago power supply, `power_node` fails, which does not matter (the column `currency` stays 0). `rostopic hz /cfs/data` should show about 100 Hz.
+   The output shows the parameters, `Force Sensor calibration succeeded.` and `done force sensor init calib`. Without a Takasago power supply, `power_node` fails, which does not matter (the column `currency` stays 0). `rostopic hz /cfs/data` should show about 100 Hz.
 6. Optional, terminal 3: `rosbag record -a`.
 7. Terminal 3: `rostopic pub -1 /start_log_cmd std_msgs/Empty "{}"`. Each step ramps up, settles (`raise`), measures (`valid`), ramps down, stops, coasts (`brake`) and zeroes the force sensor. The node prints `finish pwm test` at the end.
 8. To abort: stopping `motor_test` does **not** stop the motor, spinal holds the last command. Send `rostopic pub -1 /pwm_test spinal/PwmTest "{}"` (DShot 0 right away), or cut the power.
@@ -83,7 +82,7 @@ $ python3 scripts/analyze_data.py <YYYYMMDD>_<HHMM>_motor_test.txt 1 --rpm_mode 
 ```
 The script reads the log from `motor_test_results/` of the workspace, `--folder_path <dir>` reads it from another directory. Add `--if_reverse 1` if the thrust points along -z of the force sensor (the script warns then).
 
-Each step is the mean of its `valid` rows minus the zero offset of the force sensor at that time: the calibration zeroes the sensor right before the step, the last `--zero_samples` (default: 50) `brake` rows of the step at rest (RPM 0) measure the offset again, and in between the offset is interpolated linearly in time to remove the drift. Both fits go through the origin. The script also prints the rows per second: the force sensor node aims at 100 Hz, but publishes fewer frames if the sensor sends at about 1 or 2 kHz. The script also prints `k_t` in N/kRPM^2 (`krpm_square_to_thrust_ratio` with `krpm_square_to_thrust_bias: 0`) and `k_tau / k_t` (`m_f_rate`).
+Each step is the mean of its `valid` rows minus the zero offset of the force sensor at that time: the calibration zeroes the sensor right before the step (with a single frame, whose noise remains as a random error of the step), the last `--zero_samples` (default: 50) `brake` rows of the step at rest (RPM 0) measure the offset again, and in between the offset is interpolated linearly in time to remove the drift. Both fits go through the origin. The script also prints the rows per second: the force sensor node aims at 100 Hz, but publishes fewer frames if the sensor sends at about 1 or 2 kHz. The script also prints `k_t` in N/kRPM^2 (`krpm_square_to_thrust_ratio` with `krpm_square_to_thrust_bias: 0`) and `k_tau / k_t` (`m_f_rate`).
 
 ## General calib for ESC:
 

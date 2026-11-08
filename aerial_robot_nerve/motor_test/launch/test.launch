@@ -12,7 +12,6 @@
   <!-- rpm mode: for an ESC with closed-loop RPM control, where the pwm value commands a target RPM -->
   <arg name="rpm_mode" default="false" />
   <arg name="has_dshot_telemetry" default="false" />
-  <arg name="calib_read_new_frames" default="false" /> <!-- force sensor calibration averages new frames -->
   <!-- -1: all motors; 0, 1, ...: only this motor, index as in spinal/PwmTest (0 is M1), also selects its ESC telemetry -->
   <arg name="motor_index" default="-1" />
   <arg name="pwm_ramp_rate" default="0.0" /> <!-- [pwm value / s] rate limit of the command, also at start and stop; 0: no ramp -->
@@ -25,7 +24,6 @@
 
   <node name="forces_node" pkg="cfs_sensor" type="cfs_node"  output="screen" >
     <rosparam file="$(find cfs_sensor)/config/$(arg force_sensor).yaml" command="load" />
-    <param name="calib_read_new_frames" value="$(arg calib_read_new_frames)" />
   </node>
 
 <!--  <include file="$(find rosserial_server)/launch/serial.launch" >-->
