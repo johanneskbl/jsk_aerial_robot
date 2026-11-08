@@ -239,31 +239,12 @@ def analyze_data(folder_path, file_name, has_telemetry, set_voltage, order, if_r
     plt.show()
 
 
-def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, exponent_range=(1.5, 3.0, 0.001)):
+def reduce_steps_rpm_mode(file_path, if_reverse, zero_samples):
     '''
-    Identify the rotor as f_t = k_t * Omega^2 and tau_t = k_tau * Omega^2, with Omega [rad/s] the rotor speed that
-    the ESC of the tested motor measures (motor_index of motor_test, motor 0 if all motors are tested), from a one-shot
-    test with dshot telemetry in rpm mode (test.launch rpm_mode:=true has_dshot_telemetry:=true).
-    Rows of the ramps ('ramp', with pwm_ramp_rate > 0) and of the settling ('raise') are not used.
-
-    Each step (one PWM value, i.e. one target RPM) is reduced to the mean of its 'valid' rows minus the zero offset of
-    the force sensor at that time. The calibration right before the step zeroes the sensor (offset 0 at the first row
-    of the step, up to the noise of the single frame that the calibration of cfs_sensor takes as offset), and the last
-    zero_samples 'brake' rows of the step in which the ESC reports RPM 0 (the rotor turns too slowly for the ESC to
-    detect, if at all) measure the offset again. In between, the offset is interpolated linearly in time (column
-    'time', the mean time of the rows). This removes a linear drift of the sensor during the step, which the rest rows
-    alone would overcorrect, as they come after the valid rows. The noise of the calibration frame remains as a random
-    error of each step, which averages out over the steps instead of biasing the fit.
-    Both fits go through the origin, since the model has no bias.
-
-    In addition, two models, both fitted through the origin by the RMS of the absolute residual, check whether the
-    thrust grows faster than quadratically:
-    - fz = k * kRPM^s, fitted for each exponent s of the grid exponent_range = (s_min, s_max, s_step)
-    - fz = a * kRPM^2 + b * kRPM^3
-    kRPM is the mean RPM of the step / 1000, whose variation within the step is small enough that
-    mean(kRPM^s) = mean(kRPM)^s.
+    Read the log of a one-shot test in rpm mode and reduce each step to the zero-corrected means of its 'valid' rows,
+    see analyze_data_rpm_mode().
+    Returns a DataFrame with one row per step.
     '''
-    file_path = os.path.join(os.path.expanduser(folder_path), file_name)
     column_names = ["PWM", "fx", "fy", "fz", "f_norm", "mx", "my", "mz", "currency", "RPM", "temperature", "voltage", "State", "time"]
 
     data = pd.read_csv(file_path, sep=' ', names=column_names)
@@ -273,7 +254,7 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
     data['PWM'] = data['PWM'].astype(int)
 
     if data['time'].isna().any():
-        raise SystemExit("No column 'time': the log is not from motor_test in rpm mode with telemetry and one-shot mode")
+        raise SystemExit("{}: no column 'time': the log is not from motor_test in rpm mode with telemetry and one-shot mode".format(file_path))
 
     # The force sensor node aims at 100 Hz, but the rate drops if the sensor sends about 1 or 2 kHz
     print("Force sensor rows: {:.1f} per second on average".format(len(data) / (data['time'].iloc[-1] - data['time'].iloc[0])))
@@ -284,8 +265,6 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
 
     # Squared rotor speed per row: each step averages Omega^2, not the square of its mean Omega
     data['Omega^2'] = (data['RPM'] * RPM_TO_RAD_S) ** 2
-
-    ''' reduce each step to its zero-corrected means '''
 
     steps = []
     for pwm, step_data in data.groupby('PWM'):
@@ -316,6 +295,7 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
                       "RPM": valid_data['RPM'].mean(),
                       "RPM_std": valid_data['RPM'].std(),
                       "Omega^2": valid_data['Omega^2'].mean(),
+                      "voltage": valid_data['voltage'].mean(),  # measured by the ESC
                       "rest_rows": len(rest_data),
                       "fz_rest": fz_rest,  # offset at the end of the step, i.e. the drift since the calibration
                       "mz_rest": mz_rest,
@@ -323,14 +303,20 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
                       "mz": valid_data['mz'].mean() - mz_zero})
 
     if len(steps) < 2:
-        raise SystemExit("Less than two steps with 'valid' rows: is the log from the one-shot mode with telemetry?")
+        raise SystemExit("{}: less than two steps with 'valid' rows: is the log from the one-shot mode with telemetry?".format(file_path))
 
     steps = pd.DataFrame(steps)
     print(steps.to_string(index=False, float_format=lambda value: "{:.5g}".format(value)))
     print()
+    return steps
 
-    ''' fit the data '''
 
+def fit_rpm_mode(steps, exponent_range):
+    '''
+    Fit fz = k_t * Omega^2 and mz = k_tau * Omega^2, fz = k * kRPM^s for the grid of exponents s and
+    fz = a * kRPM^2 + b * kRPM^3 to the steps of reduce_steps_rpm_mode(), see analyze_data_rpm_mode(), and print them.
+    Returns a dict with the fits.
+    '''
     omega2 = steps['Omega^2'].to_numpy()
     fz = steps['fz'].to_numpy()
     mz = steps['mz'].to_numpy()
@@ -396,53 +382,98 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
     print("RMS residual: {:.4f}  # N".format(rms_two_term))
     print()
 
-    ''' plot the data '''
+    return {"k_t": k_t, "k_tau": k_tau, "fit_eq_fz": fit_eq_fz, "fit_eq_mz": fit_eq_mz,
+            "rms_fz": rms(fz_residual), "rms_mz": rms(mz_residual),
+            "exponents": exponents, "rms_s": rms_s, "i_best": i_best, "s_best": s_best, "k_best": k_best,
+            "fit_eq_power": fit_eq_power,
+            "a_2": a_2, "b_3": b_3, "rms_two_term": rms_two_term, "fit_eq_two_term": fit_eq_two_term}
+
+
+# Combined plots: categorical colors in fixed order, plus a marker per file since the steps of all files lie on top of
+# each other (same target RPM). 8 colors x 7 markers give 56 distinct combinations.
+SERIES_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948']
+SERIES_MARKERS = ['o', 's', '^', 'D', 'v', 'P', 'X']
+
+
+def plot_rpm_mode(steps, fit, title):
+    '''
+    Plot the fits of fit_rpm_mode() in two figures: the fits of fz and mz vs Omega^2 with their residuals, and the fits
+    of fz vs kRPM with the sweep of the exponent s.
+    If the column 'file' of steps holds more than one file (combined fit), the points get a color and marker per file,
+    the fits are black and the residuals are those of the combined fit.
+    '''
+    omega2 = steps['Omega^2'].to_numpy()
+    fz = steps['fz'].to_numpy()
+    mz = steps['mz'].to_numpy()
+    rpm = steps['RPM'].to_numpy()
+    kRPM = rpm / 1000
+    k_t, k_tau = fit['k_t'], fit['k_tau']
+    exponents, rms_s, i_best, s_best, k_best = fit['exponents'], fit['rms_s'], fit['i_best'], fit['s_best'], fit['k_best']
+    a_2, b_3 = fit['a_2'], fit['b_3']
+
+    # Groups of points: (label, mask, scatter style)
+    files = pd.unique(steps['file']) if 'file' in steps else []
+    combined = len(files) > 1
+    if combined:
+        groups = [(name, (steps['file'] == name).to_numpy(),
+                   dict(facecolors='none', edgecolors=SERIES_COLORS[i % len(SERIES_COLORS)],
+                        marker=SERIES_MARKERS[i % len(SERIES_MARKERS)], linewidths=1.2))
+                  for i, name in enumerate(files)]
+        fit_color, fit_label = 'black', 'Combined fit'
+    else:
+        groups = [('Data points', np.ones(len(steps), dtype=bool), dict(color='blue', alpha=0.5))]
+        fit_color, fit_label = 'red', 'Fitted line'
+    legend_size = 'small' if combined else None
+
+    def scatter_groups(ax, x, y):
+        for label, mask, style in groups:
+            ax.scatter(x[mask], y[mask], label=label, **style)
 
     omega2_line = np.linspace(0, np.max(omega2), 100)
 
     # Create 2x2 subplots
     fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+    fig.canvas.manager.set_window_title(title + ': Omega^2 fit')
 
     # Plot 1: x:Omega^2 y:fz
-    axs[0, 0].scatter(omega2, fz, color='blue', alpha=0.5, label='Data points')
-    axs[0, 0].plot(omega2_line, k_t * omega2_line, color='red', label='Fitted line')
+    scatter_groups(axs[0, 0], omega2, fz)
+    axs[0, 0].plot(omega2_line, k_t * omega2_line, color=fit_color, label=fit_label)
     axs[0, 0].set_title('fz vs Omega^2')
     axs[0, 0].set_xlabel('Omega^2 ((rad/s)^2)')
     axs[0, 0].set_ylabel('fz (N)')
     axs[0, 0].grid()
-    axs[0, 0].legend(loc='upper left')
-    axs[0, 0].text(0.95, 0.05, fit_eq_fz, horizontalalignment='right', verticalalignment='bottom',
+    axs[0, 0].legend(loc='upper left', fontsize=legend_size)
+    axs[0, 0].text(0.95, 0.05, fit['fit_eq_fz'], horizontalalignment='right', verticalalignment='bottom',
                    transform=axs[0, 0].transAxes, fontsize=10, color='green')
 
     # Plot 2: x:Omega^2 y:mz
-    axs[0, 1].scatter(omega2, mz, color='blue', alpha=0.5, label='Data points')
-    axs[0, 1].plot(omega2_line, k_tau * omega2_line, color='red', label='Fitted line')
+    scatter_groups(axs[0, 1], omega2, mz)
+    axs[0, 1].plot(omega2_line, k_tau * omega2_line, color=fit_color, label=fit_label)
     axs[0, 1].set_title('mz vs Omega^2')
     axs[0, 1].set_xlabel('Omega^2 ((rad/s)^2)')
     axs[0, 1].set_ylabel('mz (N*m)')
     axs[0, 1].grid()
-    axs[0, 1].legend(loc='upper left')
-    axs[0, 1].text(0.95, 0.05, fit_eq_mz, horizontalalignment='right', verticalalignment='bottom',
+    axs[0, 1].legend(loc='upper left', fontsize=legend_size)
+    axs[0, 1].text(0.95, 0.05, fit['fit_eq_mz'], horizontalalignment='right', verticalalignment='bottom',
                    transform=axs[0, 1].transAxes, fontsize=10, color='green')
 
     # Plot 3: residual of fz vs RPM
-    axs[1, 0].scatter(steps['RPM'], fz_residual, color='blue', alpha=0.5)
-    axs[1, 0].axhline(0, color='red')
+    scatter_groups(axs[1, 0], rpm, fz - k_t * omega2)
+    axs[1, 0].axhline(0, color=fit_color)
     axs[1, 0].set_title('fz residual vs RPM')
     axs[1, 0].set_xlabel('RPM')
     axs[1, 0].set_ylabel('fz - k_t * Omega^2 (N)')
     axs[1, 0].grid()
 
     # Plot 4: residual of mz vs RPM
-    axs[1, 1].scatter(steps['RPM'], mz_residual, color='blue', alpha=0.5)
-    axs[1, 1].axhline(0, color='red')
+    scatter_groups(axs[1, 1], rpm, mz - k_tau * omega2)
+    axs[1, 1].axhline(0, color=fit_color)
     axs[1, 1].set_title('mz residual vs RPM')
     axs[1, 1].set_xlabel('RPM')
     axs[1, 1].set_ylabel('mz - k_tau * Omega^2 (N*m)')
     axs[1, 1].grid()
 
-    # title with the file name
-    fig.suptitle(file_name)
+    fig.suptitle(title)
     fig.tight_layout()
 
     ''' plot the fits: k * kRPM^2 (the fit of fz vs Omega^2 above), k * kRPM^s with the best s, a * kRPM^2 + b * kRPM^3 '''
@@ -457,26 +488,27 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
     label_two_term = 'a * kRPM^2 + b * kRPM^3'
 
     fig_s, axs_s = plt.subplots(1, 3, figsize=(18, 5))
+    fig_s.canvas.manager.set_window_title(title + ': exponent sweep')
 
     # Plot 1: x:kRPM y:fz
-    axs_s[0].scatter(kRPM, fz, color='blue', alpha=0.5, label='Data points')
+    scatter_groups(axs_s[0], kRPM, fz)
     axs_s[0].plot(kRPM_line, k_2 * kRPM_line ** 2, color='gray', linestyle='--', label=label_2)
-    axs_s[0].plot(kRPM_line, k_best * kRPM_line ** s_best, color='red', label=label_power)
+    axs_s[0].plot(kRPM_line, k_best * kRPM_line ** s_best, color=fit_color, label=label_power)
     axs_s[0].plot(kRPM_line, a_2 * kRPM_line ** 2 + b_3 * kRPM_line ** 3, color='purple', linestyle='-.',
                   label=label_two_term)
     axs_s[0].set_title('fz vs kRPM')
     axs_s[0].set_xlabel('kRPM')
     axs_s[0].set_ylabel('fz (N)')
     axs_s[0].grid()
-    axs_s[0].legend(loc='upper left')
-    axs_s[0].text(0.95, 0.05, fit_eq_power + '\n' + fit_eq_two_term, horizontalalignment='right',
+    axs_s[0].legend(loc='upper left', fontsize=legend_size)
+    axs_s[0].text(0.95, 0.05, fit['fit_eq_power'] + '\n' + fit['fit_eq_two_term'], horizontalalignment='right',
                   verticalalignment='bottom', transform=axs_s[0].transAxes, fontsize=10, color='green')
 
     # Plot 2: RMS residual vs exponent
     axs_s[1].plot(exponents, rms_s, color='blue')
     axs_s[1].scatter([2.0], [rms(fz - model_2)], color='gray', zorder=3, label=label_2)
-    axs_s[1].scatter([s_best], [rms_s[i_best]], color='red', zorder=3, label=label_power)
-    axs_s[1].axhline(rms_two_term, color='purple', linestyle='-.', label=label_two_term)
+    axs_s[1].scatter([s_best], [rms_s[i_best]], color=fit_color, zorder=3, label=label_power)
+    axs_s[1].axhline(fit['rms_two_term'], color='purple', linestyle='-.', label=label_two_term)
     axs_s[1].set_title('RMS residual of fz = k * kRPM^s vs s')
     axs_s[1].set_xlabel('s')
     axs_s[1].set_ylabel('RMS residual (N)')
@@ -484,18 +516,89 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
     axs_s[1].legend(loc='upper center')
 
     # Plot 3: residual of fz vs kRPM
-    axs_s[2].scatter(kRPM, fz - model_2, color='gray', marker='s', alpha=0.7, label=label_2)
-    axs_s[2].scatter(kRPM, fz - model_power, color='red', alpha=0.7, label=label_power)
-    axs_s[2].scatter(kRPM, fz - model_two_term, color='purple', marker='^', alpha=0.7, label=label_two_term)
+    if combined:
+        # Residual of the best power law per file: shows if the files deviate systematically from the combined fit.
+        # The residual of k * kRPM^2 per file is the residual of k_t * Omega^2 in the other figure.
+        scatter_groups(axs_s[2], kRPM, fz - model_power)
+        axs_s[2].set_title('fz residual of {} vs kRPM'.format(label_power))
+    else:
+        axs_s[2].scatter(kRPM, fz - model_2, color='gray', marker='s', alpha=0.7, label=label_2)
+        axs_s[2].scatter(kRPM, fz - model_power, color='red', alpha=0.7, label=label_power)
+        axs_s[2].scatter(kRPM, fz - model_two_term, color='purple', marker='^', alpha=0.7, label=label_two_term)
+        axs_s[2].set_title('fz residual vs kRPM')
+        axs_s[2].legend(loc='upper left')
     axs_s[2].axhline(0, color='black', linewidth=0.8)
-    axs_s[2].set_title('fz residual vs kRPM')
     axs_s[2].set_xlabel('kRPM')
     axs_s[2].set_ylabel('fz - model (N)')
     axs_s[2].grid()
-    axs_s[2].legend(loc='upper left')
 
-    fig_s.suptitle(file_name)
+    fig_s.suptitle(title)
     fig_s.tight_layout()
+
+
+def analyze_data_rpm_mode(folder_path, file_names, if_reverse, zero_samples, exponent_range=(1.5, 3.0, 0.001)):
+    '''
+    Identify the rotor as f_t = k_t * Omega^2 and tau_t = k_tau * Omega^2, with Omega [rad/s] the rotor speed that
+    the ESC of the tested motor measures (motor_index of motor_test, motor 0 if all motors are tested), from one-shot
+    tests with dshot telemetry in rpm mode (test.launch rpm_mode:=true has_dshot_telemetry:=true).
+    Rows of the ramps ('ramp', with pwm_ramp_rate > 0) and of the settling ('raise') are not used.
+
+    Each step (one PWM value, i.e. one target RPM) is reduced to the mean of its 'valid' rows minus the zero offset of
+    the force sensor at that time. The calibration right before the step zeroes the sensor (offset 0 at the first row
+    of the step, up to the noise of the single frame that the calibration of cfs_sensor takes as offset), and the last
+    zero_samples 'brake' rows of the step in which the ESC reports RPM 0 (the rotor turns too slowly for the ESC to
+    detect, if at all) measure the offset again. In between, the offset is interpolated linearly in time (column
+    'time', the mean time of the rows). This removes a linear drift of the sensor during the step, which the rest rows
+    alone would overcorrect, as they come after the valid rows. The noise of the calibration frame remains as a random
+    error of each step, which averages out over the steps instead of biasing the fit.
+    Both fits go through the origin, since the model has no bias.
+
+    In addition, two models, both fitted through the origin by the RMS of the absolute residual, check whether the
+    thrust grows faster than quadratically:
+    - fz = k * kRPM^s, fitted for each exponent s of the grid exponent_range = (s_min, s_max, s_step)
+    - fz = a * kRPM^2 + b * kRPM^3
+    kRPM is the mean RPM of the step / 1000, whose variation within the step is small enough that
+    mean(kRPM^s) = mean(kRPM)^s.
+
+    Each file of file_names is fitted and plotted on its own. With more than one file, e.g. tests at different supply
+    voltages, the steps of all files are also fitted together (each step one point, i.e. files with the same steps
+    weigh the same), plotted with a color per file, and a table compares the fits of the files with the combined fit.
+    '''
+    all_steps = []
+    fits = []
+    for file_name in file_names:
+        label = os.path.splitext(os.path.basename(file_name))[0]
+        print("=" * 30 + " " + label + " " + "=" * 30)
+        steps = reduce_steps_rpm_mode(os.path.join(os.path.expanduser(folder_path), file_name), if_reverse, zero_samples)
+        fit = fit_rpm_mode(steps, exponent_range)
+        plot_rpm_mode(steps, fit, file_name)
+        steps.insert(0, 'file', label)
+        all_steps.append(steps)
+        fits.append((label, steps, fit))
+
+    if len(file_names) > 1:
+        label = "combined ({} files)".format(len(file_names))
+        print("=" * 30 + " " + label + " " + "=" * 30)
+        steps = pd.concat(all_steps, ignore_index=True)
+        fit = fit_rpm_mode(steps, exponent_range)
+        plot_rpm_mode(steps, fit, label)
+        fits.append(("combined", steps, fit))
+
+        # Compare the fits of the files with the combined fit
+        summary = pd.DataFrame([{"file": label,
+                                 "steps": len(steps),
+                                 "V_esc": steps['voltage'].mean(),
+                                 "k_t [N/kRPM^2]": fit['k_t'] * KRPM_TO_RAD_S ** 2,
+                                 "RMS [N]": fit['rms_fz'],
+                                 "k_tau [N*m/kRPM^2]": fit['k_tau'] * KRPM_TO_RAD_S ** 2,
+                                 "k_tau/k_t [m]": fit['k_tau'] / fit['k_t'],
+                                 "s_best": fit['s_best'],
+                                 "k_s [N/kRPM^s]": fit['k_best'],
+                                 "RMS_s [N]": fit['rms_s'][fit['i_best']]} for label, steps, fit in fits])
+        print("Summary (V_esc: mean voltage that the ESC measures in the valid rows; RMS: of fz = k_t * Omega^2; "
+              "RMS_s: of fz = k_s * kRPM^s_best)")
+        print(summary.to_string(index=False, float_format=lambda value: "{:.5g}".format(value)))
+        print()
 
     plt.show()
 
@@ -503,7 +606,8 @@ def analyze_data_rpm_mode(folder_path, file_name, if_reverse, zero_samples, expo
 if __name__ == '__main__':
     # pass text file name as argument
     parser = argparse.ArgumentParser()
-    parser.add_argument('file_name', help='file name')
+    parser.add_argument('file_names', nargs='+', metavar='file_name',
+                        help='one or more file names; in rpm mode, the files are also fitted together')
     parser.add_argument('has_telemetry', help='has telemetry, 0 or 1')
     parser.add_argument("--set_voltage", "-s", help="the voltage set in the test, float", default=0.0)
     parser.add_argument("--order", "-o", help="fitting order of fz vs PWM_ratio", default=2)
@@ -518,6 +622,7 @@ if __name__ == '__main__':
     if int(args.rpm_mode):
         if not int(args.has_telemetry):
             parser.error("rpm mode needs the measured RPM, i.e. has_telemetry 1")
-        analyze_data_rpm_mode(args.folder_path, args.file_name, int(args.if_reverse), int(args.zero_samples), args.exponent_range)
+        analyze_data_rpm_mode(args.folder_path, args.file_names, int(args.if_reverse), int(args.zero_samples), args.exponent_range)
     else:
-        analyze_data(args.folder_path, args.file_name, int(args.has_telemetry), float(args.set_voltage), int(args.order), int(args.if_reverse))
+        for file_name in args.file_names:
+            analyze_data(args.folder_path, file_name, int(args.has_telemetry), float(args.set_voltage), int(args.order), int(args.if_reverse))
