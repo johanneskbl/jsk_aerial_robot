@@ -35,7 +35,7 @@ class NMPCTiltQdServo(QDNMPCBase):
         self.tilt = True
         self.include_servo_model = True
         self.include_servo_derivative = False
-        self.include_thrust_model = False  # TODO extend to include_thrust_derivative
+        self.include_thrust_model = False
         self.include_cog_dist_model = False
         self.include_impedance = False
 

@@ -488,7 +488,6 @@ class QDNMPCBase(RecedingHorizonBase):
             tau_b_z =   tau_e_z
 
             # 4. Add cross product terms: p_b × f_b for each rotor position
-            # TODO what do they represent?
             cross_tau_b_x = p_b[:, 1] * ft_b_z - p_b[:, 2] * ft_b_y  # p_y * f_z - p_z * f_y
             cross_tau_b_y = p_b[:, 2] * ft_b_x - p_b[:, 0] * ft_b_z  # p_z * f_x - p_x * f_z
             cross_tau_b_z = p_b[:, 0] * ft_b_y - p_b[:, 1] * ft_b_x  # p_x * f_y - p_y * f_x
@@ -691,7 +690,7 @@ class QDNMPCBase(RecedingHorizonBase):
         return model
 
     @staticmethod
-    def _get_rot_around_x(angle):  # TODO: change these parts to some library
+    def _get_rot_around_x(angle):
         """
         Returns the rotation matrix for a rotation around the X axis by the given angle.
         """
@@ -875,7 +874,6 @@ class QDNMPCBase(RecedingHorizonBase):
         ocp.cost.W_e = Q  # Weight matrix at terminal shooting node (N)
 
         # Set constraints
-        # TODO include fixed rotor arch
         # - State box constraints bx
         # -- Index for vx, vy, vz, wx, wy, wz
         ocp.constraints.idxbx = np.array([3, 4, 5, 10, 11, 12])
@@ -980,7 +978,6 @@ class QDNMPCBase(RecedingHorizonBase):
         # - Input box constraints bu
         # If using second-order actuator dynamics the actuator velocities are already constrained
         # in the states, and this is enough.
-        # TODO (do this for every possibility) Potentially a good idea to omit the input constraint when setting the equivalent state
         # -- Index for ft1c, ft2c, ft3c, ft4c
         ocp.constraints.idxbu = np.array([0, 1, 2, 3])
         # -- Index for a1c, a2c, a3c, a4c
@@ -1028,8 +1025,9 @@ class QDNMPCBase(RecedingHorizonBase):
 
         # Nonlinear constraint for quaternions
         if self.include_quaternion_constraint:
-            # Note: This is necessary to ensure that the quaternion stays on the unit sphere
-            # and represents a valid rotation.
+            # Note: This is theoretically necessary to ensure that the quaternion stays on the unit sphere
+            # and represents a valid rotation but in practice it is typically satisfied indirectly.
+            # Including it can actually lead to convergence problems in the solver since it adds additional nonlinearity.
             ocp.model.con_h_expr = self.qw ** 2 + self.qx ** 2 + self.qy ** 2 + self.qz ** 2 - 1.0   # ||q||^2 - 1 = 0
             ocp.model.con_h_expr_e = ocp.model.con_h_expr
             ocp.constraints.lh = np.array([0.0])
@@ -1037,7 +1035,7 @@ class QDNMPCBase(RecedingHorizonBase):
             ocp.constraints.lh_e = np.array([0.0])
             ocp.constraints.uh_e = np.array([0.0])
 
-        # - Slack variables for soft constraints
+        # - Slack variables to turn hard constraints into soft constraints
         if self.include_soft_constraints:
             # Note: Symmetrically for upper and lower bounds
             # -- Indices of slacked constraints within bx
@@ -1062,12 +1060,13 @@ class QDNMPCBase(RecedingHorizonBase):
             ocp.cost.zu_e = self.params["quadratic_slack_weight"]*np.ones((num_constraints_e,))
         # fmt: on
 
-        # Initial state and reference: Set all values such that robot is hovering
+        # Initial state and reference: Set all values such that the robot is hovering
+        # TODO this should be set in control loop and updated before each solver call
         x_ref = np.zeros(nx)
         x_ref[6] = 1.0  # Quaternion qw
         if self.include_thrust_model:
             x_ref[self.thrust_start_idx:self.thrust_end_idx] = self.phys.mass * self.phys.gravity / 4  # ft1s, ft2s, ft3s, ft4s
-        ocp.constraints.x0 = x_ref  # TODO this should be set in control loop and updated before each solver call
+        ocp.constraints.x0 = x_ref
 
         # NOTE: This is not really necessary, since the reference is always updated before solver is called
         u_ref = np.zeros(nu)
