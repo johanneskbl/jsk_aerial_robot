@@ -24,11 +24,18 @@ Test plan, each group starts after a short rest at rpm_min:
   chirp     sine with exponentially increasing frequency, excites the rotor dynamics
             over a whole frequency band (e.g. for a Bode plot)
 
-Every RPM change is slew-rate limited to max_rpm_rate. This covers the steps, the transitions
-between segments and the final stop, so the commanded RPM ramps and never jumps.
+Rotor protection: the commanded RPM never changes faster than max_rpm_rate, except for the setpoint
+changes inside the step sequences, which are true steps of at most max_step_rpm:
+  steps / heldout  every setpoint change jumps within one command. A step can be as large as the
+                   split it is drawn from, which is checked against max_step_rpm when the plan is built
+  transition       before each segment, the RPM ramps at max_rpm_rate from the last command to the
+                   start RPM of the segment. So the first setpoint of a step sequence is reached by a
+                   ramp and then held, and n_steps setpoints give n_steps - 1 step responses
+  continuous       linear, logistic, sine and chirp are slew-limited to max_rpm_rate
+  stop             final ramp-down at max_rpm_rate
 
-The segment name is published on ~segment and the commanded (rate-limited) RPM on ~target_rpm,
-so a recorded bag can be split into training and held-out data afterwards.
+The segment name ('transition' during the ramps between segments) is published on ~segment and the
+commanded RPM on ~target_rpm, so a recorded bag can be split into training and held-out data afterwards.
 
 Usage:
   roslaunch spinal bridge.launch
@@ -86,7 +93,8 @@ class BenchTestConfig:
     rpm_min: float = 900.0
     rpm_max: float = 13300.0
     # Rotor protection
-    max_rpm_rate: float = 10000.0  # [RPM/s] slew limit of every commanded RPM change, all segments and the stop
+    max_rpm_rate: float = 10000.0  # [RPM/s] slew limit of every RPM change except the steps of the step sequences
+    max_step_rpm: float = 6000.0  # [RPM] largest step a step sequence may command, a split spans (rpm_max - rpm_min) / 3
     stop_settle: float = 1.0  # [s] hold rpm_min after the final ramp-down, before leaving PWM test mode
 
     # Held-out bands: [hover - gap - width, hover - gap] and [hover + gap, hover + gap + width]
@@ -160,6 +168,7 @@ def validate_config(cfg: BenchTestConfig):
     require(cfg.rpm_min < cfg.rpm_max, "rpm_min must be smaller than rpm_max")
     require(cfg.rate > 0, "rate must be > 0")
     require(cfg.max_rpm_rate > 0, "max_rpm_rate must be > 0")
+    require(cfg.max_step_rpm >= 0, "max_step_rpm must be >= 0")
     require(cfg.stop_settle >= 0, "stop_settle must be >= 0")
     require(cfg.heldout_gap > 0, "heldout_gap must be > 0 so that the held-out bands exclude the hover RPM")
     require(
@@ -237,43 +246,57 @@ def clamp_rpm(cfg: BenchTestConfig, rpm: float) -> float:
     return min(max(rpm, cfg.rpm_min), cfg.rpm_max)
 
 
-class RateLimiter:
-    """Moves the output toward each new target by at most `max_step` per call.
+class RpmLimiter:
+    """Limits every change of the commanded RPM. It is called once per published command.
 
-    It is called once per published command. At `rate` Hz, max_step = max_rpm_rate / rate.
-    If the loop runs slower than `rate`, the ramps get slower, which errs on the safe side.
+    A ramp command moves toward its target by at most max_delta = max_rpm_rate / rate per call. If the loop
+    runs slower than `rate`, the ramps get slower, which errs on the safe side. A step command jumps to its
+    target at once if the jump is at most max_step_rpm, and ramps like any other command otherwise.
     """
 
-    def __init__(self, max_step: float, initial: float):
-        self.max_step = max_step
-        self.value = initial
+    def __init__(self, cfg: BenchTestConfig):
+        self.max_delta = cfg.max_rpm_rate / cfg.rate
+        self.max_jump = cfg.max_step_rpm
+        # Start at rpm_min: entering PWM test mode with DShot 48 is the smallest command the ESC accepts
+        self.value = cfg.rpm_min
 
-    def __call__(self, target: float) -> float:
-        self.value += min(max(target - self.value, -self.max_step), self.max_step)
+    def in_reach(self, target: float) -> bool:
+        """True if a single ramp command reaches `target`."""
+        return abs(target - self.value) <= self.max_delta
+
+    def __call__(self, target: float, step: bool = False) -> float:
+        delta = target - self.value
+        if self.in_reach(target) or (step and abs(delta) <= self.max_jump):
+            self.value = target
+        else:
+            self.value += math.copysign(self.max_delta, delta)
         return self.value
 
 
-def make_rpm_limiter(cfg: BenchTestConfig) -> RateLimiter:
-    # Start at rpm_min: entering PWM test mode with DShot 48 is the smallest command the ESC accepts
-    return RateLimiter(cfg.max_rpm_rate / cfg.rate, cfg.rpm_min)
+def simulate_plan(cfg: BenchTestConfig, plan: List["Segment"]) -> Tuple[List[float], List[float], float]:
+    """Run the plan through the RPM limiter at the nominal publish rate, the same way run_plan does.
 
-
-def simulate_rate_limit(cfg: BenchTestConfig, plan: List["Segment"]) -> Tuple[List[float], float]:
-    """Run the plan through the RPM limiter at the nominal publish rate.
-
-    Returns the fraction of each segment during which the commanded RPM differs from the profile
-    (it is still ramping), and the commanded RPM at the end of the plan.
+    Returns per segment the duration of the transition ramp into it and the fraction of the segment during
+    which the slew limit holds the command off the profile, and the commanded RPM at the end of the plan.
     """
-    limiter = make_rpm_limiter(cfg)
-    fractions = []
+    limiter = RpmLimiter(cfg)
+    transitions, limited_fractions = [], []
     for segment in plan:
+        start_rpm = clamp_rpm(cfg, segment.rpm_at(0.0))
+        n_ramp = 0
+        if not limiter.in_reach(start_rpm):
+            while limiter.value != start_rpm:
+                limiter(start_rpm)
+                n_ramp += 1
+        transitions.append(n_ramp / cfg.rate)
+
         n = max(1, math.ceil(segment.duration * cfg.rate))
         limited = 0
         for k in range(n):
             target = clamp_rpm(cfg, segment.rpm_at(k / cfg.rate))
-            limited += limiter(target) != target
-        fractions.append(limited / n)
-    return fractions, limiter.value
+            limited += limiter(target, step=segment.stepped) != target
+        limited_fractions.append(limited / n)
+    return transitions, limited_fractions, limiter.value
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +310,7 @@ class Segment:
     duration: float  # [s]
     rpm_at: Callable[[float], float]  # t in [0, duration) -> RPM
     info: str = ""
+    stepped: bool = False  # piecewise constant profile whose setpoint changes are commanded as steps, not ramped
 
 
 def hold(name: str, rpm: float, duration: float) -> Segment:
@@ -301,7 +325,7 @@ def step_sequence(name: str, bands: List[RpmBand], n_steps: int, step_hold: floa
         return setpoints[min(int(t / step_hold), n_steps - 1)]
 
     info = f"{n_steps} steps in {' + '.join(map(str, bands))}: " + ", ".join(f"{s:.0f}" for s in setpoints)
-    return Segment(name, n_steps * step_hold, rpm_at, info)
+    return Segment(name, n_steps * step_hold, rpm_at, info, stepped=True)
 
 
 def linear_ramp(name: str, rpm_start: float, rpm_end: float, duration: float) -> Segment:
@@ -359,6 +383,12 @@ def build_test_plan(cfg: BenchTestConfig) -> List[Segment]:
     def steps(group, splits, n_steps):
         segments = []
         for name, bands in splits.items():
+            span = max(b.hi for b in bands) - min(b.lo for b in bands)
+            if span > cfg.max_step_rpm:
+                raise ValueError(
+                    f"Split {group}/{name} spans {span:.0f} RPM, so its steps can exceed "
+                    f"max_step_rpm = {cfg.max_step_rpm:.0f} RPM"
+                )
             # One RNG per split, so its setpoints only depend on the seed and not on the selected segments
             rng = random.Random(f"{cfg.seed}/{group}/{name}")
             segments.append(step_sequence(f"{group}/{name}", bands, n_steps, cfg.step_hold, rng))
@@ -394,21 +424,35 @@ def build_test_plan(cfg: BenchTestConfig) -> List[Segment]:
 
 
 def log_plan(cfg: BenchTestConfig, plan: List[Segment]):
-    limited_fractions, final_rpm = simulate_rate_limit(cfg, plan)
+    transitions, limited_fractions, final_rpm = simulate_plan(cfg, plan)
     ramp_down = (final_rpm - cfg.rpm_min) / cfg.max_rpm_rate
-    total = sum(s.duration for s in plan) + ramp_down + cfg.stop_settle
+    total = sum(s.duration for s in plan) + sum(transitions) + ramp_down + cfg.stop_settle
     rospy.loginfo(
-        "Rotor bench test: motors %s, seed %d, %d segments, %.1f s in total, RPM slew limit %.0f RPM/s",
+        "Rotor bench test: motors %s, seed %d, %d segments, %.1f s in total, "
+        "RPM slew limit %.0f RPM/s, max step %.0f RPM",
         cfg.motor_indices,
         cfg.seed,
         len(plan),
         total,
         cfg.max_rpm_rate,
+        cfg.max_step_rpm,
     )
-    rospy.loginfo("  'ramp' = share of the segment during which the slew limit holds the command off the profile")
-    for i, (segment, limited) in enumerate(zip(plan, limited_fractions), 1):
+    rospy.loginfo("  'limited' = share of the segment during which the slew limit holds the command off the profile")
+    for i, (segment, transition, limited) in enumerate(zip(plan, transitions, limited_fractions), 1):
+        if transition > 0:
+            rospy.loginfo(
+                "      %-20s %6.1f s  ramp to %.0f RPM",
+                "transition",
+                transition,
+                clamp_rpm(cfg, segment.rpm_at(0.0)),
+            )
         rospy.loginfo(
-            "  %2d. %-20s %6.1f s  ramp %3.0f%%  %s", i, segment.name, segment.duration, 100 * limited, segment.info
+            "  %2d. %-20s %6.1f s  limited %3.0f%%  %s",
+            i,
+            segment.name,
+            segment.duration,
+            100 * limited,
+            segment.info,
         )
     rospy.loginfo(
         "  %2d. %-20s %6.1f s  ramp %.0f -> %.0f RPM, then hold %.0f RPM for %.1f s",
@@ -428,12 +472,13 @@ def log_plan(cfg: BenchTestConfig, plan: List[Segment]):
 class RotorCommandPublisher:
     """Converts RPM setpoints into spinal PWM test commands and publishes the segment labels.
 
-    Every command passes through the RPM slew limiter, so no caller can make the RPM jump.
+    Every command passes through the RPM limiter, so no caller can make the RPM jump by more than max_step_rpm
+    or, outside of steps, change faster than max_rpm_rate.
     """
 
     def __init__(self, cfg: BenchTestConfig):
         self.cfg = cfg
-        self.limiter = make_rpm_limiter(cfg)
+        self.limiter = RpmLimiter(cfg)
         self.motors_commanded = False  # True once a PWM test command was sent, i.e. the motors may spin
         self.pwm_pub = rospy.Publisher(cfg.topic, PwmTest, queue_size=10)
         self.rpm_pub = rospy.Publisher("~target_rpm", Float32, queue_size=10)
@@ -450,9 +495,10 @@ class RotorCommandPublisher:
         if self.pwm_pub.get_num_connections() == 0:
             rospy.logwarn("No subscriber on %s, is 'roslaunch spinal bridge.launch' running?", self.cfg.topic)
 
-    def send_rpm(self, rpm: float):
-        """Command one step toward `rpm`, moving at most max_rpm_rate / rate from the last command."""
-        rpm = self.limiter(clamp_rpm(self.cfg, rpm))
+    def send_rpm(self, rpm: float, step: bool = False):
+        """Command `rpm`. A step jumps there at once (up to max_step_rpm), otherwise the RPM moves at most
+        max_rpm_rate / rate from the last command."""
+        rpm = self.limiter(clamp_rpm(self.cfg, rpm), step=step)
         pwms = [self.rpm_to_pwm(rpm)] * len(self.cfg.motor_indices)
         self.pwm_pub.publish(PwmTest(motor_index=self.cfg.motor_indices, pwms=pwms))
         self.rpm_pub.publish(Float32(rpm))
@@ -461,6 +507,17 @@ class RotorCommandPublisher:
     def set_segment(self, name: str):
         self.segment_pub.publish(String(name))
 
+    def ramp_to(self, rpm: float):
+        """Ramp to `rpm` at max_rpm_rate.
+
+        Plain sleeps instead of rospy.Rate, so the ramp also runs while rospy is shutting down.
+        """
+        rpm = clamp_rpm(self.cfg, rpm)
+        period = 1.0 / self.cfg.rate
+        while self.limiter.value != rpm:
+            self.send_rpm(rpm)
+            time.sleep(period)
+
     def ramp_down(self):
         """Ramp to rpm_min at max_rpm_rate, then hold rpm_min for stop_settle seconds."""
         rospy.loginfo(
@@ -468,11 +525,8 @@ class RotorCommandPublisher:
             self.limiter.value,
             self.cfg.rpm_min,
         )
-        # Plain sleeps instead of rospy.Rate, so the ramp also runs while rospy is shutting down
+        self.ramp_to(self.cfg.rpm_min)
         period = 1.0 / self.cfg.rate
-        while self.limiter.value > self.cfg.rpm_min:
-            self.send_rpm(self.cfg.rpm_min)
-            time.sleep(period)
         settle_end = time.monotonic() + self.cfg.stop_settle
         while time.monotonic() < settle_end:
             self.send_rpm(self.cfg.rpm_min)
@@ -493,6 +547,16 @@ class RotorCommandPublisher:
 def run_plan(plan: List[Segment], publisher: RotorCommandPublisher, rate_hz: float):
     rate = rospy.Rate(rate_hz)
     for i, segment in enumerate(plan, 1):
+        if rospy.is_shutdown():
+            break
+
+        # Ramp to the start of the segment first, so the segment itself runs exactly as planned
+        start_rpm = clamp_rpm(publisher.cfg, segment.rpm_at(0.0))
+        if not publisher.limiter.in_reach(start_rpm):
+            rospy.loginfo("Transition %.0f -> %.0f RPM", publisher.limiter.value, start_rpm)
+            publisher.set_segment("transition")
+            publisher.ramp_to(start_rpm)
+
         rospy.loginfo("[%d/%d] %s (%.1f s): %s", i, len(plan), segment.name, segment.duration, segment.info)
         publisher.set_segment(segment.name)
 
@@ -501,7 +565,7 @@ def run_plan(plan: List[Segment], publisher: RotorCommandPublisher, rate_hz: flo
             t = time.monotonic() - t_start
             if t >= segment.duration:
                 break
-            publisher.send_rpm(segment.rpm_at(t))
+            publisher.send_rpm(segment.rpm_at(t), step=segment.stepped)
             rate.sleep()
 
 
