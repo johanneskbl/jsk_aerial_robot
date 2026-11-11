@@ -2,6 +2,10 @@ mpc_solver_name: aerial_robot_control::mpc_solver::TiltQdNeuralServoMdlMPCSolver
 aerial_robot_control_name: aerial_robot_control/neural_mpc_controller/tilt_mt/neural_servo_mpc
 
 controller:
+  alloc:
+    type: 1  # 0: pseudo allocation, 1: heuristic allocation,
+    ft_thresh: 1.0  # N
+
   nmpc:
     T_samp: 0.01  # seconds -> 100 Hz  TODO: should be adjusted by main_rate
     T_horizon: 2.0  # seconds

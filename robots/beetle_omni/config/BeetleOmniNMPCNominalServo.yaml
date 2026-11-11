@@ -2,6 +2,10 @@ mpc_solver_name: aerial_robot_control::mpc_solver::TiltQdNominalServoMdlMPCSolve
 aerial_robot_control_name: aerial_robot_control/neural_mpc_controller/tilt_mt/nominal_servo_mpc
 
 controller:
+  alloc:
+    type: 1  # 0: pseudo allocation, 1: heuristic allocation,
+    ft_thresh: 1.0  # N
+
   nmpc:
     # Frame tracked by the MPC cost: cog_tracking (CoG) | ee_tracking (end-effector frame "ee_contact").
     # Read by both the Python code generation and the C++ controller: rebuild after changing it.
