@@ -1,4 +1,4 @@
-# I Term is always used and has higher priority than the other wrench estimation methods.
+# I-term is always used and has higher priority than the other wrench estimation methods.
 controller:
   i_term:
     # disturb_rej

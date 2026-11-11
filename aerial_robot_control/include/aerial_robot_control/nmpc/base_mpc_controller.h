@@ -7,8 +7,22 @@
 
 #include "aerial_robot_control/control/base/base.h"
 #include "aerial_robot_control/nmpc/base_mpc_solver.h"
-#include "aerial_robot_msgs/PredXU.h"
+
+/* Geometry */
+#include <tf_conversions/tf_eigen.h>
+#include <algorithm>
+#include <cmath>
+#include <mutex>
+#include <numeric>
+
+/* ROS messages */
 #include "std_msgs/Float64.h"
+#include "geometry_msgs/PoseArray.h"
+#include "trajectory_msgs/MultiDOFJointTrajectoryPoint.h"
+#include "aerial_robot_msgs/PredXU.h"
+#include "aerial_robot_msgs/MPCState.h"
+#include "spinal/SetControlMode.h"
+#include "spinal/FlightConfigCmd.h"
 
 namespace aerial_robot_control
 {
@@ -17,129 +31,139 @@ namespace nmpc
 {
 
 /**
- * @brief The BaseMPC class to define the common interface of NMPC controllers, especially for the ROS communication.
+ * @brief Base class of all MPC controllers
+ * It handles the MPC solver plugin, communication with spinal, solver failures, tracking frame and
+ * common utilities for references, recording, and visualization.
+ * Frames: World frame W (inertial), Body frame B (origin at the CoG), End-effector frame EE, and
+ * Tracking frame T (T = B for cog_tracking, T = EE for ee_tracking).
+ * NOTE: The generic methods assume that the first 13 states are [p, v, q, w]. Quaternions in format w,x,y,z.
+ * NOTE: The MPC model and thus the solver state is always described in Body frame and the
+ * MPC cost and thus the references are described in Tracking frame.
  */
 class BaseMPC : public ControlBase
 {
 public:
+  BaseMPC() = default;  // Note that the constructor should not have arguments by rule of rospluginlib
+  ~BaseMPC() override = default;
+  void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
+                  boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
+                  boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
+                  boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_du) override;
+  void activate() override;
+  bool update() override;
+  void reset() override;
+
 protected:
-  // define MPC solver
+  ros::NodeHandle mpc_nh_;
+  ros::Timer tmr_viz_;
+
+  ros::Publisher pub_flight_config_cmd_spinal_;  // for flight config commands to spinal (e.g., force landing)
+  ros::Publisher pub_solver_time_;               // for logging the solve time
+  ros::Publisher pub_viz_ref_;                   // for visualization
+  ros::Publisher pub_viz_pred_;                  // for visualization
+
+  ros::ServiceClient srv_set_control_mode_;
+
+  // Plugin loader for MPC solver
   boost::shared_ptr<pluginlib::ClassLoader<aerial_robot_control::mpc_solver::BaseMPCSolver>> mpc_solver_loader_ptr_;
   boost::shared_ptr<aerial_robot_control::mpc_solver::BaseMPCSolver> mpc_solver_ptr_;
   inline static int NN_, NX_, NU_, NP_;
 
-  ros::Publisher pub_solver_time_;
+  bool is_warmup_ = true;
+  bool is_attitude_ctrl_;
+  bool is_body_rate_ctrl_;
+  bool is_print_phys_params_;
+  bool is_debug_;
+  bool has_triggered_force_landing_ = false;
 
-  /* initialize() */
-  inline void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
-                         boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
-                         boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
-                         boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator,
-                         double ctrl_loop_du) override
+  double mass_;
+  std::vector<double> inertia_;
+  double gravity_const_;
+
+  double t_mpc_samp_;
+  double t_mpc_step_;
+  double t_mpc_horizon_;
+  double t_mpc_dt_ = 0.0;  // measured closed-loop timestep between two solves
+  double t_mpc_timestep_;
+  double t_mpc_prev_timestep_;
+
+  // Frame used by the MPC cost, allocation and reference
+  // NOTE: Python code generation reads the same parameter from the config file but needs to be
+  // regenerated after changing it.
+  enum class TrackingFrame
   {
-    ControlBase::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
-    pub_solver_time_ = nh_.advertise<std_msgs::Float64>("nmpc/solver_time", 1);
+    CoG,  // Body frame (origin at the CoG)
+    EE    // End-effector frame
+  };
+  TrackingFrame tracking_frame_ = TrackingFrame::CoG;
+  inline bool isTrackingEE() const { return tracking_frame_ == TrackingFrame::EE; }
+  // Name of the robot frame described by the references, set as header.frame_id by their publishers
+  inline std::string getTrackingFrameName() const { return isTrackingEE() ? "ee_contact" : "cog"; }
 
-    /* init mpc solver plugin */
-    mpc_solver_loader_ptr_ =
-        boost::make_shared<pluginlib::ClassLoader<aerial_robot_control::mpc_solver::BaseMPCSolver>>(
-            "aerial_robot_control", "aerial_robot_control::mpc_solver::BaseMPCSolver");
-    
-    try
-    {
-      // 1. read the plugin name from the parameter server
-      std::string mpc_solver_name;
-      if (!nh_.getParam("mpc_solver_name", mpc_solver_name))
-      {
-        ROS_ERROR(
-            "mpc_solver_name for mpc_solver_plugin is not loaded. "
-            "You must specify the mpc_solver_name in the launch file.");
-        return;
-      }
+  // Pose of the Tracking frame in Body frame, updated once per control loop (identity for T = B)
+  // NOTE: Guarded by a mutex, since the reference callbacks and the visualization read it from other threads.
+  tf::Vector3 t_p_b_ = tf::Vector3(0.0, 0.0, 0.0);  // Origin of Tracking frame in Body frame
+  tf::Quaternion q_bt_ = tf::Quaternion(0.0, 0.0, 0.0, 1.0);  // x, y, z, w
+  mutable std::mutex t_pose_mutex_;
 
-      // 2. load the plugin
-      mpc_solver_ptr_ = mpc_solver_loader_ptr_->createInstance(mpc_solver_name);
-      mpc_solver_ptr_->initialize();
-      ROS_INFO("load mpc solver plugin: %s", mpc_solver_name.c_str());
-    }
-    catch (pluginlib::PluginlibException& ex)
-    {
-      ROS_ERROR("mpc_solver_plugin: The plugin failed to load for some reason. Error: %s", ex.what());
-    }
+  /* Initialization methods */
+  virtual void initGeneralParams();
+  void setControlMode();
+  static void initPredXU(aerial_robot_msgs::PredXU& x_u);
+  virtual void initMPCCostW() = 0;
+  virtual void initMPCConstraints() = 0;
 
-    /* Store solver parameters */
-    NN_ = mpc_solver_ptr_->NN_;
-    NX_ = mpc_solver_ptr_->NX_;
-    NU_ = mpc_solver_ptr_->NU_;
-    NP_ = mpc_solver_ptr_->NP_;
-  }
+  /* Activate methods */
+  void updateInertialParams();
 
-  // define the ROS msg related to MPC
-  inline static void initPredXU(aerial_robot_msgs::PredXU& x_u)
-  {
-    x_u.x.layout.dim.emplace_back();
-    x_u.x.layout.dim.emplace_back();
-    x_u.x.layout.dim[0].label = "horizon";
-    x_u.x.layout.dim[0].size = NN_ + 1;
-    x_u.x.layout.dim[0].stride = (NN_ + 1) * NX_;
-    x_u.x.layout.dim[1].label = "state";
-    x_u.x.layout.dim[1].size = NX_;
-    x_u.x.layout.dim[1].stride = NX_;
-    x_u.x.layout.data_offset = 0;
-    x_u.x.data.resize((NN_ + 1) * NX_);
-    std::fill(x_u.x.data.begin(), x_u.x.data.end(), 0.0);
-    // quaternion
-    for (int i = 6; i < (NN_ + 1) * NX_; i += NX_)
-      x_u.x.data[i] = 1.0;
+  /* Reset methods */
+  virtual void resetSolver() = 0;
 
-    x_u.u.layout.dim.emplace_back();
-    x_u.u.layout.dim.emplace_back();
-    x_u.u.layout.dim[0].label = "horizon";
-    x_u.u.layout.dim[0].size = NN_;
-    x_u.u.layout.dim[0].stride = NN_ * NU_;
-    x_u.u.layout.dim[1].label = "input";
-    x_u.u.layout.dim[1].size = NU_;
-    x_u.u.layout.dim[1].stride = NU_;
-    x_u.u.layout.data_offset = 0;
-    x_u.u.data.resize(NN_ * NU_);
-    std::fill(x_u.u.data.begin(), x_u.u.data.end(), 0.0);
-  }
-
-  /* update() */
-  // 1. set reference for NMPC
-  virtual void callbackSetRefXU(const aerial_robot_msgs::PredXUConstPtr& msg) = 0;
-  static void rosXU2VecXU(const aerial_robot_msgs::PredXU& x_u, std::vector<std::vector<double>>& x_vec,
-                          std::vector<std::vector<double>>& u_vec)
-  {
-    if (x_u.x.layout.dim[1].stride != NX_ || x_u.u.layout.dim[1].stride != NU_)
-      ROS_ERROR("The dimension of x_u: nx, nu is not correct!");
-
-    if (x_u.x.layout.dim[0].size != NN_ + 1 || x_u.u.layout.dim[0].size != NN_)
-      ROS_ERROR("The dimension of x_u: nn for x, nn for u is not correct!");
-
-    // convert x_u to xr_ and ur_
-    for (int i = 0; i < NN_; i++)
-    {
-      std::copy(x_u.x.data.begin() + i * NX_, x_u.x.data.begin() + (i + 1) * NX_, x_vec[i].begin());
-      std::copy(x_u.u.data.begin() + i * NU_, x_u.u.data.begin() + (i + 1) * NU_, u_vec[i].begin());
-    }
-    std::copy(x_u.x.data.begin() + NN_ * NX_, x_u.x.data.begin() + (NN_ + 1) * NX_, x_vec[NN_].begin());
-  }
-  // 2. get the current state from the measurement
+  /* State methods */
   virtual std::vector<double> meas2VecX() = 0;
-  // 3. solve NMPC
+
+  /* Update methods */
   virtual void controlCore() = 0;
-  // 4. send the command to the robot
+  bool solve(const std::vector<double>& bx0);
+  void handleSolverFailure();
+  virtual double getCommand(int idx_u, double T_horizon = 0.0);
   virtual void sendCmd() = 0;
-  // 5. publish the time of the last solve in ms
-  void publishSolverTime()
+  virtual void publishRecording() {}
+  void publishSolverTime() const;
+
+  /* Tracking frame methods */
+  void updateTrackingFramePose();
+  void getTrackingFramePose(tf::Vector3& t_p_b, tf::Quaternion& q_bt) const;
+  void convertFromBToT(const tf::Vector3& pos_w, const tf::Vector3& vel_w, const tf::Quaternion& q_wb,
+                       const tf::Vector3& omega_b, tf::Vector3& t_pos_w, tf::Vector3& t_vel_w, tf::Quaternion& q_wt,
+                       tf::Vector3& omega_t) const;
+  void convertFromTToB(const tf::Vector3& t_pos_w, const tf::Vector3& t_vel_w, const tf::Quaternion& q_wt,
+                       const tf::Vector3& omega_t, tf::Vector3& pos_w, tf::Vector3& vel_w, tf::Quaternion& q_wb,
+                       tf::Vector3& omega_b) const;
+
+  /* Reference methods */
+  static void rosXU2VecXU(const aerial_robot_msgs::PredXU& x_u, std::vector<std::vector<double>>& x_vec,
+                          std::vector<std::vector<double>>& u_vec);
+  virtual void callbackSetRefXU(const aerial_robot_msgs::PredXUConstPtr& msg) = 0;
+  bool isRefInTrackingFrame(const std::string& frame_id) const;
+  Eigen::VectorXd computeRefWrenchB(const tf::Vector3& ref_acc_w, const tf::Quaternion& ref_quat_wt,
+                                    const tf::Vector3& ref_omega_t, const tf::Vector3& ref_ang_acc_t) const;
+
+  /* Callback methods */
+  virtual void callbackViz(const ros::TimerEvent& event);
+
+  /* Util methods */
+  static void ensureQuaternionContinuity(tf::Quaternion& quat, tf::Quaternion& quat_prev);
+  static bool isMulDOFJointTrajPtEqual(const trajectory_msgs::MultiDOFJointTrajectoryPoint& a,
+                                       const trajectory_msgs::MultiDOFJointTrajectoryPoint& b,
+                                       bool if_compare_time = true, double epsilon = 1e-6);
+  static inline bool isAlmostEqual(const double a, const double b, const double epsilon = 1e-6)
   {
-    std_msgs::Float64 msg;
-    msg.data = mpc_solver_ptr_->getSolveTime() * 1000.0;
-    pub_solver_time_.publish(msg);
+    return std::fabs(a - b) < epsilon;
   }
-  // 6. viz the result in RVIZ
-  virtual void callbackViz(const ros::TimerEvent& event) = 0;
+
+  /* Debug methods */
+  void printPhysicalParams() const;
 };
 
 }  // namespace nmpc

@@ -120,7 +120,7 @@ namespace aerial_robot_control
         target_thrust_y_term *= (1 - residual / max_term);
       }
 
-    // constraint z (also  I term)
+    // constraint z (also  I-term)
     max_term = target_thrust_z_term.cwiseAbs().maxCoeff(&index);
     residual = max_term - pid_controllers_.at(Z).getLimitSum();
     if(residual > 0)
@@ -214,9 +214,8 @@ namespace aerial_robot_control
 
   void FullyActuatedController::rosParamInit()
   {
-    ros::NodeHandle control_nh(nh_, "controller");
-    getParam<double>(control_nh, "torque_allocation_matrix_inv_pub_interval", torque_allocation_matrix_inv_pub_interval_, 0.05);
-    getParam<double>(control_nh, "wrench_allocation_matrix_pub_interval", wrench_allocation_matrix_pub_interval_, 0.1);
+    getParam<double>(control_nh_, "torque_allocation_matrix_inv_pub_interval", torque_allocation_matrix_inv_pub_interval_, 0.05);
+    getParam<double>(control_nh_, "wrench_allocation_matrix_pub_interval", wrench_allocation_matrix_pub_interval_, 0.1);
   }
 
   void FullyActuatedController::setAttitudeGains()

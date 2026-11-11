@@ -43,18 +43,17 @@ class NMPCTiltQdServoDiff(QDNMPCBase):
         # see https://docs.acados.org/python_interface/#acados_template.acados_ocp_cost.AcadosOcpCost for details
         # NONLINEAR_LS = error^T @ Q @ error; error = y - y_ref
         # qe = qr^* multiply q
-        qe_x =  self.qwr * self.qx - self.qw * self.qxr - self.qyr * self.qz + self.qy * self.qzr
-        qe_y =  self.qwr * self.qy - self.qw * self.qyr + self.qxr * self.qz - self.qx * self.qzr
-        qe_z = -self.qxr * self.qy + self.qx * self.qyr + self.qwr * self.qz - self.qw * self.qzr
+        # Transform state and compute error in the tracked frame (CoG or EE)
+        p_t, v_t, qe_w, qe_x, qe_y, qe_z, w_t = self.transform_cost_state()
 
         state_y = ca.vertcat(
-            self.p,
-            self.v,
+            p_t,
+            v_t,
             self.qwr,
             qe_x + self.qxr,
             qe_y + self.qyr,
             qe_z + self.qzr,
-            self.w,
+            w_t,
             self.a_s
         )
 

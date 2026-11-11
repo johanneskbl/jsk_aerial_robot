@@ -14,18 +14,25 @@ namespace aerial_robot_control
 namespace nmpc
 {
 
+/**
+ * @brief MPC controller with a servo angle model and thrust model based on impedance control
+ * The position and orientation weights of the cost are set by the virtual mass, damping and stiffness
+ * of the impedance model, and the virtual mass and inertia are passed as model parameters.
+ */
 class TiltMtServoThrustImpNMPC : public TiltMtServoThrustDistNMPC
 {
 protected:
   int idx_p_imp_end_ = 0;
 
-  void initNMPCCostW() override;
+  /* Initialization methods */
+  void initMPCCostW() override;
 
+  /* Activate methods */
+  void initMPCPhysicalParams() override;
   void setImpParams();
 
-  void initNMPCParams() override;
-
-  void cfgNMPCCallback(NMPCConfig& config, uint32_t level) override;
+  /* Callback methods */
+  void callbackMPCcfg(NMPCConfig& config, uint32_t level) override;
 };
 
 }  // namespace nmpc

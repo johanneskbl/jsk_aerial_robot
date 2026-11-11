@@ -11,7 +11,11 @@ controller:
     T_horizon: 2.0  # seconds
     T_step: 0.1  # seconds
 
-    # constraint
+    # Frame tracked by the MPC cost
+    # Need rebuild after changing it! Read by both the Python generation and the C++ controller
+    tracking_frame: cog_tracking  # 'cog_tracking' or 'ee_tracking'
+
+    # Hard constraints
     w_min: -6
     w_max: 6  # 1 rad/s ~ 57 deg/s
 
@@ -19,7 +23,7 @@ controller:
     v_max: 1
 
     thrust_min: 0  # N
-    thrust_max: 23   # N
+    thrust_max: 23  # N
 
     # From Claude: In AM32 firmware the output_limit=50000 clamps the throttle to 5 units per ms,
     # With props, full throttle is ~13.9 kRPM so the rate caps at 33 kRPM/s

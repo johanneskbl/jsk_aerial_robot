@@ -11,18 +11,22 @@ controller:
     T_horizon: 2.0  # in seconds
     T_step: 0.1  # in seconds
 
+    # Frame tracked by the MPC cost
+    # Need rebuild after changing it! Read by both the Python generation and the C++ controller
+    tracking_frame: ee_tracking  # 'cog_tracking' or 'ee_tracking'
+
     # Hard constraints
-    w_max: 6  # 1 rad/s ~ 57 deg/s
     w_min: -6
+    w_max: 6  # 1 rad/s ~ 57 deg/s
 
-    v_max: 1
     v_min: -1
+    v_max: 1
 
-    thrust_max: 30  # N
     thrust_min: 0  # N
+    thrust_max: 23  # N
 
-    a_max: 3.15  # 180 deg + a little bit
     a_min: -3.15
+    a_max: 3.15  # 180 deg + a little bit
 
     # Cost function weights
     Qp_xy: 300

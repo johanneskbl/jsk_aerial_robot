@@ -185,14 +185,16 @@ def test_circle_matches_trajs_py():
     trajs = importlib.util.module_from_spec(spec); spec.loader.exec_module(trajs)
 
     traj = trajs.CircleTraj(loop_num=1)
+    traj.set_tracking_frame_height(0.26)  # the recorded flights tracked the ball (ee_contact), 0.26 m above the CoG
+    z = traj.get_3d_pt(0.0)[2]
     ts = np.linspace(0.0, traj.T, 721)
     truth = np.array([traj.get_3d_pt(float(t))[:3] for t in ts])
-    ours = G.circle_reference(radius=traj.r, z=traj.z, n=721)
+    ours = G.circle_reference(radius=traj.r, z=z, n=721)
     check("circle_reference == CircleTraj.get_3d_pt", np.allclose(truth, ours, atol=1e-12),
-          f"max dev {np.abs(truth - ours).max():.2e} m; r={traj.r}, z={traj.z}")
-    check("circle z equals 0.73 m", abs(traj.z - 0.73) < 1e-9, f"z = {traj.z}")
+          f"max dev {np.abs(truth - ours).max():.2e} m; r={traj.r}, z={z}")
+    check("circle z equals 0.73 m", abs(z - 0.73) < 1e-9, f"z = {z}")
     check("circle starts at (+r, 0) and is CCW",
-          np.allclose(ours[0], [traj.r, 0, traj.z]) and ours[1][1] > 0,
+          np.allclose(ours[0], [traj.r, 0, z]) and ours[1][1] > 0,
           f"p(0)={ours[0].round(3)}, p(dt)={ours[1].round(3)}")
 
 

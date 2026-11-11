@@ -6,32 +6,29 @@
 
 using namespace aerial_robot_control;
 
-void nmpc::TiltMtServoThrustImpNMPC::initNMPCCostW()
+void nmpc::TiltMtServoThrustImpNMPC::initMPCCostW()
 {
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle nmpc_nh(control_nh, "nmpc");
-
   /* control parameters with dynamic reconfigure */
   double pMxy, pMz, Qv_xy, Qv_z, Qp_xy, Qp_z, oMxy, oMz, Qw_xy, Qw_z, Qq_xy, Qq_z, Qa, Qt, Rtc_d, Rac_d;
-  getParam<double>(nmpc_nh, "pMxy", pMxy, 1.5);
-  getParam<double>(nmpc_nh, "pMz", pMz, 1.5);
-  getParam<double>(nmpc_nh, "Qv_xy", Qv_xy, 10);
-  getParam<double>(nmpc_nh, "Qv_z", Qv_z, 10);
-  getParam<double>(nmpc_nh, "Qp_xy", Qp_xy, 6);
-  getParam<double>(nmpc_nh, "Qp_z", Qp_z, 6);
+  getParam<double>(mpc_nh_, "pMxy", pMxy, 1.5);
+  getParam<double>(mpc_nh_, "pMz", pMz, 1.5);
+  getParam<double>(mpc_nh_, "Qv_xy", Qv_xy, 10);
+  getParam<double>(mpc_nh_, "Qv_z", Qv_z, 10);
+  getParam<double>(mpc_nh_, "Qp_xy", Qp_xy, 6);
+  getParam<double>(mpc_nh_, "Qp_z", Qp_z, 6);
 
-  getParam<double>(nmpc_nh, "oMxy", oMxy, 0.9);
-  getParam<double>(nmpc_nh, "oMz", oMz, 0.9);
-  getParam<double>(nmpc_nh, "Qw_xy", Qw_xy, 10);
-  getParam<double>(nmpc_nh, "Qw_z", Qw_z, 10);
-  getParam<double>(nmpc_nh, "Qq_xy", Qq_xy, 6);
-  getParam<double>(nmpc_nh, "Qq_z", Qq_z, 6);
+  getParam<double>(mpc_nh_, "oMxy", oMxy, 0.9);
+  getParam<double>(mpc_nh_, "oMz", oMz, 0.9);
+  getParam<double>(mpc_nh_, "Qw_xy", Qw_xy, 10);
+  getParam<double>(mpc_nh_, "Qw_z", Qw_z, 10);
+  getParam<double>(mpc_nh_, "Qq_xy", Qq_xy, 6);
+  getParam<double>(mpc_nh_, "Qq_z", Qq_z, 6);
 
-  getParam<double>(nmpc_nh, "Qa", Qa, 0);
-  getParam<double>(nmpc_nh, "Qt", Qt, 0);
+  getParam<double>(mpc_nh_, "Qa", Qa, 0);
+  getParam<double>(mpc_nh_, "Qt", Qt, 0);
 
-  getParam<double>(nmpc_nh, "Rtc_d", Rtc_d, 1);
-  getParam<double>(nmpc_nh, "Rac_d", Rac_d, 250);
+  getParam<double>(mpc_nh_, "Rtc_d", Rtc_d, 1);
+  getParam<double>(mpc_nh_, "Rac_d", Rac_d, 250);
 
   // diagonal matrix
   for (int i = 13; i < 13 + joint_num_; ++i)
@@ -77,7 +74,7 @@ void nmpc::TiltMtServoThrustImpNMPC::initNMPCCostW()
 
 void nmpc::TiltMtServoThrustImpNMPC::setImpParams()
 {
-  vector<int> idx = { idx_p_dist_end_ + 1, idx_p_dist_end_ + 2, idx_p_dist_end_ + 3,
+  std::vector<int> idx = { idx_p_dist_end_ + 1, idx_p_dist_end_ + 2, idx_p_dist_end_ + 3,
                       idx_p_dist_end_ + 4, idx_p_dist_end_ + 5, idx_p_dist_end_ + 6 };
 
   auto imp_mpc_solver_ptr =
@@ -90,19 +87,19 @@ void nmpc::TiltMtServoThrustImpNMPC::setImpParams()
 
   const double* pM = imp_mpc_solver_ptr->getpM();
   const double* oM = imp_mpc_solver_ptr->getoM();
-  vector<double> p = { pM[0], pM[1], pM[2], oM[0], oM[1], oM[2] };
+  std::vector<double> p = { pM[0], pM[1], pM[2], oM[0], oM[1], oM[2] };
   mpc_solver_ptr_->setParamSparseAllStages(idx, p);
 
   idx_p_imp_end_ = idx_p_dist_end_ + 6;
 }
 
-void nmpc::TiltMtServoThrustImpNMPC::initNMPCParams()
+void nmpc::TiltMtServoThrustImpNMPC::initMPCPhysicalParams()
 {
-  TiltMtServoThrustDistNMPC::initNMPCParams();
+  TiltMtServoThrustDistNMPC::initMPCPhysicalParams();
   setImpParams();
 }
 
-void nmpc::TiltMtServoThrustImpNMPC::cfgNMPCCallback(NMPCConfig& config, uint32_t level)
+void nmpc::TiltMtServoThrustImpNMPC::callbackMPCcfg(NMPCConfig& config, uint32_t level)
 {
   using Levels = aerial_robot_msgs::DynamicReconfigureLevels;
   if (config.nmpc_flag)
@@ -174,7 +171,7 @@ void nmpc::TiltMtServoThrustImpNMPC::cfgNMPCCallback(NMPCConfig& config, uint32_
           ROS_INFO_STREAM("change Qw_z (oDz) for NMPC '" << config.Qw_z << "'");
           break;
         }
-        case Levels ::RECONFIGURE_NMPC_OM_XY: {
+        case Levels::RECONFIGURE_NMPC_OM_XY: {
           imp_mpc_solver_ptr->setImpedanceWeight("oMx", config.oMxy, false);
           imp_mpc_solver_ptr->setImpedanceWeight("oMy", config.oMxy, true);
           ROS_INFO_STREAM("change oMxy for NMPC '" << config.oMxy << "'");

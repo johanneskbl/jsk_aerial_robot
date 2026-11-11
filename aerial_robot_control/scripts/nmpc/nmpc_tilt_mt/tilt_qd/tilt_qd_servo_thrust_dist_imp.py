@@ -47,40 +47,34 @@ class NMPCTiltQdServoThrustImpedance(QDNMPCBase):
         # see https://docs.acados.org/python_interface/#acados_template.acados_ocp_cost.AcadosOcpCost for details
         # NONLINEAR_LS = error^T @ Q @ error; error = y - y_ref
         # qe = qr^* multiply q
-        q_wt_w, q_wt_x, q_wt_y, q_wt_z = self._quaternion_multiply(self.qw, self.qx, self.qy, self.qz,
-                                                                   self.ee_q[0], self.ee_q[1], self.ee_q[2], self.ee_q[3])
-
-        qe_w, qe_x, qe_y, qe_z = self._quaternion_multiply(self.qwr, -self.qxr, -self.qyr, -self.qzr,
-                                                           q_wt_w, q_wt_x, q_wt_y, q_wt_z)
-
-        rot_wb = self._get_rot_wb_ca(self.qw, self.qx, self.qy, self.qz)
-        skew_w = self._get_skew_symmetric_matrix(self.w)
-
-        rot_bt = self._get_rot_wb_ca(self.ee_q[0], self.ee_q[1], self.ee_q[2], self.ee_q[3])
-        rot_tb = rot_bt.T
+        # Transform state and compute error in the tracked frame (CoG or EE)
+        p_t, v_t, qe_w, qe_x, qe_y, qe_z, w_t = self.transform_cost_state()
+        # Transform the accelerations and the external wrench of the impedance to the tracked frame
+        lin_acc_t, ang_acc_t, f_ext_w, tau_ext_t = self.transform_cost_impedance(lin_acc_w, ang_acc_b,
+                                                                                 self.fds_w, self.tau_ds_b)
 
         state_y = ca.vertcat(
-            self.p + rot_wb @ self.ee_p,
-            self.v + rot_wb @ skew_w @ self.ee_p,
+            p_t,
+            v_t,
             self.qwr,
             qe_x + self.qxr,
             qe_y + self.qyr,
             qe_z + self.qzr,
-            rot_tb @ self.w,
+            w_t,
             self.a_s,
             self.ft_s,
-            ca.times(lin_acc_w, self.mp) - self.fds_w,
-            ca.times(ang_acc_b, self.mq) - self.tau_ds_b,
+            ca.times(lin_acc_t, self.mp) - f_ext_w,
+            ca.times(ang_acc_t, self.mq) - tau_ext_t,
         )
 
         state_y_e = ca.vertcat(
-            self.p + rot_wb @ self.ee_p,
-            self.v + rot_wb @ skew_w @ self.ee_p,
+            p_t,
+            v_t,
             self.qwr,
             qe_x + self.qxr,
             qe_y + self.qyr,
             qe_z + self.qzr,
-            rot_tb @ self.w,
+            w_t,
             self.a_s,
             self.ft_s,
             ca.vertcat(0, 0, 0),  # lin acc = 0 for infinite horizon

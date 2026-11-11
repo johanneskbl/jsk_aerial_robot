@@ -64,7 +64,7 @@ class QDNMPCBase(RecedingHorizonBase):
             self.include_floor_bounds = False
 
         # Disturbance on each rotor individually was investigated into but didn't properly work, therefore only disturbance on CoG implemented.
-        # include_cog_dist_parameter are for I term, which accounts for model error. include_cog_dist_model are for disturbances.
+        # include_cog_dist_parameter are for I-term, which accounts for model error. include_cog_dist_model are for disturbances.
         # - include_cog_dist_parameter: Flag to include disturbance on the CoG into the acados model parameters.
         if not hasattr(self, "include_cog_dist_parameter"):
             self.include_cog_dist_parameter = False
@@ -646,7 +646,7 @@ class QDNMPCBase(RecedingHorizonBase):
         # Get terms of cost function
         if self.include_impedance:
             # Compute linear acceleration (in World frame) and angular acceleration (in Body frame) for impedance cost
-            # Note: the wrench from I Term and Wrench Est are all important for this term. If we don't consider I Term,
+            # Note: the wrench from I-term and Wrench Est are all important for this term. If we don't consider I-term,
             # a constant disturbance will be injected.
             lin_acc_w = (ca.mtimes(rot_wb, fu_b) + self.fds_w + self.fdp_w) / mass + g_w
             ang_acc_b = ca.mtimes(
@@ -689,81 +689,6 @@ class QDNMPCBase(RecedingHorizonBase):
 
         return model
 
-    @staticmethod
-    def _get_rot_around_x(angle):
-        """
-        Returns the rotation matrix for a rotation around the X axis by the given angle.
-        """
-        return ca.vertcat(
-            ca.horzcat(1, 0, 0),
-            ca.horzcat(0, ca.cos(angle), -ca.sin(angle)),
-            ca.horzcat(0, ca.sin(angle), ca.cos(angle)),
-        )
-
-    @staticmethod
-    def _get_rot_wb_ca(qw, qx, qy, qz):
-        row_1 = ca.horzcat(
-            ca.MX(1 - 2 * qy ** 2 - 2 * qz ** 2),
-            ca.MX(2 * qx * qy - 2 * qw * qz),
-            ca.MX(2 * qx * qz + 2 * qw * qy)
-        )
-        row_2 = ca.horzcat(
-            ca.MX(2 * qx * qy + 2 * qw * qz),
-            ca.MX(1 - 2 * qx ** 2 - 2 * qz ** 2),
-            ca.MX(2 * qy * qz - 2 * qw * qx)
-        )
-        row_3 = ca.horzcat(
-            ca.MX(2 * qx * qz - 2 * qw * qy),
-            ca.MX(2 * qy * qz + 2 * qw * qx),
-            ca.MX(1 - 2 * qx ** 2 - 2 * qy ** 2)
-        )
-        rot_wb = ca.vertcat(row_1, row_2, row_3)
-        return rot_wb
-
-    @staticmethod
-    def _get_rot_wb_np(qw, qx, qy, qz):
-        """
-        Create a rotation matrix from quaternions.
-        :param qw: Quaternion component w.
-        :param qx: Quaternion component x.
-        :param qy: Quaternion component y.
-        :param qz: Quaternion component z.
-        :return: Rotation matrix from World to Body frame.
-        """
-        return np.array(
-            [
-                [1 - 2 * (qy ** 2 + qz ** 2), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)],
-                [2 * (qx * qy + qw * qz), 1 - 2 * (qx ** 2 + qz ** 2), 2 * (qy * qz - qw * qx)],
-                [2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx ** 2 + qy ** 2)],
-            ]
-        )
-
-    @staticmethod
-    def _get_skew_symmetric_matrix(vector):
-        """
-        Create a skew-symmetric matrix from a 3D vector.
-        :param vector: 3D vector to create the skew-symmetric matrix from.
-        :return: Skew-symmetric matrix.
-        """
-        skew_mtx = ca.vertcat(
-            ca.horzcat(0, -vector[2], vector[1]),
-            ca.horzcat(vector[2], 0, -vector[0]),
-            ca.horzcat(-vector[1], vector[0], 0),
-        )
-
-        return skew_mtx
-
-    @staticmethod
-    def _quaternion_multiply(qw1, qx1, qy1, qz1, qw2, qx2, qy2, qz2):
-        """
-        Multiply two quaternions.
-        """
-        return (
-            qw1 * qw2 - qx1 * qx2 - qy1 * qy2 - qz1 * qz2,
-            qw1 * qx2 + qx1 * qw2 + qy1 * qz2 - qz1 * qy2,
-            qw1 * qy2 - qx1 * qz2 + qy1 * qw2 + qz1 * qx2,
-            qw1 * qz2 + qx1 * qy2 - qy1 * qx2 + qz1 * qw2,
-        )
 
     @abstractmethod
     def get_weights(self):

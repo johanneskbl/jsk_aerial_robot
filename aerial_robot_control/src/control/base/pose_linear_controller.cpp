@@ -84,17 +84,15 @@ namespace aerial_robot_control
   {
     ControlBase::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_rate);
 
-    ros::NodeHandle control_nh(nh_, "controller");
+    ros::NodeHandle xy_nh(control_nh_, "xy");
+    ros::NodeHandle x_nh(control_nh_, "x");
+    ros::NodeHandle y_nh(control_nh_, "y");
+    ros::NodeHandle z_nh(control_nh_, "z");
 
-    ros::NodeHandle xy_nh(control_nh, "xy");
-    ros::NodeHandle x_nh(control_nh, "x");
-    ros::NodeHandle y_nh(control_nh, "y");
-    ros::NodeHandle z_nh(control_nh, "z");
-
-    ros::NodeHandle roll_pitch_nh(control_nh, "roll_pitch");
-    ros::NodeHandle roll_nh(control_nh, "roll");
-    ros::NodeHandle pitch_nh(control_nh, "pitch");
-    ros::NodeHandle yaw_nh(control_nh, "yaw");
+    ros::NodeHandle roll_pitch_nh(control_nh_, "roll_pitch");
+    ros::NodeHandle roll_nh(control_nh_, "roll");
+    ros::NodeHandle pitch_nh(control_nh_, "pitch");
+    ros::NodeHandle yaw_nh(control_nh_, "yaw");
 
     double limit_sum, limit_p, limit_i, limit_d;
     double limit_err_p, limit_err_i, limit_err_d;
@@ -270,7 +268,7 @@ namespace aerial_robot_control
         if(-err_z > safe_landing_height_)
           {
             err_z = landing_err_z_;  // too high, slowly descend
-            if(vel_.z() < landing_err_z_) du_z = 0;  // freeze i term when descending
+            if(vel_.z() < landing_err_z_) du_z = 0;  // freeze I-term when descending
           }
         else
           {

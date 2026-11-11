@@ -191,6 +191,7 @@ public:
   /* contact point */
   bool hasFrame(const std::string& frame_name) const
   {
+    std::lock_guard<std::mutex> lock(mutex_seg_tf_);
     return seg_tf_map_.find(frame_name) != seg_tf_map_.end();
   }
 
@@ -260,12 +261,12 @@ private:
   double fc_t_min_thre_;
 
   // mutex
-  std::mutex mutex_cog_;
+  mutable std::mutex mutex_cog_;  // mutable to also lock in const methods
   std::mutex mutex_cog2baselink_;
   std::mutex mutex_inertia_;
   std::mutex mutex_rotor_origin_;
   std::mutex mutex_rotor_normal_;
-  std::mutex mutex_seg_tf_;
+  mutable std::mutex mutex_seg_tf_;  // mutable to also lock in const methods
   std::mutex mutex_desired_baselink_rot_;
 
   // private functions
@@ -287,10 +288,20 @@ protected:
   /* for the robot with end-effectors */
   // Note: this function is not updated in updateRobotModelImpl. Need to be called when you have the ee_contact frame in
   // URDF.
+  // NOTE: Locks the segment and CoG frames separately, because they are updated by the joint states in another thread.
   KDL::Frame updateCoGtoFrame(const std::string& frame_name) const
   {
-    KDL::Frame target_frame = seg_tf_map_.at(frame_name);
-    return cog_.Inverse() * target_frame;
+    KDL::Frame target_frame;
+    {
+      std::lock_guard<std::mutex> lock(mutex_seg_tf_);
+      target_frame = seg_tf_map_.at(frame_name);
+    }
+    KDL::Frame cog;
+    {
+      std::lock_guard<std::mutex> lock(mutex_cog_);
+      cog = cog_;
+    }
+    return cog.Inverse() * target_frame;
   }
 
   void setCog(const KDL::Frame cog)

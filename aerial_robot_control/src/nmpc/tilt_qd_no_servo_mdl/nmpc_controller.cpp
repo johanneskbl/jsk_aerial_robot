@@ -18,33 +18,31 @@ void nmpc_over_act_no_servo_delay::NMPCController::initialize(
 {
   ControlBase::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
-  ros::NodeHandle control_nh(nh_, "controller");
-
   // get params and initialize nmpc solver
   Constraints constraints{};
   constraints.thrust_max = robot_model_->getThrustUpperLimit();
   constraints.thrust_min = robot_model_->getThrustLowerLimit();
-  getParam<double>(control_nh, "nmpc/v_max", constraints.v_max, 0.5);
-  getParam<double>(control_nh, "nmpc/v_min", constraints.v_min, -0.5);
-  getParam<double>(control_nh, "nmpc/w_max", constraints.w_max, 3.0);
-  getParam<double>(control_nh, "nmpc/w_min", constraints.w_min, -3.0);
+  getParam<double>(control_nh_, "nmpc/v_max", constraints.v_max, 0.5);
+  getParam<double>(control_nh_, "nmpc/v_min", constraints.v_min, -0.5);
+  getParam<double>(control_nh_, "nmpc/w_max", constraints.w_max, 3.0);
+  getParam<double>(control_nh_, "nmpc/w_min", constraints.w_min, -3.0);
 
   mpc_solver_.initialize(constraints);
 
-  getParam<double>(control_nh, "nmpc/T_samp", t_nmpc_samp_, 0.025);
-  getParam<double>(control_nh, "nmpc/T_step", t_nmpc_integ_, 0.1);
+  getParam<double>(control_nh_, "nmpc/T_samp", t_nmpc_samp_, 0.025);
+  getParam<double>(control_nh_, "nmpc/T_step", t_nmpc_integ_, 0.1);
 
   //  mass_ = robot_model_->getMass();
   //  gravity_const_ = robot_model_->getGravity()[2];
-  getParam<double>(control_nh, "nmpc/mass", mass_, 0.5);
-  getParam<double>(control_nh, "nmpc/gravity_const", gravity_const_, 9.81);
+  getParam<double>(control_nh_, "nmpc/mass", mass_, 0.5);
+  getParam<double>(control_nh_, "nmpc/gravity_const", gravity_const_, 9.81);
 
-  getParam<double>(control_nh, "nmpc/yaw_p_gain", yaw_p_gain, 40.0);
-  getParam<double>(control_nh, "nmpc/yaw_d_gain", yaw_d_gain, 1.0);
+  getParam<double>(control_nh_, "nmpc/yaw_p_gain", yaw_p_gain, 40.0);
+  getParam<double>(control_nh_, "nmpc/yaw_d_gain", yaw_d_gain, 1.0);
 
-  getParam<bool>(control_nh, "nmpc/is_attitude_ctrl", is_attitude_ctrl_, true);
-  getParam<bool>(control_nh, "nmpc/is_body_rate_ctrl", is_body_rate_ctrl_, false);
-  getParam<bool>(control_nh, "nmpc/is_debug", is_debug, false);
+  getParam<bool>(control_nh_, "nmpc/is_attitude_ctrl", is_attitude_ctrl_, true);
+  getParam<bool>(control_nh_, "nmpc/is_body_rate_ctrl", is_body_rate_ctrl_, false);
+  getParam<bool>(control_nh_, "nmpc/is_debug", is_debug, false);
 
   /* timers */
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &NMPCController::callbackViz, this);
@@ -89,7 +87,7 @@ void nmpc_over_act_no_servo_delay::NMPCController::initialize(
 
   /* print physical parameters if needed */
   bool is_print_physical_params;
-  getParam(control_nh, "nmpc/is_print_physical_params", is_print_physical_params, false);
+  getParam(control_nh_, "nmpc/is_print_physical_params", is_print_physical_params, false);
   if (is_print_physical_params)
     printPhysicalParams();
 }
@@ -298,11 +296,10 @@ void nmpc_over_act_no_servo_delay::NMPCController::sendRPYGain()
   spinal::RollPitchYawTerms rpy_gain_msg;
   rpy_gain_msg.motors.resize(motor_num_);
 
-  ros::NodeHandle control_nh(nh_, "controller");
   double roll_rate_p_gain, pitch_rate_p_gain, yaw_rate_p_gain;
-  getParam<double>(control_nh, "nmpc/roll_rate_p_gain", roll_rate_p_gain, 0.4);
-  getParam<double>(control_nh, "nmpc/pitch_rate_p_gain", pitch_rate_p_gain, 0.4);
-  getParam<double>(control_nh, "nmpc/yaw_rate_p_gain", yaw_rate_p_gain, 1.0);
+  getParam<double>(control_nh_, "nmpc/roll_rate_p_gain", roll_rate_p_gain, 0.4);
+  getParam<double>(control_nh_, "nmpc/pitch_rate_p_gain", pitch_rate_p_gain, 0.4);
+  getParam<double>(control_nh_, "nmpc/yaw_rate_p_gain", yaw_rate_p_gain, 1.0);
 
   rpy_gain_msg.motors[0].roll_d = (short)(-roll_rate_p_gain * 1000);
   rpy_gain_msg.motors[0].pitch_d = (short)(-pitch_rate_p_gain * 1000);

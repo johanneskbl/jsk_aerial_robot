@@ -18,8 +18,6 @@ void nmpc_under_act_body_rate::NMPCController::initialize(
 {
   ControlBase::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
-  ros::NodeHandle control_nh(nh_, "controller");
-
   mass_ = robot_model_->getMass();
   // TODO: wired. I think the original value should be -9.8 in ENU frame
   gravity_const_ = robot_model_->getGravity()[2];
@@ -30,19 +28,19 @@ void nmpc_under_act_body_rate::NMPCController::initialize(
   physical_params.gravity = robot_model_->getGravity()[2];
   physical_params.c_thrust_max = robot_model_->getThrustUpperLimit() * robot_model_->getRotorNum();
   physical_params.c_thrust_min = robot_model_->getThrustLowerLimit() * robot_model_->getRotorNum();
-  getParam<double>(control_nh, "nmpc/v_max", physical_params.v_max, 0.5);
-  getParam<double>(control_nh, "nmpc/v_min", physical_params.v_min, -0.5);
-  getParam<double>(control_nh, "nmpc/w_max", physical_params.w_max, 3.0);
-  getParam<double>(control_nh, "nmpc/w_min", physical_params.w_min, -3.0);
-  getParam<double>(control_nh, "nmpc/T_samp", t_nmpc_samp_, 0.025);
-  getParam<double>(control_nh, "nmpc/T_step", t_nmpc_integ_, 0.1);
+  getParam<double>(control_nh_, "nmpc/v_max", physical_params.v_max, 0.5);
+  getParam<double>(control_nh_, "nmpc/v_min", physical_params.v_min, -0.5);
+  getParam<double>(control_nh_, "nmpc/w_max", physical_params.w_max, 3.0);
+  getParam<double>(control_nh_, "nmpc/w_min", physical_params.w_min, -3.0);
+  getParam<double>(control_nh_, "nmpc/T_samp", t_nmpc_samp_, 0.025);
+  getParam<double>(control_nh_, "nmpc/T_step", t_nmpc_integ_, 0.1);
   mpc_solver_.initialize(physical_params);
 
-  getParam<double>(control_nh, "nmpc/yaw_p_gain", yaw_p_gain, 40.0);
-  getParam<double>(control_nh, "nmpc/yaw_d_gain", yaw_d_gain, 1.0);
+  getParam<double>(control_nh_, "nmpc/yaw_p_gain", yaw_p_gain, 40.0);
+  getParam<double>(control_nh_, "nmpc/yaw_d_gain", yaw_d_gain, 1.0);
 
-  getParam<bool>(control_nh, "nmpc/is_attitude_ctrl", is_attitude_ctrl_, true);
-  getParam<bool>(control_nh, "nmpc/is_body_rate_ctrl", is_body_rate_ctrl_, false);
+  getParam<bool>(control_nh_, "nmpc/is_attitude_ctrl", is_attitude_ctrl_, true);
+  getParam<bool>(control_nh_, "nmpc/is_body_rate_ctrl", is_body_rate_ctrl_, false);
 
   /* timers */
   tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &NMPCController::callbackViz, this);
@@ -332,11 +330,10 @@ void nmpc_under_act_body_rate::NMPCController::sendRPYGain()
 
   if (!is_attitude_ctrl_ && is_body_rate_ctrl_)
   {
-    ros::NodeHandle control_nh(nh_, "controller");
     double roll_rate_p_gain, pitch_rate_p_gain, yaw_rate_p_gain;
-    getParam<double>(control_nh, "nmpc/roll_rate_p_gain", roll_rate_p_gain, 0.4);
-    getParam<double>(control_nh, "nmpc/pitch_rate_p_gain", pitch_rate_p_gain, 0.4);
-    getParam<double>(control_nh, "nmpc/yaw_rate_p_gain", yaw_rate_p_gain, 1.5);
+    getParam<double>(control_nh_, "nmpc/roll_rate_p_gain", roll_rate_p_gain, 0.4);
+    getParam<double>(control_nh_, "nmpc/pitch_rate_p_gain", pitch_rate_p_gain, 0.4);
+    getParam<double>(control_nh_, "nmpc/yaw_rate_p_gain", yaw_rate_p_gain, 1.5);
 
     rpy_gain_msg.motors[0].roll_d = (short)(-roll_rate_p_gain * 1000);
     rpy_gain_msg.motors[0].pitch_d = (short)(pitch_rate_p_gain * 1000);

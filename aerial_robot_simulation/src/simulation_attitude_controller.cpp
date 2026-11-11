@@ -119,7 +119,8 @@ void SimulationAttitudeController::update(const ros::Time& time, const ros::Dura
       std::stringstream joint_no;
       joint_no << i + 1;
       hardware_interface::RotorHandle rotor = spinal_interface_->getHandle(std::string("rotor") + joint_no.str());
-      rotor.setForce(controller_core_->getAttController().getForce(i));
+      // Thrust realized for the converted command, e.g., the RPM tracked by the ESC in the RPM mode
+      rotor.setForce(controller_core_->getAttController().getRealizedForce(i));
     }
 }
 

@@ -36,7 +36,7 @@ class MPCPubJointTraj(MPCPubBase, ABC):
     def pub_trajectory_points(self, traj_msg: MultiDOFJointTrajectory):
         """Publish the MultiDOFJointTrajectory message."""
         traj_msg.header.stamp = rospy.Time.now()
-        traj_msg.header.frame_id = "map"
+        traj_msg.header.frame_id = self.tracking_frame_name  # checked by the C++ controller
         self.pub_ref_traj.publish(traj_msg)
 
 
@@ -52,6 +52,8 @@ class MPCTrajPtPub(MPCPubJointTraj):
     def __init__(self, robot_name: str, traj):
         super().__init__(robot_name=robot_name, node_name="mpc_traj_pt_pub")
         self.traj = traj
+        # The trajectory must describe the tracked frame
+        self.traj.set_tracking_frame_height(self.tracking_frame_height)
         rospy.loginfo(f"{self.namespace}/{self.node_name}: Using trajectory {str(self.traj)}")
 
         self.start_timer()
@@ -190,11 +192,6 @@ class MPCSinglePtPub(MPCPubJointTraj):
         """
         # Current pose
         cur_pos = self.uav_odom.pose.pose.position
-
-        ####################################################
-        # NOT CLEAR WHY BUT z has always an offset of 0.26
-        # cur_pos.z -= 0.26
-        ####################################################
 
         dx = cur_pos.x - self.target_pose.position.x
         dy = cur_pos.y - self.target_pose.position.y

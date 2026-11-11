@@ -7,19 +7,23 @@ controller:
     T_horizon: 2.0  # seconds
     T_step: 0.1  # seconds
 
-    # Hard constraints
-    w_max: 6  # 1 rad/s ~ 57 deg/s
-    w_min: -6
+    # Frame tracked by the MPC cost
+    # Need rebuild after changing it! Read by both the Python generation and the C++ controller
+    tracking_frame: cog_tracking  # 'cog_tracking' or 'ee_tracking'
 
-    v_max: 0.5
+    # Hard constraints
+    w_min: -6
+    w_max: 6  # 1 rad/s ~ 57 deg/s
+
     v_min: -0.5
+    v_max: 0.5
     vel_limit_takeoff: 0.5
 
-    thrust_max: 30  # N
     thrust_min: 0  # N
+    thrust_max: 23  # N
 
-    a_max: 3.1416  # 30 degree ~ 0.5    1.5708 rad ~ 90 deg
     a_min: -3.1416
+    a_max: 3.1416  # 30 degree ~ 0.5    1.5708 rad ~ 90 deg
 
     # Weights for cost function
     # How to improve controller performance (in order of effectiveness):

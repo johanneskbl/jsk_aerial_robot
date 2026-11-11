@@ -112,7 +112,7 @@ namespace aerial_robot_control
         target_thrust_z_term = q_mat_inv_.col(0) * target_acc_w.length();
       }
 
-     // constraint z (also  I term)
+     // constraint z (also  I-term)
     int index;
     double max_term = target_thrust_z_term.cwiseAbs().maxCoeff(&index);
     double residual = max_term - z_limit_;
@@ -179,9 +179,8 @@ namespace aerial_robot_control
 
   void UnderActuatedController::rosParamInit()
   {
-    ros::NodeHandle control_nh(nh_, "controller");
-    getParam<bool>(control_nh, "hovering_approximate", hovering_approximate_, false);
-    getParam<double>(control_nh, "torque_allocation_matrix_inv_pub_interval", torque_allocation_matrix_inv_pub_interval_, 0.05);
+    getParam<bool>(control_nh_, "hovering_approximate", hovering_approximate_, false);
+    getParam<double>(control_nh_, "torque_allocation_matrix_inv_pub_interval", torque_allocation_matrix_inv_pub_interval_, 0.05);
   }
 
   void UnderActuatedController::setAttitudeGains()

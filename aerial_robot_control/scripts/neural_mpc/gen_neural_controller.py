@@ -9,7 +9,7 @@ sim_options["disturbances"]["drag"] = False
 sim_options["disturbances"]["payload"] = False
 
 controller_list = []
-# controller_list.append("nominal")
+controller_list.append("nominal")
 # controller_list.append("neural")
 
 if "nominal" in controller_list:

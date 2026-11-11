@@ -8,23 +8,20 @@ using namespace aerial_robot_control;
 
 void nmpc::TiltBi2OrdServoNMPC::initNMPCCostW()
 {
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle nmpc_nh(control_nh, "nmpc");
-
   /* control parameters with dynamic reconfigure */
   double Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qb, Rt, Rac_d;
-  getParam<double>(nmpc_nh, "Qp_xy", Qp_xy, 300);
-  getParam<double>(nmpc_nh, "Qp_z", Qp_z, 400);
-  getParam<double>(nmpc_nh, "Qv_xy", Qv_xy, 10);
-  getParam<double>(nmpc_nh, "Qv_z", Qv_z, 10);
-  getParam<double>(nmpc_nh, "Qq_xy", Qq_xy, 300);
-  getParam<double>(nmpc_nh, "Qq_z", Qq_z, 300);
-  getParam<double>(nmpc_nh, "Qw_xy", Qw_xy, 5);
-  getParam<double>(nmpc_nh, "Qw_z", Qw_z, 5);
-  getParam<double>(nmpc_nh, "Qa", Qa, 1);
-  getParam<double>(nmpc_nh, "Qb", Qb, 0);
-  getParam<double>(nmpc_nh, "Rt", Rt, 1);
-  getParam<double>(nmpc_nh, "Rac_d", Rac_d, 250);
+  getParam<double>(mpc_nh_, "Qp_xy", Qp_xy, 300);
+  getParam<double>(mpc_nh_, "Qp_z", Qp_z, 400);
+  getParam<double>(mpc_nh_, "Qv_xy", Qv_xy, 10);
+  getParam<double>(mpc_nh_, "Qv_z", Qv_z, 10);
+  getParam<double>(mpc_nh_, "Qq_xy", Qq_xy, 300);
+  getParam<double>(mpc_nh_, "Qq_z", Qq_z, 300);
+  getParam<double>(mpc_nh_, "Qw_xy", Qw_xy, 5);
+  getParam<double>(mpc_nh_, "Qw_z", Qw_z, 5);
+  getParam<double>(mpc_nh_, "Qa", Qa, 1);
+  getParam<double>(mpc_nh_, "Qb", Qb, 0);
+  getParam<double>(mpc_nh_, "Rt", Rt, 1);
+  getParam<double>(mpc_nh_, "Rac_d", Rac_d, 250);
 
   // diagonal matrix
   mpc_solver_ptr_->setCostWDiagElement(0, Qp_xy);

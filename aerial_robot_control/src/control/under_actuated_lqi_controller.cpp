@@ -64,8 +64,7 @@ void UnderActuatedLQIController::initialize(ros::NodeHandle nh,
   p_matrix_pseudo_inverse_inertia_pub_ = nh_.advertise<spinal::PMatrixPseudoInverseWithInertia>("p_matrix_pseudo_inverse_inertia", 1);
 
   //dynamic reconfigure server
-  ros::NodeHandle control_nh(nh_, "controller");
-  lqi_server_ = boost::make_shared<dynamic_reconfigure::Server<aerial_robot_control::LQIConfig> >(ros::NodeHandle(control_nh, "lqi"));
+  lqi_server_ = boost::make_shared<dynamic_reconfigure::Server<aerial_robot_control::LQIConfig> >(ros::NodeHandle(control_nh_, "lqi"));
   dynamic_reconf_func_lqi_ = boost::bind(&UnderActuatedLQIController::cfgLQICallback, this, _1, _2);
   lqi_server_->setCallback(dynamic_reconf_func_lqi_);
 
@@ -100,8 +99,7 @@ UnderActuatedLQIController::~UnderActuatedLQIController()
 void UnderActuatedLQIController::gainGeneratorFunc()
 {
   double rate;
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle lqi_nh(control_nh, "lqi");
+  ros::NodeHandle lqi_nh(control_nh_, "lqi");
   lqi_nh.param("gain_generate_rate", rate, 15.0);
   ros::Rate loop_rate(rate);
 
@@ -184,7 +182,7 @@ void UnderActuatedLQIController::controlCore()
       pid_msg_.z.d_term.at(i) = d_term;
     }
 
-  // constraint z (also  I term)
+  // constraint z (also  I-term)
   int index;
   double max_term = target_thrust_z_term.cwiseAbs().maxCoeff(&index);
   double residual = max_term - pid_controllers_.at(Z).getLimitSum();
@@ -216,7 +214,7 @@ void UnderActuatedLQIController::allocateYawTerm()
       pid_msg_.yaw.i_term.at(i) = i_term;
       pid_msg_.yaw.d_term.at(i) = d_term;
     }
-  // constraint yaw (also  I term)
+  // constraint yaw (also  I-term)
   int index;
   double max_term = target_thrust_yaw_term.cwiseAbs().maxCoeff(&index);
   double residual = max_term - pid_controllers_.at(YAW).getLimitSum();
@@ -382,8 +380,7 @@ bool UnderActuatedLQIController::checkRobotModel()
 
 void UnderActuatedLQIController::rosParamInit()
 {
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle lqi_nh(control_nh, "lqi");
+  ros::NodeHandle lqi_nh(control_nh_, "lqi");
   getParam<bool>(lqi_nh, "clamp_gain", clamp_gain_, true);
   getParam<bool>(lqi_nh, "realtime_update", realtime_update_, false);
   getParam<bool>(lqi_nh, "gyro_moment_compensation", gyro_moment_compensation_, false);

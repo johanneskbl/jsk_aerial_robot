@@ -6,7 +6,8 @@ from abc import ABC, abstractmethod
 import rospy
 
 from nav_msgs.msg import Odometry
-from util import topic_ready, check_first_data_received, TrackingErrorCalculator
+from util import check_first_data_received, TrackingErrorCalculator
+from util import get_tracking_frame, get_tracking_frame_height, TRACKING_FRAME_NAMES
 
 
 ##########################################
@@ -17,7 +18,7 @@ class MPCPubBase(ABC):
     A base class that handles:
       - Robot name / node namespace
       - Parameter loading (T_pred, T_integ, T_samp)
-      - Odom subscription & storing latest state
+      - Odom subscription of the frame tracked by the MPC & storing latest state
       - set_ref_traj publisher
       - Timer callback scaffolding (frequency check, set 'finished' flag)
       - Abstract methods for building the MultiDOFJointTrajectory and checking finish conditions
@@ -44,13 +45,14 @@ class MPCPubBase(ABC):
         # Store latest odometry here
         self.uav_odom = None
 
-        # check if the topic to /uav/ee_contact/odom is available
-        if topic_ready(f"/{robot_name}/uav/ee_contact/odom", Odometry, timeout=1.0):
-            rospy.loginfo(f"{self.namespace}/{self.node_name}: Using /{robot_name}/uav/ee_contact/odom for odometry.")
-            self.odom_sub = rospy.Subscriber(f"/{robot_name}/uav/ee_contact/odom", Odometry, self._sub_odom_callback)
-        else:
-            rospy.loginfo(f"{self.namespace}/{self.node_name}: Using /{robot_name}/uav/cog/odom for odometry.")
-            self.odom_sub = rospy.Subscriber(f"/{robot_name}/uav/cog/odom", Odometry, self._sub_odom_callback)
+        # The reference must describe the frame tracked by the MPC cost, so use the odometry of this frame
+        # NOTE: The name of the tracked frame is also sent as header.frame_id, which the C++ controller checks.
+        self.tracking_frame = get_tracking_frame(robot_name)
+        self.tracking_frame_name = TRACKING_FRAME_NAMES[self.tracking_frame]
+        self.tracking_frame_height = get_tracking_frame_height(robot_name, self.tracking_frame)
+        odom_topic = f"/{robot_name}/uav/{self.tracking_frame_name}/odom"
+        rospy.loginfo(f"{self.namespace}/{self.node_name}: Tracking {self.tracking_frame}, using {odom_topic}.")
+        self.odom_sub = rospy.Subscriber(odom_topic, Odometry, self._sub_odom_callback)
 
         check_first_data_received(self, "uav_odom", robot_name)
 

@@ -14,29 +14,29 @@ void nmpc::TiltMtServoThrustDistNMPC::initialize(ros::NodeHandle nh, ros::NodeHa
 {
   TiltMtServoDistNMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
+  /* Thrust measurement */
+  esc_telem_.initialize(nh_, motor_num_);
+
   sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &TiltMtServoThrustDistNMPC::callbackESCTelem, this);
 }
 
-void nmpc::TiltMtServoThrustDistNMPC::initNMPCCostW()
+void nmpc::TiltMtServoThrustDistNMPC::initMPCCostW()
 {
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle nmpc_nh(control_nh, "nmpc");
-
   /* control parameters with dynamic reconfigure */
   double Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qt, Rtc_d, Rac_d;
-  getParam<double>(nmpc_nh, "Qp_xy", Qp_xy, 300);
-  getParam<double>(nmpc_nh, "Qp_z", Qp_z, 400);
-  getParam<double>(nmpc_nh, "Qv_xy", Qv_xy, 10);
-  getParam<double>(nmpc_nh, "Qv_z", Qv_z, 10);
-  getParam<double>(nmpc_nh, "Qq_xy", Qq_xy, 300);
-  getParam<double>(nmpc_nh, "Qq_z", Qq_z, 300);
-  getParam<double>(nmpc_nh, "Qw_xy", Qw_xy, 5);
-  getParam<double>(nmpc_nh, "Qw_z", Qw_z, 5);
-  getParam<double>(nmpc_nh, "Qa", Qa, 1);
-  getParam<double>(nmpc_nh, "Qt", Qt, 1);
+  getParam<double>(mpc_nh_, "Qp_xy", Qp_xy, 300);
+  getParam<double>(mpc_nh_, "Qp_z", Qp_z, 400);
+  getParam<double>(mpc_nh_, "Qv_xy", Qv_xy, 10);
+  getParam<double>(mpc_nh_, "Qv_z", Qv_z, 10);
+  getParam<double>(mpc_nh_, "Qq_xy", Qq_xy, 300);
+  getParam<double>(mpc_nh_, "Qq_z", Qq_z, 300);
+  getParam<double>(mpc_nh_, "Qw_xy", Qw_xy, 5);
+  getParam<double>(mpc_nh_, "Qw_z", Qw_z, 5);
+  getParam<double>(mpc_nh_, "Qa", Qa, 1);
+  getParam<double>(mpc_nh_, "Qt", Qt, 1);
 
-  getParam<double>(nmpc_nh, "Rtc_d", Rtc_d, 1);
-  getParam<double>(nmpc_nh, "Rac_d", Rac_d, 250);
+  getParam<double>(mpc_nh_, "Rtc_d", Rtc_d, 1);
+  getParam<double>(mpc_nh_, "Rac_d", Rac_d, 250);
 
   // diagonal matrix
   mpc_solver_ptr_->setCostWDiagElement(0, Qp_xy);
@@ -63,21 +63,20 @@ void nmpc::TiltMtServoThrustDistNMPC::initNMPCCostW()
     mpc_solver_ptr_->setCostWDiagElement(i, Rac_d, false);
 }
 
-void nmpc::TiltMtServoThrustDistNMPC::initNMPCConstraints()
+void nmpc::TiltMtServoThrustDistNMPC::initMPCConstraints()
 {
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle nmpc_nh(control_nh, "nmpc");
+  double body_rate_max, body_rate_min;
+  getParam<double>(mpc_nh_, "w_max", body_rate_max, 6.0);
+  getParam<double>(mpc_nh_, "w_min", body_rate_min, -6.0);
+  getParam<double>(mpc_nh_, "v_max", vel_max_, 1.0);
+  getParam<double>(mpc_nh_, "v_min", vel_min_, -1.0);
+  getParam<double>(mpc_nh_, "thrust_max", thrust_ctrl_max_, 0.0);
+  getParam<double>(mpc_nh_, "thrust_min", thrust_ctrl_min_, 0.0);
+  getParam<double>(mpc_nh_, "a_max", servo_angle_max_, 3.1416);
+  getParam<double>(mpc_nh_, "a_min", servo_angle_min_, -3.1416);
 
-  double body_rate_max, body_rate_min, vel_max, vel_min;
-  double servo_angle_max, servo_angle_min;
-  getParam<double>(nmpc_nh, "w_max", body_rate_max, 6.0);
-  getParam<double>(nmpc_nh, "w_min", body_rate_min, -6.0);
-  getParam<double>(nmpc_nh, "v_max", vel_max, 1.0);
-  getParam<double>(nmpc_nh, "v_min", vel_min, -1.0);
-  getParam<double>(nmpc_nh, "thrust_max", thrust_ctrl_max_, 0.0);
-  getParam<double>(nmpc_nh, "thrust_min", thrust_ctrl_min_, 0.0);
-  getParam<double>(nmpc_nh, "a_max", servo_angle_max, 3.1416);
-  getParam<double>(nmpc_nh, "a_min", servo_angle_min, -3.1416);
+  //  TODO: this should be set in flight_navigation
+  getParam<double>(mpc_nh_, "vel_limit_takeoff", vel_limit_takeoff_, 1.0);  // m/s
 
   // lbx and ubx
   std::vector<int> idxbx = mpc_solver_ptr_->getConstraintsIdxbx();
@@ -97,14 +96,14 @@ void nmpc::TiltMtServoThrustDistNMPC::initNMPCConstraints()
     ROS_ERROR("idxbx is not equal to idxbx_desired, we cannot set constraints lbx and ubx!");
   }
 
-  std::vector<double> lbx = { vel_min, vel_min, vel_min, body_rate_min, body_rate_min, body_rate_min };
-  std::vector<double> ubx = { vel_max, vel_max, vel_max, body_rate_max, body_rate_max, body_rate_max };
+  std::vector<double> lbx = { vel_min_, vel_min_, vel_min_, body_rate_min, body_rate_min, body_rate_min };
+  std::vector<double> ubx = { vel_max_, vel_max_, vel_max_, body_rate_max, body_rate_max, body_rate_max };
   lbx.resize(6 + joint_num_ + motor_num_);
   ubx.resize(6 + joint_num_ + motor_num_);
   for (int i = 0; i < joint_num_; i++)
   {
-    lbx[6 + i] = servo_angle_min;
-    ubx[6 + i] = servo_angle_max;
+    lbx[6 + i] = servo_angle_min_;
+    ubx[6 + i] = servo_angle_max_;
   }
   for (int i = 0; i < motor_num_; i++)
   {
@@ -149,46 +148,51 @@ void nmpc::TiltMtServoThrustDistNMPC::initNMPCConstraints()
   }
   for (int i = 0; i < joint_num_; i++)
   {
-    lbu[motor_num_ + i] = servo_angle_min;
-    ubu[motor_num_ + i] = servo_angle_max;
+    lbu[motor_num_ + i] = servo_angle_min_;
+    ubu[motor_num_ + i] = servo_angle_max_;
   }
   mpc_solver_ptr_->setConstraintsLbu(lbu);
   mpc_solver_ptr_->setConstraintsUbu(ubu);
 }
 
+/**
+ * @brief Update the measured thrust from the valid frames of the ESC telemetry
+ */
 void nmpc::TiltMtServoThrustDistNMPC::callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg)
-{  // TODO: support different motor number
-  double krpm = (double)msg->esc_telemetry_1.rpm * 0.001;
-  thrust_meas_[0] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
-
-  krpm = (double)msg->esc_telemetry_2.rpm * 0.001;
-  thrust_meas_[1] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
-
-  krpm = (double)msg->esc_telemetry_3.rpm * 0.001;
-  thrust_meas_[2] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
-
-  krpm = (double)msg->esc_telemetry_4.rpm * 0.001;
-  thrust_meas_[3] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
+{
+  esc_telem_.update(*msg, thrust_meas_, crc_errors_);
 }
 
-void nmpc::TiltMtServoThrustDistNMPC::allocateToXU(const tf::Vector3& ref_pos_i, const tf::Vector3& ref_vel_i,
-                                                   const tf::Quaternion& ref_quat_ib, const tf::Vector3& ref_omega_b,
-                                                   const Eigen::VectorXd& ref_wrench_b, vector<double>& x,
-                                                   vector<double>& u)
+/**
+ * @brief Construct and allocate the state and control inputs from the referenced wrench
+ * The servo angles and thrusts are states, so their references are set in x and the control input reference is zero.
+ * @param ref_pos_w Position of the origin of T, expressed in W
+ * @param ref_vel_w Linear velocity of the origin of T, expressed in W
+ * @param ref_quat_wt Orientation of T w.r.t. W
+ * @param ref_omega_t Angular velocity of T w.r.t. W, expressed in T
+ * @param ref_wrench_b Reference wrench in the Body frame
+ * @param x State vector to be filled
+ * @param u Control vector to be filled
+ */
+void nmpc::TiltMtServoThrustDistNMPC::allocateToXU(const tf::Vector3& ref_pos_w, const tf::Vector3& ref_vel_w,
+                                                   const tf::Quaternion& ref_quat_wt, const tf::Vector3& ref_omega_t,
+                                                   const Eigen::VectorXd& ref_wrench_b, std::vector<double>& x,
+                                                   std::vector<double>& u)
 {
-  x.at(0) = ref_pos_i.x();
-  x.at(1) = ref_pos_i.y();
-  x.at(2) = ref_pos_i.z();
-  x.at(3) = ref_vel_i.x();
-  x.at(4) = ref_vel_i.y();
-  x.at(5) = ref_vel_i.z();
-  x.at(6) = ref_quat_ib.w();
-  x.at(7) = ref_quat_ib.x();
-  x.at(8) = ref_quat_ib.y();
-  x.at(9) = ref_quat_ib.z();
-  x.at(10) = ref_omega_b.x();
-  x.at(11) = ref_omega_b.y();
-  x.at(12) = ref_omega_b.z();
+  x.at(0) = ref_pos_w.x();
+  x.at(1) = ref_pos_w.y();
+  x.at(2) = ref_pos_w.z();
+  x.at(3) = ref_vel_w.x();
+  x.at(4) = ref_vel_w.y();
+  x.at(5) = ref_vel_w.z();
+  x.at(6) = ref_quat_wt.w();
+  x.at(7) = ref_quat_wt.x();
+  x.at(8) = ref_quat_wt.y();
+  x.at(9) = ref_quat_wt.z();
+  x.at(10) = ref_omega_t.x();
+  x.at(11) = ref_omega_t.y();
+  x.at(12) = ref_omega_t.z();
+
   Eigen::VectorXd x_lambda = alloc_mat_pinv_ * ref_wrench_b;
   for (int i = 0; i < x_lambda.size() / 2; i++)
   {
@@ -201,31 +205,33 @@ void nmpc::TiltMtServoThrustDistNMPC::allocateToXU(const tf::Vector3& ref_pos_i,
 
 std::vector<double> nmpc::TiltMtServoThrustDistNMPC::meas2VecX(bool is_ee_centric)
 {
-  /* disturbance rejection */
-  geometry_msgs::Vector3 external_force_w;     // default: 0, 0, 0
-  geometry_msgs::Vector3 external_torque_cog;  // default: 0, 0, 0
+  /* Disturbance rejection */
+  geometry_msgs::Vector3 external_force_w;   // default: 0, 0, 0
+  geometry_msgs::Vector3 external_torque_b;  // default: 0, 0, 0
 
   if (if_use_est_wrench_4_control_)
   {
     external_force_w = wrench_est_ptr_->getDistForceW();
-    external_torque_cog = wrench_est_ptr_->getDistTorqueCOG();
+    external_torque_b = wrench_est_ptr_->getDistTorqueCOG();
   }
 
+  // NOTE: Skip TiltMtServoDistNMPC::meas2VecX() since the thrust states come before the external wrench states
   auto bx0 = TiltMtServoNMPC::meas2VecX(is_ee_centric);
 
+  esc_telem_.checkAlive();  // Only logging
   for (int i = 0; i < motor_num_; i++)
     bx0[13 + joint_num_ + i] = thrust_meas_[i];
 
   bx0[13 + joint_num_ + motor_num_ + 0] = external_force_w.x;
   bx0[13 + joint_num_ + motor_num_ + 1] = external_force_w.y;
   bx0[13 + joint_num_ + motor_num_ + 2] = external_force_w.z;
-  bx0[13 + joint_num_ + motor_num_ + 3] = external_torque_cog.x;
-  bx0[13 + joint_num_ + motor_num_ + 4] = external_torque_cog.y;
-  bx0[13 + joint_num_ + motor_num_ + 5] = external_torque_cog.z;
+  bx0[13 + joint_num_ + motor_num_ + 3] = external_torque_b.x;
+  bx0[13 + joint_num_ + motor_num_ + 4] = external_torque_b.y;
+  bx0[13 + joint_num_ + motor_num_ + 5] = external_torque_b.z;
   return bx0;
 }
 
-void nmpc::TiltMtServoThrustDistNMPC::cfgNMPCCallback(aerial_robot_control::NMPCConfig& config, uint32_t level)
+void nmpc::TiltMtServoThrustDistNMPC::callbackMPCcfg(aerial_robot_control::NMPCConfig& config, uint32_t level)
 {
   using Levels = aerial_robot_msgs::DynamicReconfigureLevels;
   if (config.nmpc_flag)

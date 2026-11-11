@@ -3,23 +3,26 @@ aerial_robot_control_name: aerial_robot_control/neural_mpc_controller/tilt_mt/no
 
 controller:
   nmpc:
+    # Frame tracked by the MPC cost: cog_tracking (CoG) | ee_tracking (end-effector frame "ee_contact").
+    # Read by both the Python code generation and the C++ controller: rebuild after changing it.
+    tracking_frame: cog_tracking
     T_samp: 0.01  # seconds -> 100 Hz  TODO: should be adjusted by main_rate
     T_horizon: 2.0  # seconds
     T_step: 0.1  # seconds
 
     # Hard constraints
-    w_max: 6  # 1 rad/s ~ 57 deg/s
     w_min: -6
+    w_max: 6  # 1 rad/s ~ 57 deg/s
 
-    v_max: 0.5
     v_min: -0.5
+    v_max: 0.5
     vel_limit_takeoff: 0.5
 
-    thrust_max: 30  # N
     thrust_min: 0  # N
+    thrust_max: 23  # N
 
-    a_max: 3.1416  # 30 degree ~ 0.5    1.5708 rad ~ 90 deg
     a_min: -3.1416
+    a_max: 3.1416  # 30 degree ~ 0.5    1.5708 rad ~ 90 deg
 
     # Weights for cost function
     # How to improve controller performance (in order of effectiveness):
@@ -71,3 +74,8 @@ controller:
 
     is_print_phys_params: false
     is_debug: false
+
+    # Solver failure handling, in consecutive failed control loops (failure = solver exception or NaN/Inf command).
+    # The last valid command is held meanwhile. At 100 Hz: reset after 50 ms, force landing after 200 ms in flight.
+    solver_fail_reset_num: 5   # re-initialize the solver around the current state every this many failures
+    solver_fail_land_num: 20   # trigger spinal's force landing after this many failures (>= solver_fail_reset_num)

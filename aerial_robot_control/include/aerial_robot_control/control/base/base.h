@@ -47,20 +47,17 @@ namespace aerial_robot_control
 class ControlBase
 {
 public:
-  ControlBase() : control_timestamp_(-1), activate_timestamp_(0)
-  {
-  }
+  ControlBase() : control_timestamp_(-1), activate_timestamp_(0) {}
+  virtual ~ControlBase() {}
 
-  virtual ~ControlBase()
-  {
-  }
-  void virtual initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
+  virtual void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
                           boost::shared_ptr<aerial_robot_model::RobotModel> robot_model,
                           boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
                           boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_du)
   {
     nh_ = nh;
     nhp_ = nhp;
+    control_nh_ = ros::NodeHandle(nh_, "controller");
     motor_info_pub_ = nh_.advertise<spinal::PwmInfo>("motor_info", 10);
     uav_info_pub_ = nh_.advertise<spinal::UavInfo>("uav_info", 10);
 
@@ -69,6 +66,7 @@ public:
     navigator_ = navigator;
 
     ctrl_loop_du_ = ctrl_loop_du;
+    is_reset_ = false;
 
     motor_num_ = robot_model->getRotorNum();
     estimate_mode_ = estimator_->getEstimateMode();
@@ -76,8 +74,7 @@ public:
     getParam<bool>(nhp_, "param_verbose", param_verbose_, false);
     getParam<int>(nh_, "uav_model", uav_model_, 0);  // 0: DRONE
 
-    ros::NodeHandle control_nh(nh_, "controller");
-    getParam<bool>(control_nh, "control_verbose", control_verbose_, false);
+    getParam<bool>(control_nh_, "control_verbose", control_verbose_, false);
 
     ros::NodeHandle motor_nh(nh_, "motor_info");
     getParam<double>(motor_nh, "max_pwm", max_pwm_, 0.0);
@@ -90,6 +87,8 @@ public:
     getParam<double>(motor_nh, "max_rpm", max_rpm_, 0.0);
     getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
     getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
+    if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE && krpm_square_to_thrust_ratio_ <= 0.0)
+      ROS_ERROR("motor_info/krpm_square_to_thrust_ratio must be positive for the RPM mode!");
 
     int vel_ref_num;
     getParam<int>(motor_nh, "vel_ref_num", vel_ref_num, 0);
@@ -107,14 +106,14 @@ public:
 
       if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE)
       {
-        /* Use RPM mode parameters for all voltage references as it is voltage-independent */
-        motor_info_[i].krpm_square_to_thrust_bias = krpm_square_to_thrust_bias_;
+        /* Parameters for model-based conversion of desired thrust to desired RPM */
         motor_info_[i].krpm_square_to_thrust_ratio = krpm_square_to_thrust_ratio_;
+        motor_info_[i].krpm_square_to_thrust_bias = krpm_square_to_thrust_bias_;
       }
       else if (pwm_conversion_mode_ == spinal::MotorInfo::POLYNOMINAL_MODE)
       {
-        /* Hardcode: up to 4 dimensions */  // TODO Why implemented this way?! Doesn't need to be arbitrary amount? And
-                                            // what even is polynomial factor? -> Overthink this!
+        /* Parameters for heuristic conversion of desired thrust to desired PWM */
+        /* Hardcoded: up to 4 dimensions */
         for (int j = 0; j < 5; j++)
         {
           std::stringstream ss2;
@@ -129,7 +128,15 @@ public:
   virtual bool update()
   {
     if (navigator_->getNaviState() == aerial_robot_navigation::START_STATE)
+    {
       activate();
+      if (!is_reset_)
+      {
+        // Reset once after activate() at start/arm time and not anymore until takeoff time to keep warm-up valid
+        reset();
+        is_reset_ = true;
+      }
+    }
     if (navigator_->getNaviState() == aerial_robot_navigation::ARM_OFF_STATE && control_timestamp_ > 0)
     {
       reset();
@@ -139,13 +146,12 @@ public:
     {
       if (navigator_->getNaviState() == aerial_robot_navigation::TAKEOFF_STATE)
       {
-        reset();
         control_timestamp_ = ros::Time::now().toSec();
+        is_reset_ = false;  // Prepare for next activation / arming after current flight is finished
       }
       else
         return false;
     }
-
     return true;
   }
 
@@ -190,6 +196,7 @@ public:
 protected:
   ros::NodeHandle nh_;
   ros::NodeHandle nhp_;
+  ros::NodeHandle control_nh_;
   ros::Publisher motor_info_pub_;
   ros::Publisher uav_info_pub_;
 
@@ -198,23 +205,24 @@ protected:
   boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator_;
 
   double activate_timestamp_;
+  int estimate_mode_;
 
   double ctrl_loop_du_;
+  bool is_reset_;
   double control_timestamp_;
   int motor_num_;
   int uav_model_;
 
-  double m_f_rate_;
-  double max_pwm_, min_pwm_;
-  double min_thrust_;
   std::vector<spinal::MotorInfo> motor_info_;
-
-  double force_landing_thrust_;  // pwm
+  double min_pwm_, max_pwm_;
+  double m_f_rate_;
+  double min_thrust_;
+  
   int pwm_conversion_mode_;
-  double min_rpm_, max_rpm_;  // [RPM] RPM_MODE only
-  double krpm_square_to_thrust_ratio_, krpm_square_to_thrust_bias_;  // [N/kRPM^2] and [N] RPM_MODE only
+  double force_landing_thrust_;
+  double min_rpm_, max_rpm_;
+  double krpm_square_to_thrust_ratio_, krpm_square_to_thrust_bias_;  // [N/kRPM^2] and [N]
 
-  int estimate_mode_;
   bool param_verbose_;
   bool control_verbose_;
 

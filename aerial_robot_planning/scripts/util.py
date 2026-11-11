@@ -11,9 +11,115 @@ import math
 from scipy.spatial.transform import Rotation as R
 
 import tf_conversions as tf
+import tf2_ros
 from nav_msgs.msg import Odometry, Path
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point, Quaternion, PoseStamped
+
+# Frames tracked by the MPC cost ("tracking_frame" in the NMPC config) and the names of the robot frames they describe
+# NOTE: The C++ controller ignores a reference whose header.frame_id is not the name of its tracked frame.
+TRACKING_FRAME_NAMES = {"cog_tracking": "cog", "ee_tracking": "ee_contact"}
+
+
+def get_tracking_frame(robot_name: str) -> str:
+    """
+    Get the frame tracked by the MPC cost from the parameter server, with the same default as the C++ controller.
+    :param robot_name: Name of the robot
+    :return: "cog_tracking" or "ee_tracking"
+    """
+    tracking_frame = rospy.get_param(f"{robot_name}/controller/nmpc/tracking_frame", "cog_tracking")
+    if tracking_frame not in TRACKING_FRAME_NAMES:
+        raise ValueError(f"Invalid tracking_frame '{tracking_frame}'! Choose from {list(TRACKING_FRAME_NAMES)}.")
+    return tracking_frame
+
+
+def get_tracking_frame_height(robot_name: str, tracking_frame: str) -> float:
+    """
+    Get the height of the tracked frame above the CoG when level from the physical config of the robot, i.e., of the
+    EE from "physical/ball_effector_p" for ee_tracking.
+    :param robot_name: Name of the robot
+    :param tracking_frame: "cog_tracking" or "ee_tracking"
+    :return: Height of the tracked frame above the CoG when level [m], zero for cog_tracking
+    """
+    if tracking_frame == "cog_tracking":
+        return 0.0
+
+    param_name = f"{robot_name}/physical/ball_effector_p"
+    if not rospy.has_param(param_name):
+        raise KeyError(f"Parameter '{param_name}' for the position of the EE in the CoG frame not found!")
+    return float(rospy.get_param(param_name)[2])
+
+
+def get_tracking_frame_pose(robot_name: str, tracking_frame: str, timeout: float = 5.0):
+    """
+    Get the pose of the tracked frame T in the Body frame B (origin at the CoG) from TF, which is the same pose as the
+    C++ controller gets from the robot model. For cog_tracking, the pose is the identity.
+    :param robot_name: Name of the robot, which is also the TF prefix
+    :param tracking_frame: "cog_tracking" or "ee_tracking"
+    :param timeout: Time to wait for the transform [s]
+    :return t_p_b: Origin of T, expressed in B (3,)
+    :return q_bt: Orientation of T w.r.t. B as (qw, qx, qy, qz)
+    """
+    if tracking_frame == "cog_tracking":
+        return np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0])
+
+    tf_buffer = tf2_ros.Buffer()
+    tf_listener = tf2_ros.TransformListener(tf_buffer)  # noqa: F841, keeps receiving until the lookup is done
+    frame_name = TRACKING_FRAME_NAMES[tracking_frame]
+    try:
+        transform = tf_buffer.lookup_transform(
+            f"{robot_name}/cog", f"{robot_name}/{frame_name}", rospy.Time(0), rospy.Duration(timeout)
+        ).transform
+    except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+        raise RuntimeError(f"Cannot get the pose of the frame '{frame_name}' in the frame 'cog' from TF: {e}")
+
+    t_p_b = np.array([transform.translation.x, transform.translation.y, transform.translation.z])
+    q_bt = np.array([transform.rotation.w, transform.rotation.x, transform.rotation.y, transform.rotation.z])
+    return t_p_b, q_bt
+
+
+def quaternion_multiply_wxyz(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """
+    Hamilton product q1 * q2 of quaternions in (qw, qx, qy, qz) format, broadcast over the leading dimensions.
+    Keeps the sign of the inputs, unlike a conversion over rotation matrices.
+    """
+    w1, x1, y1, z1 = np.moveaxis(np.asarray(q1, dtype=float), -1, 0)
+    w2, x2, y2, z2 = np.moveaxis(np.asarray(q2, dtype=float), -1, 0)
+    return np.stack(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ],
+        axis=-1,
+    )
+
+
+def convert_states_from_b_to_t(x: np.ndarray, t_p_b: np.ndarray, q_bt: np.ndarray) -> np.ndarray:
+    """
+    Transform the states [p, v, q, w] of the Body frame B to the tracked frame T, the same as BaseMPC::convertFromBToT()
+    of the C++ controller. B and T belong to the same rigid body, so with the pose t_p_b, q_bt of T in B:
+    q_wt = q_wb * q_bt, w_t = R_bt^T @ w_b, p_t = p + R_wb @ t_p_b, v_t = v + R_wb @ (w_b x t_p_b)
+    :param x: States (N, 13) with the position p (0:3) and velocity v (3:6) of B in World frame, the orientation
+              q_wb (6:10) as (qw, qx, qy, qz) and the angular velocity w_b (10:13), expressed in B
+    :param t_p_b: Origin of T, expressed in B (3,)
+    :param q_bt: Orientation of T w.r.t. B as (qw, qx, qy, qz)
+    :return: States of T with the same shape as x
+    """
+    x = np.asarray(x, dtype=float)
+    x_t = x.copy()
+
+    q_wb = x[:, 6:10]
+    w_b = x[:, 10:13]
+    rot_wb = R.from_quat(q_wb[:, [1, 2, 3, 0]]).as_matrix()  # (N, 3, 3), scipy uses (qx, qy, qz, qw)
+    rot_bt = R.from_quat(np.asarray(q_bt, dtype=float)[[1, 2, 3, 0]]).as_matrix()
+
+    x_t[:, 0:3] = x[:, 0:3] + rot_wb @ t_p_b
+    x_t[:, 3:6] = x[:, 3:6] + np.einsum("nij,nj->ni", rot_wb, np.cross(w_b, t_p_b))
+    x_t[:, 6:10] = quaternion_multiply_wxyz(q_wb, q_bt)
+    x_t[:, 10:13] = w_b @ rot_bt  # row-wise R_bt^T @ w_b
+    return x_t
 
 
 def check_first_data_received(obj: object, attr: str, object_name: str):

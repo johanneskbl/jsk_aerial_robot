@@ -12,15 +12,18 @@
 #include "geometry_msgs/WrenchStamped.h"
 #include "geometry_msgs/Vector3Stamped.h"
 
-using NMPCControlDynamicConfig = dynamic_reconfigure::Server<aerial_robot_control::NMPCConfig>;
-
 namespace aerial_robot_control
 {
 
 namespace nmpc
 {
 
-class TiltMtServoDistNMPC : public nmpc::TiltMtServoNMPC
+/**
+ * @brief MPC controller with a servo angle model and disturbance model
+ * The state is [p, v, q, w, alpha, f_w, tau_b] with the external wrench estimated from a wrench estimator plugin,
+ * and the model parameters by the model error from an I-term.
+ */
+class TiltMtServoDistNMPC : public TiltMtServoNMPC
 {
 public:
   void initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
@@ -28,9 +31,7 @@ public:
                   boost::shared_ptr<aerial_robot_estimation::StateEstimator> estimator,
                   boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_du) override;
 
-  bool update() override;
-
-  aerial_robot_control::WrenchEstITerm wrench_est_i_term_;  // I term is indispensable to eliminate steady error.
+  aerial_robot_control::WrenchEstITerm wrench_est_i_term_;  // I-term is indispensable to eliminate steady error.
 
   boost::shared_ptr<pluginlib::ClassLoader<aerial_robot_control::WrenchEstActuatorMeasBase>> wrench_est_loader_ptr_;
   boost::shared_ptr<aerial_robot_control::WrenchEstActuatorMeasBase> wrench_est_ptr_;
@@ -42,23 +43,31 @@ protected:
 
   int idx_p_dist_end_ = 0;
 
+  /* Initialization methods */
   void initPlugins() override;
+
+  /* Reset methods */
   void resetPlugins() override;
 
-  void initNMPCParams() override;
-
-  void prepareNMPCParams() override;
-
-  std::vector<double> meas2VecX(bool is_ee_centric) override;
-
+  /* Activate methods */
+  void initMPCPhysicalParams() override;
   void initAllocMat() override;
 
-  /* external wrench estimation */
-  void updateDisturbWrench() const;
+  /* State methods */
+  using TiltMtServoNMPC::meas2VecX;
+  std::vector<double> meas2VecX(bool is_ee_centric) override;
 
+  /* Update methods */
+  void publishRecording() override;
+
+  /* Control methods */
+  void prepareMPCParams() override;
+
+  /* External wrench estimation */
+  void updateDisturbWrench() const;
   void pubDisturbWrench() const;
 
-  /* I Term */
+  /* I-term */
   void updateITerm();
 };
 

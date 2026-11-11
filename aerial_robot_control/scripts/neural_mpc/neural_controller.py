@@ -111,7 +111,7 @@ class NeuralMPC(RecedingHorizonBase):
         # Create Reference Generator object
         self._reference_generator = self._create_reference_generator()
 
-        # Store acados model properties
+        # Store acados model fields
         self.state = self._acados_model.x
         self.controls = self._acados_model.u
         self.parameters = self._acados_model.p
@@ -566,7 +566,7 @@ class NeuralMPC(RecedingHorizonBase):
         if self.include_impedance:
             raise NotImplementedError("Impedance cost not implemented for Neural controllers yet.")
             # Compute linear acceleration (in World frame) and angular acceleration (in Body frame) for impedance cost
-            # Note: the wrench from I Term and Wrench Est are all important for this term. If we don't consider I Term,
+            # Note: the wrench from I-term and Wrench Est are all important for this term. If we don't consider I-term,
             # a constant disturbance will be injected.
             lin_acc_w = (ca.mtimes(rot_wb, fu_b) + self.fds_w + self.fdp_w) / mass + g_w
             ang_acc_b = ca.mtimes(
@@ -586,6 +586,7 @@ class NeuralMPC(RecedingHorizonBase):
         model.xdot = x_dot
         model.u = controls
         if self.cost_function_type == "EXTERNAL":
+            # TODO move to get_cost_function()
             Q, R = self.get_weights()
             W = np.block([[Q, np.zeros((state.size()[0], controls.size()[0]))], [np.zeros((controls.size()[0], state.size()[0])), R]])
             W = ca.sparsify(ca.DM(W))
@@ -674,19 +675,23 @@ class NeuralMPC(RecedingHorizonBase):
         # qe_z = -1 * qe_z
 
         # Using q_inv (somehow makes the tracking correct else it mirrors the reference)
-        qe_w = 1  # Ignore since it the tracking is already sufficiently defined by qx, qy, qz
-        qe_x = self.qwr * self.qx - self.qxr * self.qw - self.qyr * self.qz + self.qzr * self.qy
-        qe_y = self.qwr * self.qy + self.qxr * self.qz - self.qyr * self.qw - self.qzr * self.qx
-        qe_z = self.qwr * self.qz - self.qxr * self.qy + self.qyr * self.qx - self.qzr * self.qw
+        # qe_w = 1  # Ignore since it the tracking is already sufficiently defined by qx, qy, qz
+        # qe_x = self.qwr * self.qx - self.qxr * self.qw - self.qyr * self.qz + self.qzr * self.qy
+        # qe_y = self.qwr * self.qy + self.qxr * self.qz - self.qyr * self.qw - self.qzr * self.qx
+        # qe_z = self.qwr * self.qz - self.qxr * self.qy + self.qyr * self.qx - self.qzr * self.qw
 
+        # Transform state and compute error in the tracked frame (CoG or EE)
+        p_t, v_t, qe_w, qe_x, qe_y, qe_z, w_t = self.transform_cost_state()
+
+        # NOTE: The quaternion error is defined as the quaternion that rotates the current orientation to the reference
         state_y = ca.vertcat(
-            self.p,
-            self.v,
-            (1 - qe_w)**2 + self.qwr,
+            p_t,
+            v_t,
+            self.qwr,  # theoretically "+ (1 - qe_w)**2"
             qe_x + self.qxr,
             qe_y + self.qyr,
             qe_z + self.qzr,
-            self.w,
+            w_t,
             self.a_s,
         )
 
@@ -1068,6 +1073,7 @@ class NeuralMPC(RecedingHorizonBase):
         # Reference values
         # Note, these are placeholders and will be updated online during tracking
         x_ref = np.zeros((nx,))
+        x_ref[6] = 1.0  # Quaternion qw
         u_ref = np.zeros((nu,))
         if self.cost_function_type != "EXTERNAL":
             ocp.cost.yref = np.concatenate((x_ref, u_ref))

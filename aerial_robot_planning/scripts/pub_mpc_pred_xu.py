@@ -20,7 +20,7 @@ if current_path not in sys.path:
     sys.path.insert(0, current_path)
 
 from pub_mpc_joint_traj import MPCPubBase
-from util import check_traj_info
+from util import check_traj_info, get_tracking_frame_pose, convert_states_from_b_to_t
 
 
 ##########################################
@@ -35,7 +35,7 @@ class MPCPubPredXU(MPCPubBase, ABC):
     def pub_trajectory_points(self, pred_xu_msg: PredXU):
         """Publish the PredXU message."""
         pred_xu_msg.header.stamp = rospy.Time.now()
-        pred_xu_msg.header.frame_id = "map"
+        pred_xu_msg.header.frame_id = self.tracking_frame_name  # checked by the C++ controller
         self.pub_ref_xu.publish(pred_xu_msg)
 
 
@@ -68,6 +68,11 @@ class MPCPubCSVPredXU(MPCPubPredXU):
         self.scvx_traj = np.loadtxt(file_path, delimiter=",")  # one row for one time step
         self.x_traj = self.scvx_traj[:, 0:19]
         self.u_traj = self.scvx_traj[:, 19:28]
+
+        # The CSV holds the states [p, v, q, w] of the Body frame (CoG), but the reference must describe the tracked
+        # frame. The servo angles and thrusts belong to the motion of the body and are kept.
+        t_p_b, q_bt = get_tracking_frame_pose(self.robot_name, self.tracking_frame)
+        self.x_traj[:, 0:13] = convert_states_from_b_to_t(self.x_traj[:, 0:13], t_p_b, q_bt)
 
         # Check trajectory information and visualize it
         traj_path_msg = check_traj_info(self.x_traj, if_return_path=True)

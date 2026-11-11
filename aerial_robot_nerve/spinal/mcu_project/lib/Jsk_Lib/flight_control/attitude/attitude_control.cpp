@@ -1283,3 +1283,22 @@ void AttitudeController::pwmConversion()
 //  }  // These parts are used by Junichiro's code
 #endif
 }
+
+#ifdef SIMULATION
+/* Thrust realized by the motor for the commanded duty, so that the simulation includes the conversion.
+ * RPM_MODE: The ESC tracks the RPM decoded from the duty. Invert the linear map of convert() onto [min_rpm_, max_rpm_]
+ * including the duty constraints (e.g., the idle floor) and apply the thrust model.
+ * Other modes: The target thrust, since the motor model is not available. */
+float AttitudeController::getRealizedForce(uint8_t index)
+{
+  if (pwm_conversion_mode_ != spinal::MotorInfo::RPM_MODE || rpm_convert_ratio_ <= 0 || max_rpm_ <= min_rpm_)
+    return target_thrust_[index];
+
+  float frac = (target_pwm_[index] - 0.5f) / 0.5f;
+  float krpm = (min_rpm_ + frac * (max_rpm_ - min_rpm_)) * 0.001f;
+  float thrust = rpm_convert_ratio_ * krpm * krpm + rpm_convert_bias_;
+  if (thrust < 0)
+    thrust = 0;  // Below the zero thrust RPM of the model
+  return thrust * rotor_devider_ / v_factor_;
+}
+#endif

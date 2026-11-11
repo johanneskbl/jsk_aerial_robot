@@ -125,8 +125,12 @@ class QDNMPCReferenceGenerator:
         Compute target quaternions and control reference from a target rotation and then
         get assembled reference trajectories from controller file.
 
-        :param target_xyz: Target position
-        :param target_rpy: Target orientation (roll, pitch, yaw)
+        Note: The target is described in the frame tracked by the cost function (CoG or EE),
+        but the allocation needs the orientation of the Body frame.
+
+        :param target_xyz: Target position of the Tracked frame
+        :param target_rpy: Target orientation of the Tracked frame (roll, pitch, yaw)
+        :param target_qwxyz: Target orientation of the Tracked frame as quaternion
         :return xr: Reference for the state x
         :return ur: Reference for the input u
         """
@@ -144,8 +148,16 @@ class QDNMPCReferenceGenerator:
             qwxyz = tf.quaternion_from_euler(roll, pitch, yaw, axes="sxyz")
             target_qwxyz = np.array([qwxyz]).squeeze()
 
+        # Orientation of the Body frame
+        target_q_wb = target_qwxyz
+        if getattr(self.nmpc, "tracking_frame", "cog_tracking") == "ee_tracking":
+            # For EE tracking, q_wb = q_we * q_be^-1
+            # The target is static, so the EE and the Body frame share zero angular velocity and acceleration.
+            ee_q_be = np.array(self.nmpc.phys.ball_effector_q)
+            target_q_wb = tf.quaternion_multiply(target_qwxyz, tf.quaternion_conjugate(ee_q_be))
+
         # Hovering wrench: Convert [0,0,gravity] to Body frame
-        q_inv = tf.quaternion_conjugate(target_qwxyz)
+        q_inv = tf.quaternion_conjugate(target_q_wb)
         rot_inv = tf.quaternion_matrix(q_inv)
         fg_w = np.array([0, 0, self.mass * self.gravity, 0])  # World frame
         fg_b = rot_inv @ fg_w  # Body frame

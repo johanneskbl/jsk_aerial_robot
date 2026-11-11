@@ -143,6 +143,9 @@ public:
   {
     return target_thrust_[index];
   }
+#ifdef SIMULATION
+  float getRealizedForce(uint8_t index);
+#endif
 
   bool activated();
 

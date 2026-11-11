@@ -79,7 +79,7 @@ void UnderActuatedTiltedLQIController::controlCore()
   Eigen::VectorXd allocate_scales = f / g.norm();
   Eigen::VectorXd target_thrust_z_term = allocate_scales * target_acc_w.length();
 
-  // constraint z (also  I term)
+  // constraint z (also  I-term)
   int index;
   double max_term = target_thrust_z_term.cwiseAbs().maxCoeff(&index);
   double residual = max_term - z_limit_;
@@ -167,8 +167,7 @@ void UnderActuatedTiltedLQIController::rosParamInit()
 {
   UnderActuatedLQIController::rosParamInit();
 
-  ros::NodeHandle control_nh(nh_, "controller");
-  ros::NodeHandle lqi_nh(control_nh, "lqi");
+  ros::NodeHandle lqi_nh(control_nh_, "lqi");
 
   getParam<double>(lqi_nh, "trans_constraint_weight", trans_constraint_weight_, 1.0);
   getParam<double>(lqi_nh, "att_control_weight", att_control_weight_, 1.0);

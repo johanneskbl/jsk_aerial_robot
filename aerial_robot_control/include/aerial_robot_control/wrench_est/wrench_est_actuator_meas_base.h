@@ -20,6 +20,7 @@
 #include "aerial_robot_control/wrench_est/wrench_est_base.h"
 #include "aerial_robot_estimation/sensor/imu_4_wrench_est.h"
 #include "aerial_robot_control/wrench_est/utils.h"
+#include "aerial_robot_control/control/utils/esc_telemetry_handler.h"
 
 #include <sensor_msgs/JointState.h>
 #include "spinal/ESCTelemetryArray.h"
@@ -90,14 +91,12 @@ public:
     }
 
     // sensors
-    ros::NodeHandle motor_nh(nh_, "motor_info");
-    getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
-    getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
-
     joint_angles_.resize(robot_model_->getJointNum(), 0.0);
     sub_joint_states_ = nh_.subscribe("joint_states", 1, &WrenchEstActuatorMeasBase::callbackJointStates, this);
 
     thrust_meas_.resize(robot_model_->getRotorNum(), 0.0);
+    crc_errors_.resize(robot_model_->getRotorNum(), 0);
+    esc_telem_.initialize(nh_, robot_model_->getRotorNum());
     sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &WrenchEstActuatorMeasBase::callbackESCTelem, this);
 
     thrust_cmd_.resize(robot_model_->getRotorNum(), 0.0);
@@ -275,6 +274,7 @@ public:
 protected:
   std::vector<double> thrust_meas_;
   std::vector<double> thrust_cmd_;  // for thrust cmd (use this value may be more stable than actual thrust)
+  std::vector<u_int8_t> crc_errors_;  // record if a frame was valid
   std::vector<double> joint_angles_;
 
 private:
@@ -311,8 +311,7 @@ private:
 
   // for actual thrust
   ros::Subscriber sub_esc_telem_;
-  double krpm_square_to_thrust_ratio_;
-  double krpm_square_to_thrust_bias_;
+  ESCTelemetryHandler esc_telem_;
 
   // for thrust command
   ros::Subscriber sub_thrust_cmd_;
@@ -360,20 +359,10 @@ private:
       joint_angles_[i] = msg->position[i];
   }
 
+  // Update the measured thrust (clamped to >= 0) from the valid frames of the ESC telemetry
   void callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg)
   {
-    double krpm;
-    krpm = (double)msg->esc_telemetry_1.rpm * 0.001;
-    thrust_meas_[0] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
-
-    krpm = (double)msg->esc_telemetry_2.rpm * 0.001;
-    thrust_meas_[1] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
-
-    krpm = (double)msg->esc_telemetry_3.rpm * 0.001;
-    thrust_meas_[2] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
-
-    krpm = (double)msg->esc_telemetry_4.rpm * 0.001;
-    thrust_meas_[3] = krpm * krpm * krpm_square_to_thrust_ratio_ + krpm_square_to_thrust_bias_;
+    esc_telem_.update(*msg, thrust_meas_, crc_errors_);
   }
 
   void callbackFourAxisCmd(const spinal::FourAxisCommandConstPtr& msg)

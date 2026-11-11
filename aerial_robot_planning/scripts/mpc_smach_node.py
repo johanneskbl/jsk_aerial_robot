@@ -21,6 +21,7 @@ from pub_mpc_pred_xu import MPCPubCSVPredXU
 from geometry_msgs.msg import Pose, Quaternion, Vector3
 from std_msgs.msg import Int32, String
 from util import pub_0066_wall_rviz, pub_hand_markers_rviz
+from util import get_tracking_frame, get_tracking_frame_height, get_tracking_frame_pose, convert_states_from_b_to_t
 
 # === analytical trajectory ===
 import trajs
@@ -188,9 +189,13 @@ class InitState(smach.State):
         rospy.loginfo("State: INIT -- Start to reach the first point of the trajectory.")
         self.pub_status.set("INIT", userdata.traj_type)
 
+        # The init pose must describe the frame tracked by the MPC cost
+        tracking_frame = get_tracking_frame(userdata.robot_name)
+
         if userdata.traj_type < len(traj_cls_list):
             rospy.loginfo(f"Using trajs.{traj_cls_list[userdata.traj_type].__name__} trajectory.")
             traj = traj_factory(userdata.traj_type, userdata.loop_num)
+            traj.set_tracking_frame_height(get_tracking_frame_height(userdata.robot_name, tracking_frame))
 
             x, y, z, vx, vy, vz, ax, ay, az = traj.get_3d_pt(0.0)
 
@@ -203,8 +208,11 @@ class InitState(smach.State):
             csv_file = csv_files[userdata.traj_type - len(traj_cls_list)]
             rospy.loginfo(f"Using CSV file: {csv_file}")
             csv_traj = np.loadtxt(os.path.join(csv_folder_path, csv_file), delimiter=",", max_rows=1)
-            x, y, z = csv_traj[0:3]
-            qw, qx, qy, qz = csv_traj[6:10]
+            # The CSV holds the states of the Body frame (CoG), so transform the first one to the tracked frame
+            t_p_b, q_bt = get_tracking_frame_pose(userdata.robot_name, tracking_frame)
+            x_t = convert_states_from_b_to_t(csv_traj[np.newaxis, 0:13], t_p_b, q_bt)[0]
+            x, y, z = x_t[0:3]
+            qw, qx, qy, qz = x_t[6:10]
 
         init_pose = Pose(
             position=Vector3(x, y, z),
