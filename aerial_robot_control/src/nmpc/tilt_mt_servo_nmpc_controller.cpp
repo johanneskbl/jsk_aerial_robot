@@ -114,8 +114,7 @@ void nmpc::TiltMtServoNMPC::reset()
     gimbal_ctrl_cmd_.position.push_back(0.0);
   }
 
-  if (navigator_->getNaviState() == aerial_robot_navigation::START_STATE)
-    pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
+  pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
 }
 
 /**
