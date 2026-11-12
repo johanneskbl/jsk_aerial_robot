@@ -64,9 +64,9 @@ controller:
     Qq_z: 600  # 0.1 (sim)
     Qw_xy: 5
     Qw_z: 5
-    Qa: 1
+    Qa: 2
     QE: 0.1  # Weight for energy term
-    Rt: 1
+    Rt: 2
     Rac_d: 250  # difference of ac
 
     # Slack constraint weights
