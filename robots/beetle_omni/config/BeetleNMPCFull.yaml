@@ -21,7 +21,7 @@ controller:
 
     v_min: -1
     v_max: 1
-    vel_limit_takeoff: 0.1
+    vel_limit_takeoff: 0.3
 
     thrust_min: 0  # N
     thrust_max: 23  # N

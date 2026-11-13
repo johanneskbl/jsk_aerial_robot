@@ -577,7 +577,8 @@ void nmpc::TiltMtServoNMPC::controlCore()
   }
 
   /* Logging */
-  ROS_INFO_THROTTLE(1.0, "[MPC] Closed-loop timestep: %.3f s", t_mpc_dt_);
+  ROS_INFO_THROTTLE(1.0, "[MPC] ==============================================");
+  ROS_INFO_THROTTLE(1.0, "[MPC] Closed-loop: \t%.3f ms (%0.3f Hz)", t_mpc_dt_ * 1000.0, 1.0 / t_mpc_dt_);
   publishSolverTime();
 }
 

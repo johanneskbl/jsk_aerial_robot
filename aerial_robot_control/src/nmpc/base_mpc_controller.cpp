@@ -127,8 +127,8 @@ bool nmpc::BaseMPC::update()
     sendCmd();
     publishRecording();
     double record_time = ros::Time::now().toSec();
-    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - controlCore(): %.3f ms", (core_time - start_time) * 1000.0);
-    ROS_INFO_THROTTLE(1.0, "[MPC] Runtime - publishRecording(): %.3f ms", (record_time - core_time) * 1000.0);
+    ROS_INFO_THROTTLE(1.0, "[MPC] controlCore(): \t%.3f ms", (core_time - start_time) * 1000.0);
+    ROS_INFO_THROTTLE(1.0, "[MPC] publishRecording(): \t%.3f ms", (record_time - core_time) * 1000.0);
   }
 
   return true;
