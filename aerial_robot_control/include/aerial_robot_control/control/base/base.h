@@ -185,7 +185,12 @@ public:
 
       activate_timestamp_ = ros::Time::now().toSec();
     }
-    reset();
+    if (!is_reset_)
+    {
+      // Reset once after activate() at start/arm time and not anymore until takeoff time to keep warm-up valid
+      reset();
+      is_reset_ = true;
+    }
   }
 
   virtual void reset()

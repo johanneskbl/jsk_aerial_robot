@@ -113,7 +113,7 @@ protected:
   void initGeneralParams() override;
   void initMPCCostW() override;
   void initMPCConstraints() override;
-  virtual inline void initActuatorStates() { joint_angles_.resize(joint_num_, 0.0); }
+  virtual inline void initActuatorStates();
 
   /* Reset methods */
   virtual void resetPlugins() {};

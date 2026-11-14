@@ -110,11 +110,9 @@ void nmpc::TiltMtServoNMPC::reset()
     gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
     gimbal_ctrl_cmd_.position.push_back(0.0);
   }
-
   pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
 
   /* Reset solver and set initial guess to hovering */
-  joint_angles_.assign(joint_num_, 0.0);  // Reset joint angle state to zero
   resetSolver();
 }
 
@@ -179,6 +177,22 @@ void nmpc::TiltMtServoNMPC::initGeneralParams()
     ROS_ERROR("%s", err_msg.c_str());
     throw std::runtime_error(err_msg);
   }
+}
+
+void nmpc::TiltMtServoNMPC::initActuatorStates()
+{
+  // Initialize actuator states (joint angles) to zero
+  joint_angles_.resize(joint_num_, 0.0);
+
+  // Send zero command to gimbals at initialization
+  gimbal_ctrl_cmd_.name.clear();
+  gimbal_ctrl_cmd_.position.clear();
+  for (int i = 0; i < joint_num_; i++)
+  {
+    gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
+    gimbal_ctrl_cmd_.position.push_back(0.0);
+  }
+  pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
 }
 
 void nmpc::TiltMtServoNMPC::initMPCCostW()
