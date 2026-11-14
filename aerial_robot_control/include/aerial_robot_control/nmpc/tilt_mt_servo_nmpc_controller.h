@@ -8,6 +8,7 @@
 #include "aerial_robot_control/nmpc/base_mpc_controller.h"
 
 #include <angles/angles.h>
+// #include <atomic>
 
 /* Dynamic reconfigure */
 #include "aerial_robot_msgs/DynamicReconfigureLevels.h"
@@ -57,6 +58,7 @@ public:
                   boost::shared_ptr<aerial_robot_navigation::BaseNavigator> navigator, double ctrl_loop_du) override;
   void activate() override;
   void reset() override;
+  bool update() override;
 
 protected:
   ros::Publisher pub_flight_cmd_;      // for rotor control (spinal)
@@ -80,6 +82,13 @@ protected:
   double servo_angle_max_;
   double servo_angle_min_;
   std::vector<double> joint_angles_;
+  // std::atomic<bool> has_joint_states_{ false };  // set by callbackJointStates() (callback thread)
+
+  // // Servo zeroing after launch, before arming (see zeroServosBeforeArming())
+  // bool is_servo_zeroing_done_ = false;
+  // bool is_servo_zeroing_started_ = false;
+  // ros::Time t_servo_zeroing_start_;
+  // ros::Time t_servo_zeroing_last_pub_;
 
   int idx_p_quat_end_ = 0;
   int idx_p_phys_end_ = 0;
@@ -113,7 +122,8 @@ protected:
   void initGeneralParams() override;
   void initMPCCostW() override;
   void initMPCConstraints() override;
-  virtual inline void initActuatorStates();
+  virtual inline void initActuatorStates() { joint_angles_.resize(joint_num_, 0.0); };
+  // void zeroServosBeforeArming();
 
   /* Reset methods */
   virtual void resetPlugins() {};
