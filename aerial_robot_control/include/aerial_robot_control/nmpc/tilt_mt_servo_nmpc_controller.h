@@ -8,7 +8,6 @@
 #include "aerial_robot_control/nmpc/base_mpc_controller.h"
 
 #include <angles/angles.h>
-// #include <atomic>
 
 /* Dynamic reconfigure */
 #include "aerial_robot_msgs/DynamicReconfigureLevels.h"
@@ -82,13 +81,7 @@ protected:
   double servo_angle_max_;
   double servo_angle_min_;
   std::vector<double> joint_angles_;
-  // std::atomic<bool> has_joint_states_{ false };  // set by callbackJointStates() (callback thread)
-
-  // // Servo zeroing after launch, before arming (see zeroServosBeforeArming())
-  // bool is_servo_zeroing_done_ = false;
-  // bool is_servo_zeroing_started_ = false;
-  // ros::Time t_servo_zeroing_start_;
-  // ros::Time t_servo_zeroing_last_pub_;
+  bool is_gimbal_centered_ = false;
 
   int idx_p_quat_end_ = 0;
   int idx_p_phys_end_ = 0;
@@ -123,7 +116,6 @@ protected:
   void initMPCCostW() override;
   void initMPCConstraints() override;
   virtual inline void initActuatorStates() { joint_angles_.resize(joint_num_, 0.0); };
-  // void zeroServosBeforeArming();
 
   /* Reset methods */
   virtual void resetPlugins() {};

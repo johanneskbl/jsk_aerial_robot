@@ -110,7 +110,6 @@ void nmpc::TiltMtServoNMPC::reset()
     gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
     gimbal_ctrl_cmd_.position.push_back(0.0);
   }
-  pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
 
   /* Reset solver and set initial guess to hovering */
   resetSolver();
@@ -134,18 +133,22 @@ void nmpc::TiltMtServoNMPC::resetSolver()
 
 bool nmpc::TiltMtServoNMPC::update()
 {
-  // /* Before arming: actively drive the servos to zero (no-op once done) */
-  // zeroServosBeforeArming();
-
-  // Initialize the gimbal command with zero angles.
-  gimbal_ctrl_cmd_.name.clear();
-  gimbal_ctrl_cmd_.position.clear();
-  for (int i = 0; i < joint_num_; i++)
+  /* Before arming: center servos once */
+  if (navigator_->getNaviState() == aerial_robot_navigation::ARM_OFF_STATE && 
+      pub_gimbal_control_.getNumSubscribers() != 0 &&
+      !is_gimbal_centered_)
   {
-    gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
-    gimbal_ctrl_cmd_.position.push_back(0.0);
+    // Initialize the gimbal command with zero angles.
+    gimbal_ctrl_cmd_.name.clear();
+    gimbal_ctrl_cmd_.position.clear();
+    for (int i = 0; i < joint_num_; i++)
+    {
+      gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
+      gimbal_ctrl_cmd_.position.push_back(0.0);
+    }
+    pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
+    is_gimbal_centered_ = true;
   }
-  pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
 
   return BaseMPC::update();
 }
@@ -196,69 +199,6 @@ void nmpc::TiltMtServoNMPC::initGeneralParams()
     throw std::runtime_error(err_msg);
   }
 }
-
-/**
- * @brief Actively drive all servos to zero after launch, while the robot is still disarmed.
- */
-// void nmpc::TiltMtServoNMPC::zeroServosBeforeArming()
-// {
-  // constexpr double kPubPeriod = 0.1;  // [s] command rate 10 Hz
-  // constexpr double kMinHold = 1.0;    // [s] command at least this long, so torque is surely enabled on all servos
-  // constexpr double kTimeout = 5.0;    // [s] give up afterwards
-  // constexpr double kTol = 0.02;       // [rad] ~1.1 deg
-
-  // if (is_servo_zeroing_done_ || joint_num_ <= 0)
-  //   return;
-
-  // if (navigator_->getNaviState() != aerial_robot_navigation::ARM_OFF_STATE)
-  // {
-  //   if (!is_servo_zeroing_started_)
-  //     ROS_WARN("[MPC] Armed before the servos were connected. Skipping servo zeroing at launch.");
-  //   else
-  //     ROS_WARN("[MPC] Armed before servo zeroing finished. Stop zeroing servos.");
-  //   is_servo_zeroing_done_ = true;
-  //   return;
-  // }
-
-  // // Wait until servo feedback arrives (i.e., spinal and servo_bridge are up) and servo_bridge has subscribed to us
-  // if (!has_joint_states_ || pub_gimbal_control_.getNumSubscribers() == 0)
-  //   return;
-
-  // const ros::Time now = ros::Time::now();
-  // if (!is_servo_zeroing_started_)
-  // {
-  //   is_servo_zeroing_started_ = true;
-  //   t_servo_zeroing_start_ = now;
-  //   ROS_INFO("[MPC] Zeroing servos ...");
-  // }
-  // const double t_elapsed = (now - t_servo_zeroing_start_).toSec();
-
-  // const bool is_at_zero =
-  //     std::all_of(joint_angles_.begin(), joint_angles_.end(), [](double a) { return std::fabs(a) < kTol; });
-  // if (is_at_zero && t_elapsed >= kMinHold)
-  // {
-  //   ROS_INFO("[MPC] Servos zeroed (%.1f s).", t_elapsed);
-  //   is_servo_zeroing_done_ = true;
-  //   return;
-  // }
-  // if (t_elapsed >= kTimeout)
-  // {
-  //   std::string angles_deg;
-  //   for (double a : joint_angles_)
-  //     angles_deg += std::to_string(a * 180.0 / M_PI) + " ";
-  //   ROS_WARN("[MPC] Servo zeroing timed out after %.1f s. Joint angles [deg]: %s", kTimeout, angles_deg.c_str());
-  //   is_servo_zeroing_done_ = true;
-  //   return;
-  // }
-
-  // if ((now - t_servo_zeroing_last_pub_).toSec() >= kPubPeriod)
-  // {
-  //   std::fill(gimbal_ctrl_cmd_.position.begin(), gimbal_ctrl_cmd_.position.end(), 0.0);
-  //   gimbal_ctrl_cmd_.header.stamp = now;
-  //   pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
-  //   t_servo_zeroing_last_pub_ = now;
-  // }
-// }
 
 void nmpc::TiltMtServoNMPC::initMPCCostW()
 {
