@@ -135,8 +135,8 @@ bool nmpc::BaseMPC::update()
     sendCmd();
 
     // Pulish full state and controls at reduced rate to avoid excessive rosbag size
-    t_stamp_record_ = ros::Time::now();
-    if ((t_stamp_record_ - t_last_record_).toSec() > 1.0 / record_rate_)
+    t_stamp_record_ = ros::Time::now().toSec();
+    if (t_stamp_record_ - t_last_record_ > 1.0 / record_rate_)
     {
       publishRecording();
       ROS_INFO_THROTTLE(1.0, "[MPC] publishRecording(): \t%.3f ms", (t_stamp_record_ - t_stamp_core) * 1000.0);

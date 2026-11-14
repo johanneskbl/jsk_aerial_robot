@@ -89,8 +89,8 @@ protected:
 
   // Recording
   double record_rate_ = 10.0;  // Publishing rate of the recording in Hz
-  ros::Time t_stamp_record_;
-  ros::Time t_last_record_;
+  double t_stamp_record_;
+  double t_last_record_ = 0.0;
 
   // Frame used by the MPC cost, allocation and reference
   // NOTE: Python code generation reads the same parameter from the config file but needs to be
