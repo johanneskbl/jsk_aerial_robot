@@ -99,9 +99,6 @@ void nmpc::TiltMtServoNMPC::reset()
 
   mpc_solver_ptr_->resetXrUrByX0U0(x_vec_ref, u_vec);
 
-  /* Reset solver and set initial guess to hovering */
-  resetSolver();
-
   /* Reset control input */
   // [!] Don't publish actuation here
   flight_cmd_.base_thrust = std::vector<float>(motor_num_, 0.0);
@@ -115,6 +112,10 @@ void nmpc::TiltMtServoNMPC::reset()
   }
 
   pub_gimbal_control_.publish(gimbal_ctrl_cmd_);
+
+  /* Reset solver and set initial guess to hovering */
+  joint_angles_.assign(joint_num_, 0.0);  // Reset joint angle state to zero
+  resetSolver();
 }
 
 /**
@@ -563,12 +564,9 @@ void nmpc::TiltMtServoNMPC::controlCore()
     flight_cmd_.base_thrust = thrust_cmd;
 
     gimbal_ctrl_cmd_.header.stamp = ros::Time::now();
-    gimbal_ctrl_cmd_.name.clear();
-    gimbal_ctrl_cmd_.position.clear();
     for (int i = 0; i < joint_num_; i++)
     {
-      gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
-      gimbal_ctrl_cmd_.position.push_back(servo_cmd[i]);
+      gimbal_ctrl_cmd_.position.at(i) = servo_cmd[i];
     }
   }
   else

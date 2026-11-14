@@ -114,21 +114,34 @@ bool nmpc::BaseMPC::update()
     {
       is_warmup_ = true;
       controlCore();
-      publishRecording();
+
+      // Pulish full state and controls at reduced rate to avoid excessive rosbag size
+      t_stamp_record_ = ros::Time::now();
+      if ((t_stamp_record_ - t_last_record_).toSec() > 1.0 / record_rate_)
+        publishRecording();
+      t_last_record_ = t_stamp_record_;
     }
     return false;
   }
   else
   {
     is_warmup_ = false;
-    double start_time = ros::Time::now().toSec();
+    double t_stamp_start = ros::Time::now().toSec();
     controlCore();
-    double core_time = ros::Time::now().toSec();
+    double t_stamp_core = ros::Time::now().toSec();
+    ROS_INFO_THROTTLE(1.0, "[MPC] controlCore(): \t%.3f ms", (t_stamp_core - t_stamp_start) * 1000.0);
+    
+    // Publish command to spinal
     sendCmd();
-    publishRecording();
-    double record_time = ros::Time::now().toSec();
-    ROS_INFO_THROTTLE(1.0, "[MPC] controlCore(): \t%.3f ms", (core_time - start_time) * 1000.0);
-    ROS_INFO_THROTTLE(1.0, "[MPC] publishRecording(): \t%.3f ms", (record_time - core_time) * 1000.0);
+
+    // Pulish full state and controls at reduced rate to avoid excessive rosbag size
+    t_stamp_record_ = ros::Time::now();
+    if ((t_stamp_record_ - t_last_record_).toSec() > 1.0 / record_rate_)
+    {
+      publishRecording();
+      ROS_INFO_THROTTLE(1.0, "[MPC] publishRecording(): \t%.3f ms", (t_stamp_record_ - t_stamp_core) * 1000.0);
+    }
+    t_last_record_ = t_stamp_record_;
   }
 
   return true;
