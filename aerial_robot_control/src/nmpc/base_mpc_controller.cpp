@@ -118,8 +118,10 @@ bool nmpc::BaseMPC::update()
       // Pulish full state and controls at reduced rate to avoid excessive rosbag size
       t_stamp_record_ = ros::Time::now().toSec();
       if ((t_stamp_record_ - t_last_record_) > 1.0 / record_rate_)
+      {
         publishRecording();
-      t_last_record_ = t_stamp_record_;
+        t_last_record_ = t_stamp_record_;
+      }
     }
     return false;
   }
@@ -140,8 +142,8 @@ bool nmpc::BaseMPC::update()
     {
       publishRecording();
       ROS_INFO_THROTTLE(1.0, "[MPC] publishRecording(): \t%.3f ms", (t_stamp_record_ - t_stamp_core) * 1000.0);
+      t_last_record_ = t_stamp_record_;
     }
-    t_last_record_ = t_stamp_record_;
   }
 
   return true;

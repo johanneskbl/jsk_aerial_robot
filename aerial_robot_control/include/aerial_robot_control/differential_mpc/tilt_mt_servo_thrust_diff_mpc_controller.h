@@ -3,6 +3,7 @@
 
 #include "aerial_robot_control/nmpc/tilt_mt_servo_nmpc_controller.h"
 #include "aerial_robot_control/control/utils/esc_telemetry_handler.h"
+#include "aerial_robot_control/control/utils/thrust_estimator.h"
 
 #include "spinal/ESCTelemetryArray.h"
 
@@ -35,6 +36,9 @@ protected:
   double servo_vel_max_;
   std::vector<double> thrust_meas_;
   std::vector<double> thrust_rate_meas_;  // from the rpm rate estimated on the ESC
+  ThrustEstimator thrust_estimator_;
+  std::vector<double> thrust_est_;
+  std::vector<double> thrust_rate_est_;
   std::vector<u_int8_t> crc_errors_;  // record if a frame was valid
   ros::Subscriber sub_esc_telem_;
   ESCTelemetryHandler esc_telem_;

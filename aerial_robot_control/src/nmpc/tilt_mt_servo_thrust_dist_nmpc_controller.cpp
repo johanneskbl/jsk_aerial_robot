@@ -16,8 +16,17 @@ void nmpc::TiltMtServoThrustDistNMPC::initialize(ros::NodeHandle nh, ros::NodeHa
 
   /* Thrust measurement */
     esc_telem_.initialize(nh_, motor_num_);
+    thrust_estimator_.initialize(nh_, motor_num_);
 
     sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &TiltMtServoThrustDistNMPC::callbackESCTelem, this);
+}
+
+void nmpc::TiltMtServoThrustDistNMPC::initActuatorStates()
+{
+  TiltMtServoDistNMPC::initActuatorStates();
+  thrust_meas_.resize(motor_num_, 0.0);
+  thrust_est_.resize(motor_num_, 0.0);
+  crc_errors_.resize(motor_num_, 0);
 }
 
 void nmpc::TiltMtServoThrustDistNMPC::initMPCCostW()
@@ -195,8 +204,9 @@ std::vector<double> nmpc::TiltMtServoThrustDistNMPC::meas2VecX(bool is_ee_centri
   auto bx0 = TiltMtServoNMPC::meas2VecX(is_ee_centric);
 
   esc_telem_.checkAlive();  // Only logging
-    for (int i = 0; i < motor_num_; i++)
-      bx0[13 + joint_num_ + i] = thrust_meas_[i];
+  thrust_estimator_.estimate(esc_telem_, thrust_meas_, flight_cmd_.base_thrust, thrust_est);
+  for (int i = 0; i < motor_num_; i++)
+    bx0[13 + joint_num_ + i] = thrust_est[i];
 
   bx0[13 + joint_num_ + motor_num_ + 0] = external_force_w.x;
   bx0[13 + joint_num_ + motor_num_ + 1] = external_force_w.y;

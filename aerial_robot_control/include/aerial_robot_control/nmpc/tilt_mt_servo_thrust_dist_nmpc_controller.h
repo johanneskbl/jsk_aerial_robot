@@ -7,6 +7,7 @@
 
 #include "aerial_robot_control/nmpc/tilt_mt_servo_dist_nmpc_controller.h"
 #include "aerial_robot_control/control/utils/esc_telemetry_handler.h"
+#include "aerial_robot_control/control/utils/thrust_estimator.h"
 
 #include "spinal/ESCTelemetryArray.h"
 
@@ -32,6 +33,8 @@ public:
 protected:
   ros::Subscriber sub_esc_telem_;
   ESCTelemetryHandler esc_telem_;
+  ThrustEstimator thrust_estimator_;
+  std::vector<double> thrust_est_;
 
   std::vector<double> thrust_meas_;
   std::vector<u_int8_t> crc_errors_;  // record if a frame was valid

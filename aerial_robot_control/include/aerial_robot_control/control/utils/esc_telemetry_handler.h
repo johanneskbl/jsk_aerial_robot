@@ -137,6 +137,14 @@ public:
     return false;
   }
 
+  /**
+   * @brief Get the timestamp when the last valid frame of ESC i was received
+   */
+  ros::Time getLastValidTime(int i) const
+  {
+    return last_valid_time_.at(i);
+  }
+
 private:
   int esc_num_ = 0;
   double timeout_ = 0.1;

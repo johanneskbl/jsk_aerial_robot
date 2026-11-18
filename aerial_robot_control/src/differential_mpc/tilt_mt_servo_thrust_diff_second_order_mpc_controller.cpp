@@ -336,11 +336,15 @@ std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_ce
       // // double thrust_velocity = (last_thrust_c - thrust_meas_[i] + 0.2) / t_rotor_;  // 0.2 correction factor for model mismatch
       // double thrust_velocity = (last_thrust_c - thrust_meas_[i]) / t_rotor_;
 
+      // ==== ESTIMATE ====
+      // Thrust rate measured on the ESC, propagated over its age with the command history (ThrustEstimator)
+      double thrust_velocity = thrust_rate_est_[i];
+
       // ==== MEASUREMENT ====
       // RPM rate estimated on the ESC (alpha-beta filter on the commutation period at ~1 kHz, ~10.1 ms lag),
       // mapped to the thrust rate in callbackESCTelem() like the rpm to the thrust. Contains no rotor model.
       // A stale ESC holds its last valid thrust, so its thrust rate is zero.
-      double thrust_velocity = esc_telem_.isAlive(i) ? thrust_rate_meas_[i] : 0.0;
+      // double thrust_velocity = esc_telem_.isAlive(i) ? thrust_rate_meas_[i] : 0.0;
 
       // ==== NUMERICAL DERIVATIVE ====
       // double thrust_velocity = (thrust_meas_[i] - prev_thrust_meas_[i]) / du_;

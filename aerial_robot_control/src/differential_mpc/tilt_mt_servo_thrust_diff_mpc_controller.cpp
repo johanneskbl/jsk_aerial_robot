@@ -14,6 +14,7 @@ void TiltMtServoThrustDiffMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nh
 
   /* Thrust measurement */
   esc_telem_.initialize(nh_, motor_num_);
+  thrust_estimator_.initialize(nh_, motor_num_);
 
   /* Subscribers */
   sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &TiltMtServoThrustDiffMPC::callbackESCTelem, this);
@@ -24,6 +25,8 @@ void TiltMtServoThrustDiffMPC::initActuatorStates()
   TiltMtServoNMPC::initActuatorStates();
   thrust_meas_.resize(motor_num_, 0.0);
   thrust_rate_meas_.resize(motor_num_, 0.0);
+  thrust_est_.resize(motor_num_, 0.0);
+  thrust_rate_est_.resize(motor_num_, 0.0);
   crc_errors_.resize(motor_num_, 0);
 
   servo_start_idx_ = 13;
@@ -431,8 +434,11 @@ std::vector<double> TiltMtServoThrustDiffMPC::meas2VecX(bool is_ee_centric)
   auto bx0 = TiltMtServoNMPC::meas2VecX(is_ee_centric);
 
   esc_telem_.checkAlive();  // Only logging
+  // Estimate thrust and thrust rate from ESC telemetry and previous commands based on rotor model
+  thrust_estimator_.estimate(esc_telem_, thrust_meas_, flight_cmd_.base_thrust, thrust_est_, &thrust_rate_meas_,
+                             &thrust_rate_est_);
   for (int i = 0; i < motor_num_; i++)
-    bx0[thrust_start_idx_ + i] = thrust_meas_[i];  // A stale ESC holds its last valid thrust
+    bx0[thrust_start_idx_ + i] = thrust_est_[i];  // A stale ESC converges to its last thrust command
 
   // Internal wrench as state
   if (hasWrenchState())
@@ -451,7 +457,7 @@ std::vector<double> TiltMtServoThrustDiffMPC::meas2VecX(bool is_ee_centric)
 
 void TiltMtServoThrustDiffMPC::computeInternalWrenchB()
 {
-  if (alloc_mat_.size() == 0 || static_cast<int>(thrust_meas_.size()) != motor_num_)
+  if (alloc_mat_.size() == 0 || static_cast<int>(thrust_est_.size()) != motor_num_)
   {
     ROS_WARN("[NMPC] Allocation matrix is not set or thrust measurement size is not equal to motor number, we cannot compute internal wrench, set it to zero!");
     internal_wrench_b_ = Eigen::VectorXd::Zero(6);
@@ -462,8 +468,8 @@ void TiltMtServoThrustDiffMPC::computeInternalWrenchB()
   Eigen::VectorXd allocation_matrix_input = Eigen::VectorXd::Zero(2 * motor_num_);
   for (int i = 0; i < motor_num_; ++i)
   {
-    allocation_matrix_input(2 * i) = thrust_meas_[i] * std::sin(joint_angles_[i]);
-    allocation_matrix_input(2 * i + 1) = thrust_meas_[i] * std::cos(joint_angles_[i]);
+    allocation_matrix_input(2 * i) = thrust_est_[i] * std::sin(joint_angles_[i]);
+    allocation_matrix_input(2 * i + 1) = thrust_est_[i] * std::cos(joint_angles_[i]);
   }
 
   // Compute current body wrench from current force and torque
