@@ -22,7 +22,7 @@ class NMPCTiltQdServo(QDNMPCBase):
         phys=phys_omni,
         include_cog_dist_parameter=False,
         include_motor_noise_parameter=False,
-        include_soft_constraints=False,
+        include_soft_constraints=True,
         include_quaternion_constraint=False,
         include_floor_bounds=False,
     ):

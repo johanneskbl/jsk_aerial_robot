@@ -14,9 +14,20 @@ class NMPCTiltQdServoDist(QDNMPCBase):
     The output of the controller is the thrust and servo angle command for each rotor.
     """
 
-    def __init__(self, build: bool = True, phys=phys_omni):
+    def __init__(
+        self,
+        model_name: str = "tilt_qd_servo_dist_mdl",
+        method: str = "nmpc",
+        build: bool = True,
+        phys=phys_omni,
+        include_cog_dist_parameter=True,
+        include_motor_noise_parameter=False,
+        include_soft_constraints=True,
+        include_quaternion_constraint=False,
+        include_floor_bounds=False,
+    ):
         # Model name
-        self.model_name = "tilt_qd_servo_dist_mdl"
+        self.model_name = model_name
         self.phys = phys
         self.num_rotors = 4
         self.num_servos = 4
@@ -26,16 +37,22 @@ class NMPCTiltQdServoDist(QDNMPCBase):
         self.include_servo_derivative = False
         self.include_thrust_model = False
         self.include_cog_dist_model = True
-        self.include_cog_dist_parameter = True
         self.include_impedance = False
-        self.include_quaternion_constraint = False
-        self.include_soft_constraints = False
+
+        # Optional disturbances
+        self.include_cog_dist_parameter = include_cog_dist_parameter
+        self.include_motor_noise_parameter = include_motor_noise_parameter
+
+        # Optional constraint settings
+        self.include_floor_bounds = include_floor_bounds  # Height constraint
+        self.include_soft_constraints = include_soft_constraints
+        self.include_quaternion_constraint = include_quaternion_constraint
 
         # Read parameters from configuration file in the robot's package
         self.read_params("controller", "nmpc", "beetle_omni", "BeetleNMPCFullDist.yaml")
 
         # Create acados model & solver and generate c code
-        super().__init__(build=build)
+        super().__init__(method, build)
 
         # Necessary for EKF inside simulation environment
         self.sim_solver = self.create_acados_sim_solver(self.params["T_samp"], build=True)

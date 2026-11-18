@@ -10,9 +10,9 @@ MODELS=(
 #    NMPCFixQdThrustOut
    #NMPCTiltQdNoServo
    NMPCTiltQdServo
-   #NMPCTiltQdServoDist
+   NMPCTiltQdServoDist
    #NMPCTiltQdServoImpedance
-   #NMPCTiltQdServoThrustDist
+   NMPCTiltQdServoThrustDist
    #NMPCTiltQdServoThrustImpedance
 #    NMPCTiltTriServo
 #    NMPCTiltBiServo

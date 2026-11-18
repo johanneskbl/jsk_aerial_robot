@@ -20,18 +20,12 @@ void nmpc::TiltMtServoDistNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle n
   pub_disturb_wrench_ = nh_.advertise<geometry_msgs::WrenchStamped>("ext_wrench_est/value", 1);
 }
 
-void nmpc::TiltMtServoDistNMPC::resetPlugins()
-{
-  wrench_est_i_term_.reset();
-  wrench_est_ptr_->reset();
-}
-
 void nmpc::TiltMtServoDistNMPC::initPlugins()
 {
-  /* I-term is always loaded */
+  /* Control I-term as disturbance estimation of the model error */
   wrench_est_i_term_.initialize(nh_, robot_model_, estimator_, ctrl_loop_du_);
 
-  /* Plugin: wrench estimator */
+  /* Plugin: External Wrench Estimator */
   wrench_est_loader_ptr_ = boost::make_shared<pluginlib::ClassLoader<aerial_robot_control::WrenchEstActuatorMeasBase>>(
       "aerial_robot_control", "aerial_robot_control::WrenchEstActuatorMeasBase");
   try
@@ -53,6 +47,49 @@ void nmpc::TiltMtServoDistNMPC::initPlugins()
   }
 }
 
+void nmpc::TiltMtServoDistNMPC::initAllocMat()
+{
+  TiltMtServoNMPC::initAllocMat();
+  wrench_est_ptr_->init_alloc_mtx(alloc_mat_, alloc_mat_pinv_);
+}
+
+void nmpc::TiltMtServoDistNMPC::initMPCPhysicalParams()
+{
+  TiltMtServoNMPC::initMPCPhysicalParams();
+  idx_p_dist_end_ = idx_p_phys_end_ + 6;
+}
+
+void nmpc::TiltMtServoDistNMPC::resetPlugins()
+{
+  wrench_est_i_term_.reset();
+  wrench_est_ptr_->reset();
+}
+
+std::vector<double> nmpc::TiltMtServoDistNMPC::meas2VecX(bool is_ee_centric)
+{
+  std::vector<double> bx0 = TiltMtServoNMPC::meas2VecX(is_ee_centric);
+
+  /* Disturbance rejection */
+  geometry_msgs::Vector3 external_force_w;   // default constructor: 0, 0, 0
+  geometry_msgs::Vector3 external_torque_b;  // default constructor: 0, 0, 0
+
+  if (if_use_est_wrench_4_control_)
+  {
+    external_force_w = wrench_est_ptr_->getDistForceW();
+    external_torque_b = wrench_est_ptr_->getDistTorqueCOG();
+  }
+
+  const int disturbance_index = 13 + joint_num_ + (use_thrust_estimator_ ? motor_num_ : 0);
+  bx0[disturbance_index + 0] = external_force_w.x;
+  bx0[disturbance_index + 1] = external_force_w.y;
+  bx0[disturbance_index + 2] = external_force_w.z;
+  bx0[disturbance_index + 3] = external_torque_b.x;
+  bx0[disturbance_index + 4] = external_torque_b.y;
+  bx0[disturbance_index + 5] = external_torque_b.z;
+
+  return bx0;
+}
+
 /**
  * @brief Update the I-term with the error between the predicted and the measured state in Body frame
  * NOTE: The predicted state of the solver always describes the Body frame, independent of the Tracking frame.
@@ -65,7 +102,7 @@ void nmpc::TiltMtServoDistNMPC::updateITerm()
   tf::Quaternion q_wb = estimator_->getQuat(Frame::COG, estimate_mode_);
 
   /* Get the target state */
-  // Note that the target state is the estimated state from the MPC solver.
+  // Note that the target state is the estimated state at the current time, after T_samp since last solve() call, from the MPC solver.
   tf::Vector3 pos_w_x0(mpc_solver_ptr_->xo_.at(0).at(0), mpc_solver_ptr_->xo_.at(0).at(1),
                        mpc_solver_ptr_->xo_.at(0).at(2));
   tf::Vector3 pos_w_x1(mpc_solver_ptr_->xo_.at(1).at(0), mpc_solver_ptr_->xo_.at(1).at(1),
@@ -84,10 +121,12 @@ void nmpc::TiltMtServoDistNMPC::updateITerm()
   wrench_est_i_term_.update(target_pos_w, target_q_wb, pos_w, q_wb);
 }
 
-void nmpc::TiltMtServoDistNMPC::initMPCPhysicalParams()
+void nmpc::TiltMtServoDistNMPC::updateDisturbWrench() const
 {
-  TiltMtServoNMPC::initMPCPhysicalParams();
-  idx_p_dist_end_ = idx_p_phys_end_ + 6;
+  auto vel_w = estimator_->getVel(Frame::COG, estimate_mode_);
+  auto omega_b = estimator_->getAngularVel(Frame::COG, estimate_mode_);
+
+  wrench_est_ptr_->update(vel_w, omega_b);
 }
 
 /**
@@ -99,7 +138,7 @@ void nmpc::TiltMtServoDistNMPC::prepareMPCParams()
 
   if (!is_warmup_)
   {
-    // Estimators are not updated during warm-up, to avoid wind-up
+    // Estimators are not updated during warm-up to avoid wind-up
     updateDisturbWrench();
 
     // This form of I-term can always be activated, no need to be shut down when the external wrench appears.
@@ -115,30 +154,6 @@ void nmpc::TiltMtServoDistNMPC::prepareMPCParams()
   mpc_solver_ptr_->setParamSparseAllStages(idx, p);
 }
 
-std::vector<double> nmpc::TiltMtServoDistNMPC::meas2VecX(bool is_ee_centric)
-{
-  std::vector<double> bx0 = TiltMtServoNMPC::meas2VecX(is_ee_centric);
-
-  /* Disturbance rejection */
-  geometry_msgs::Vector3 external_force_w;   // default: 0, 0, 0
-  geometry_msgs::Vector3 external_torque_b;  // default: 0, 0, 0
-
-  if (if_use_est_wrench_4_control_)
-  {
-    external_force_w = wrench_est_ptr_->getDistForceW();
-    external_torque_b = wrench_est_ptr_->getDistTorqueCOG();
-  }
-
-  bx0[13 + joint_num_ + 0] = external_force_w.x;
-  bx0[13 + joint_num_ + 1] = external_force_w.y;
-  bx0[13 + joint_num_ + 2] = external_force_w.z;
-  bx0[13 + joint_num_ + 3] = external_torque_b.x;
-  bx0[13 + joint_num_ + 4] = external_torque_b.y;
-  bx0[13 + joint_num_ + 5] = external_torque_b.z;
-
-  return bx0;
-}
-
 /**
  * @brief Publish the recording and the estimated external wrench used by the controller
  */
@@ -148,14 +163,6 @@ void nmpc::TiltMtServoDistNMPC::publishRecording()
 
   if (!is_warmup_)
     pubDisturbWrench();
-}
-
-void nmpc::TiltMtServoDistNMPC::updateDisturbWrench() const
-{
-  auto vel_w = estimator_->getVel(Frame::COG, estimate_mode_);
-  auto omega_b = estimator_->getAngularVel(Frame::COG, estimate_mode_);
-
-  wrench_est_ptr_->update(vel_w, omega_b);
 }
 
 void nmpc::TiltMtServoDistNMPC::pubDisturbWrench() const
@@ -175,12 +182,6 @@ void nmpc::TiltMtServoDistNMPC::pubDisturbWrench() const
 
   dist_wrench.header.stamp = ros::Time::now();
   pub_disturb_wrench_.publish(dist_wrench);
-}
-
-void nmpc::TiltMtServoDistNMPC::initAllocMat()
-{
-  TiltMtServoNMPC::initAllocMat();
-  wrench_est_ptr_->init_alloc_mtx(alloc_mat_, alloc_mat_pinv_);
 }
 
 /* Plugin registration */
