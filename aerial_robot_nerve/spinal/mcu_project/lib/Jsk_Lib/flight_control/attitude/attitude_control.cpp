@@ -133,6 +133,7 @@ void AttitudeController::baseInit()
   min_rpm_ = 0;
   max_rpm_ = 0;
   rpm_convert_ratio_ = 0;
+  rpm_convert_exponent_ = 0;
   rpm_convert_bias_ = 0;
   rpm_mode_max_thrust_ = 0;
   pwm_pub_last_time_ = 0;
@@ -658,17 +659,18 @@ void AttitudeController::pwmInfoCallback(const spinal::PwmInfo& info_msg)
     min_rpm_ = info_msg.min_rpm;
     max_rpm_ = info_msg.max_rpm;
     /* the model is voltage independent, so any reference entry carries the same coefficients */
-    rpm_convert_ratio_ = motor_info_[0].krpm_square_to_thrust_ratio;  // N / kRPM^2
-    rpm_convert_bias_ = motor_info_[0].krpm_square_to_thrust_bias;    // N
+    rpm_convert_ratio_ = motor_info_[0].krpm_to_thrust_ratio;  // N / kRPM^2
+    rpm_convert_exponent_ = motor_info_[0].krpm_to_thrust_exponent;
+    rpm_convert_bias_ = motor_info_[0].krpm_to_thrust_bias;    // N
 
     /* The RPM window, not the motor, is what caps the thrust in this mode: the ESC will never be
        asked for more than max_rpm. Keeping the real ceiling here stops the saturation logic below
        from believing in thrust that can never be commanded, which otherwise shows up as the outer
        loop winding up against a rail it cannot see. */
-    if (rpm_convert_ratio_ > 0 && max_rpm_ > min_rpm_)
+    if (rpm_convert_ratio_ > 0 && rpm_convert_exponent_ > 0 && max_rpm_ > min_rpm_)
     {
       float max_krpm = max_rpm_ * 0.001f;
-      rpm_mode_max_thrust_ = rpm_convert_ratio_ * max_krpm * max_krpm + rpm_convert_bias_;
+      rpm_mode_max_thrust_ = rpm_convert_ratio_ * pow(max_krpm, rpm_convert_exponent_) + rpm_convert_bias_;
     }
     else
     {
@@ -1024,14 +1026,14 @@ void AttitudeController::pwmConversion()
       }
       case spinal::MotorInfo::RPM_MODE: {
         /* Closed-loop RPM on ESC:
-         * Invert: thrust = krpm_square_to_thrust_ratio * krpm^2 + * krpm_square_to_thrust_bias,
+         * Invert: thrust = krpm_to_thrust_ratio * krpm^krpm_to_thrust_exponent + * krpm_to_thrust_bias,
          * then map linearly onto [min_rpm_, max_rpm_].
          * This PWM value is decoded on ESC in the same way to get the desired RPM in the low-level PID controller. */
         if (rpm_convert_ratio_ <= 0 || max_rpm_ <= min_rpm_)
           return IDLE_DUTY;
 
-        float krpm2 = (scaled_thrust - rpm_convert_bias_) / rpm_convert_ratio_;
-        float rpm_desired = (krpm2 > 0) ? sqrtf(krpm2) * 1000.0f : 0;
+        float krpm_exp = (scaled_thrust - rpm_convert_bias_) / rpm_convert_ratio_;
+        float rpm_desired = (krpm_exp > 0 && rpm_convert_exponent_ > 0) ? pow(krpm_exp, 1/rpm_convert_exponent_) * 1000.0f : 0;
         float frac = (rpm_desired - min_rpm_) / (max_rpm_ - min_rpm_);
         if (frac < 0)
           frac = 0;
@@ -1291,12 +1293,12 @@ void AttitudeController::pwmConversion()
  * Other modes: The target thrust, since the motor model is not available. */
 float AttitudeController::getRealizedForce(uint8_t index)
 {
-  if (pwm_conversion_mode_ != spinal::MotorInfo::RPM_MODE || rpm_convert_ratio_ <= 0 || max_rpm_ <= min_rpm_)
+  if (pwm_conversion_mode_ != spinal::MotorInfo::RPM_MODE || rpm_convert_ratio_ <= 0  || rpm_convert_exponent_ <= 0 || max_rpm_ <= min_rpm_)
     return target_thrust_[index];
 
   float frac = (target_pwm_[index] - 0.5f) / 0.5f;
   float krpm = (min_rpm_ + frac * (max_rpm_ - min_rpm_)) * 0.001f;
-  float thrust = rpm_convert_ratio_ * krpm * krpm + rpm_convert_bias_;
+  float thrust = rpm_convert_ratio_ * pow(krpm, rpm_convert_exponent_) + rpm_convert_bias_;
   if (thrust < 0)
     thrust = 0;  // Below the zero thrust RPM of the model
   return thrust * rotor_devider_ / v_factor_;

@@ -6,15 +6,45 @@ motor_info:
   min_thrust: 0.0  # [N]
   force_landing_thrust: 6.0  # [N]
 
-  # these two parameters are from u=25.2v_down_prop_w_mount_part_motor_test_1727860665.txt
-  krpm_square_to_thrust_ratio: 0.1283  # N/(kRPM)^2
-  krpm_square_to_thrust_bias: -0.3572  # N
-  rotor_damping_rate: 0.1062  # = dt/t_thrust = 0.01 (guess) / 0.0942
-  m_f_rate: -0.0165  # (-0.0166 + -0.0165 + -0.0166 +  -0.0164 + -0.0162) / 5 = -0.0165
+  # Model: thrust = krpm_to_thrust_ratio * krpm^krpm_to_thrust_exponent + krpm_to_thrust_bias
+  # The parameters are fitted from u=25.2v_down_prop_w_mount_part_motor_test_1727860665.txt
+  # Update 2026/11: These parameters are fitted with arbitrary exponent to lower RMSE
+  # Dataset:
+  #  - 20261107_1858_motor_test_u25.2V.txt
+  #  - 20261108_1808_motor_test_u24.2V.txt
+  #  - 20261108_1817_motor_test_u23.2V.txt
+  #  - 20261108_1823_motor_test_u22.2V.txt
+  #  - 20261108_1908_motor_test_u25.2V.txt
+  #  - 20261109_2200_motor_test_u25.2V.txt
+  # - Ratio
+  krpm_to_thrust_ratio: 0.0932 # previously: 0.1283  # N/(kRPM)^2
+  # - Bias; note in physical intuition at zero RPM we have zero thrust so no bias
+  krpm_to_thrust_bias: 0  # previously: -0.3572  # N
+  # - Exponent x of the krpm^x term in the thrust model; note the relationship is slightly more nonlinear than quadratric
+  krpm_to_thrust_exponent: 2.151  # previously: 2
+  # - Ratio of torque (m) factor to thrust (f) factor
+  m_f_rate: -0.0168  # -0.0165  # (-0.0166 + -0.0165 + -0.0166 +  -0.0164 + -0.0162) / 5 = -0.0165
+  
+  # Age of the thrust measured by the ESC telemetry at read time
+  # = ZC averaging (1.5 ms) + alpha-beta RPM filter (~1.5 ms) + ESC to spinal (2 ms) + spinal batching ([6, 4, 2, 0] ms)
+  #   + spinal to PC (0.868 ms)
+  delay_thrust_meas: [0.011868, 0.009868, 0.007868, 0.005868]  # for ESC [1,2,3,4] in seconds
+
+  # Additional age of the thrust rate measured by the ESC telemetry w.r.t. the thrust
+  # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC (measured: 26-28 ms behind d(rpm)/dt)
+  delay_thrust_rate_meas: 0.027  # in seconds
+
+  # Actuation delay from the MPC state read until the ESC acts on the thrust command
+  # = solver time (5 ms) + PC to spinal communication (0.564 ms) + spinal computation (2 ms) + ESC computation (1 ms)
+  delay_thrust_cmd: 0.008564  # in seconds
+
+  # Rotor damping: only for sim
+  # dt/t_thrust = 0.01 (guess) / 0.0942
+  rotor_damping_rate: 0.1062
 
   # --- RPM Mode ---
   pwm_conversion_mode: 2
-  # Inverts thrust = krpm_square_to_thrust_ratio * krpm^2 + krpm_square_to_thrust_bias to get the target RPM,
+  # Inverts thrust = krpm_to_thrust_ratio * krpm^krpm_to_thrust_exponent + krpm_to_thrust_bias to get the target RPM,
   # then linearly normalizes it onto [min_rpm, max_rpm] to get target_pwm in [0.5, 1.0], which DShot then
   # maps 1:1 onto the ESC's own RPM window -- so min_rpm/max_rpm MUST equal the ESC firmware's RPM window
   # (e.g. AM32 MINIMUM_RPM_SPEED_CONTROL / MAX_RPM).

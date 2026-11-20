@@ -85,10 +85,12 @@ public:
     getParam<int>(motor_nh, "pwm_conversion_mode", pwm_conversion_mode_, -1);
     getParam<double>(motor_nh, "min_rpm", min_rpm_, 0.0);
     getParam<double>(motor_nh, "max_rpm", max_rpm_, 0.0);
-    getParam<double>(motor_nh, "krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
-    getParam<double>(motor_nh, "krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
-    if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE && krpm_square_to_thrust_ratio_ <= 0.0)
-      ROS_ERROR("motor_info/krpm_square_to_thrust_ratio must be positive for the RPM mode!");
+    getParam<double>(motor_nh, "krpm_to_thrust_ratio", krpm_to_thrust_ratio_, 0.0);
+    getParam<double>(motor_nh, "krpm_to_thrust_exponent", krpm_to_thrust_exponent_, 2.0);
+    getParam<double>(motor_nh, "krpm_to_thrust_bias", krpm_to_thrust_bias_, 0.0);
+    if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE && krpm_to_thrust_ratio_ <= 0.0 ||
+        pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE && krpm_to_thrust_exponent_ <= 0.0)
+      ROS_ERROR("motor_info/krpm_to_thrust_ratio && krpm_to_thrust_exponent must be positive for the RPM mode!");
 
     int vel_ref_num;
     getParam<int>(motor_nh, "vel_ref_num", vel_ref_num, 0);
@@ -107,8 +109,9 @@ public:
       if (pwm_conversion_mode_ == spinal::MotorInfo::RPM_MODE)
       {
         /* Parameters for model-based conversion of desired thrust to desired RPM */
-        motor_info_[i].krpm_square_to_thrust_ratio = krpm_square_to_thrust_ratio_;
-        motor_info_[i].krpm_square_to_thrust_bias = krpm_square_to_thrust_bias_;
+        motor_info_[i].krpm_to_thrust_ratio = krpm_to_thrust_ratio_;
+        motor_info_[i].krpm_to_thrust_exponent = krpm_to_thrust_exponent_;
+        motor_info_[i].krpm_to_thrust_bias = krpm_to_thrust_bias_;
       }
       else if (pwm_conversion_mode_ == spinal::MotorInfo::POLYNOMINAL_MODE)
       {
@@ -226,7 +229,7 @@ protected:
   int pwm_conversion_mode_;
   double force_landing_thrust_;
   double min_rpm_, max_rpm_;
-  double krpm_square_to_thrust_ratio_, krpm_square_to_thrust_bias_;  // [N/kRPM^2] and [N]
+  double krpm_to_thrust_ratio_, krpm_to_thrust_exponent_, krpm_to_thrust_bias_;  // [N/kRPM^2], [-] and [N]
 
   bool param_verbose_;
   bool control_verbose_;

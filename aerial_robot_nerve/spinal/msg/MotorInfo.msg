@@ -8,6 +8,7 @@ float32 max_thrust
 # POLYNOMINAL MODE: up to 4 Dimension
 float32[5] polynominal
 
-# RPM_MODE: thrust = krpm_square_to_thrust_ratio * krpm^2 + krpm_square_to_thrust_bias [N]
-float32 krpm_square_to_thrust_ratio
-float32 krpm_square_to_thrust_bias
+# RPM_MODE: thrust = krpm_to_thrust_ratio * krpm^krpm_to_thrust_exponent + krpm_to_thrust_bias [N]
+float32 krpm_to_thrust_ratio
+float32 krpm_to_thrust_exponent
+float32 krpm_to_thrust_bias

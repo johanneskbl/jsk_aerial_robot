@@ -79,7 +79,7 @@ std::vector<double> nmpc::TiltMtServoDistNMPC::meas2VecX(bool is_ee_centric)
     external_torque_b = wrench_est_ptr_->getDistTorqueCOG();
   }
 
-  const int disturbance_index = 13 + joint_num_ + (use_thrust_estimator_ ? motor_num_ : 0);
+  const int disturbance_index = 13 + joint_num_;
   bx0[disturbance_index + 0] = external_force_w.x;
   bx0[disturbance_index + 1] = external_force_w.y;
   bx0[disturbance_index + 2] = external_force_w.z;

@@ -37,12 +37,14 @@ public:
   void initialize(const ros::NodeHandle& nh, int esc_num, double timeout = 0.1)
   {
     ros::NodeHandle motor_nh(nh, "motor_info");
-    motor_nh.param<double>("krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio_, 0.0);
-    motor_nh.param<double>("krpm_square_to_thrust_bias", krpm_square_to_thrust_bias_, 0.0);
-    if (krpm_square_to_thrust_ratio_ == 0.0)
+    motor_nh.param<double>("krpm_to_thrust_ratio", krpm_to_thrust_ratio_, 0.0);
+    motor_nh.param<double>("krpm_to_thrust_exponent", krpm_to_thrust_exponent_, 2.0);
+    motor_nh.param<double>("krpm_to_thrust_bias", krpm_to_thrust_bias_, 0.0);
+    if (krpm_to_thrust_ratio_ <= 0.0 || krpm_to_thrust_exponent_ <= 0.0)
     {
-      std::string err_msg = "[ESC telemetry] motor_info/krpm_square_to_thrust_ratio is 0 or not set, so the thrust measured by the "
-                "ESC telemetry is invalid! Load the motor config of the RPM mode.";
+      std::string err_msg = "[ESC telemetry] motor_info/krpm_to_thrust_ratio and krpm_to_thrust_exponent are 0 " +
+                            "or not set, so the thrust measured by the ESC telemetry is invalid! Load the motor " +
+                            "config of the RPM mode.";
       ROS_ERROR("%s", err_msg.c_str());
       throw std::invalid_argument(err_msg.c_str());
     }
@@ -86,7 +88,7 @@ public:
       //    thrust_rate = d(thrust)/dt = 2 * ratio * krpm * d(krpm)/dt
       const double krpm = static_cast<double>(esc.rpm) * 0.001;
       const double krpm_rate = static_cast<double>(esc.rpm_rate) * 0.001;
-      const double thrust_value = krpm_square_to_thrust_ratio_ * krpm * krpm + krpm_square_to_thrust_bias_;
+      const double thrust_value = krpm_to_thrust_ratio_ * pow(krpm, krpm_to_thrust_exponent_) + krpm_to_thrust_bias_;
       const bool is_thrust_positive = thrust_value > 0.0;
 
       if (thrust_value < 0.0)
@@ -100,7 +102,7 @@ public:
       {
         thrust.at(i) = thrust_value;
         if (thrust_rate != nullptr)
-          thrust_rate->at(i) = 2.0 * krpm_square_to_thrust_ratio_ * krpm * krpm_rate;
+          thrust_rate->at(i) = krpm_to_thrust_exponent_ * krpm_to_thrust_ratio_ * krpm * krpm_rate;
       }
       crc_error.at(i) = esc.crc_error;
       last_valid_time_[i] = now;
@@ -148,8 +150,9 @@ public:
 private:
   int esc_num_ = 0;
   double timeout_ = 0.1;
-  double krpm_square_to_thrust_ratio_ = 0.0;  // [N/kRPM^2]
-  double krpm_square_to_thrust_bias_ = 0.0;   // [N]
+  double krpm_to_thrust_ratio_ = 0.0;  // [N/kRPM^2]
+  double krpm_to_thrust_exponent_ = 0.0;
+  double krpm_to_thrust_bias_ = 0.0;   // [N]
   std::vector<ros::Time> last_valid_time_;    // of each ESC
 };
 

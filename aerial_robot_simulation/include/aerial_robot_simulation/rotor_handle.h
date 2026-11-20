@@ -81,11 +81,12 @@ namespace hardware_interface
       motor_nh.param("dual_rotor_moment_noise", dual_rotor_moment_noise_, 0.0);
       motor_nh.param("speed_rate", speed_rate_, 1.0); // rad/s/N , this is a virtual linear rate of speed-f
 
-      // Model of the measured RPM: thrust = krpm_square_to_thrust_ratio * krpm^2 + krpm_square_to_thrust_bias
-      double krpm_square_to_thrust_ratio;
-      motor_nh.param("krpm_square_to_thrust_ratio", krpm_square_to_thrust_ratio, 0.1);
-      motor_nh.param("krpm_square_to_thrust_bias", krpm_bias_, 0.0); // N
-      krpm_rate_ = 1.0 / krpm_square_to_thrust_ratio; // (kRPM)^2/N , this is a virtual linear rate of speed-f
+      // Model of the measured RPM: thrust = krpm_to_thrust_ratio * krpm^krpm_to_thrust_exponent + krpm_to_thrust_bias
+      double krpm_to_thrust_ratio;
+      motor_nh.param("krpm_to_thrust_ratio", krpm_to_thrust_ratio, 0.1);
+      motor_nh.param("krpm_to_thrust_exponent", krpm_exponent_, 2.0);
+      motor_nh.param("krpm_to_thrust_bias", krpm_bias_, 0.0); // N
+      krpm_rate_ = 1.0 / krpm_to_thrust_ratio; // (kRPM)^2/N , this is a virtual linear rate of speed-f
     }
 
     inline std::string getName() const {return name_;}
@@ -114,7 +115,7 @@ namespace hardware_interface
     // Inverse of the thrust model, clamped at zero RPM for forces below the bias
     inline int getRPM() const
     {
-      return (int)std::lround(sqrt(std::max((*force_ - krpm_bias_) * krpm_rate_, 0.0)) * 1000);
+      return (int)std::lround(pow(std::max((*force_ - krpm_bias_) * krpm_rate_, 0.0), 1.0 / krpm_exponent_) * 1000);
     }
 
     inline double getSpeed() const
@@ -131,6 +132,7 @@ namespace hardware_interface
     double m_f_rate_;
     double speed_rate_;
     double krpm_rate_;
+    double krpm_exponent_;
     double krpm_bias_;
     double pwm_rate_;
     double max_pwm_;
