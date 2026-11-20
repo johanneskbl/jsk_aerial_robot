@@ -229,7 +229,7 @@ protected:
   int pwm_conversion_mode_;
   double force_landing_thrust_;
   double min_rpm_, max_rpm_;
-  double krpm_to_thrust_ratio_, krpm_to_thrust_exponent_, krpm_to_thrust_bias_;  // [N/kRPM^2], [-] and [N]
+  double krpm_to_thrust_ratio_, krpm_to_thrust_exponent_, krpm_to_thrust_bias_;  // [N/kRPM^n], [-] and [N]
 
   bool param_verbose_;
   bool control_verbose_;

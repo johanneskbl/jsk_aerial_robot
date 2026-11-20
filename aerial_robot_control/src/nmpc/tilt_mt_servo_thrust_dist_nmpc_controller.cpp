@@ -15,10 +15,9 @@ void nmpc::TiltMtServoThrustDistNMPC::initialize(ros::NodeHandle nh, ros::NodeHa
   TiltMtServoDistNMPC::initialize(nh, nhp, robot_model, estimator, navigator, ctrl_loop_du);
 
   /* Thrust measurement */
-    esc_telem_.initialize(nh_, motor_num_);
-    thrust_estimator_.initialize(nh_, motor_num_);
-
-    sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &TiltMtServoThrustDistNMPC::callbackESCTelem, this);
+  sub_esc_telem_ = nh_.subscribe("esc_telem", 1, &TiltMtServoThrustDistNMPC::callbackESCTelem, this);
+  esc_telem_.initialize(nh_, motor_num_);
+  thrust_estimator_.initialize(nh_, motor_num_);
 }
 
 void nmpc::TiltMtServoThrustDistNMPC::initActuatorStates()

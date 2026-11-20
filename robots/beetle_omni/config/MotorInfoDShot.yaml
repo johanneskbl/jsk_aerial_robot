@@ -17,7 +17,7 @@ motor_info:
   #  - 20261108_1908_motor_test_u25.2V.txt
   #  - 20261109_2200_motor_test_u25.2V.txt
   # - Ratio
-  krpm_to_thrust_ratio: 0.0932 # previously: 0.1283  # N/(kRPM)^2
+  krpm_to_thrust_ratio: 0.0932 # previously: 0.1283  # N/(kRPM)^n
   # - Bias; note in physical intuition at zero RPM we have zero thrust so no bias
   krpm_to_thrust_bias: 0  # previously: -0.3572  # N
   # - Exponent x of the krpm^x term in the thrust model; note the relationship is slightly more nonlinear than quadratric
@@ -38,9 +38,14 @@ motor_info:
   # = solver time (5 ms) + PC to spinal communication (0.564 ms) + spinal computation (2 ms) + ESC computation (1 ms)
   delay_thrust_cmd: 0.008564  # in seconds
 
-  # Rotor damping: only for sim
-  # dt/t_thrust = 0.01 (guess) / 0.0942
-  rotor_damping_rate: 0.1062
+  # Rotor damping: only for sim. First-order lag per Gazebo control step (1 kHz): 1 - exp(-0.001 / t_rotor)
+  # NOTE: Previosly: dt/t_thrust = 0.01 (guess, now know that shouldve been 0.001) / 0.0942
+  # NOTE: Where the 1 ms comes from: The sim updates the rotor force every 1 ms, not every 10 ms. 
+  # gazebo_ros_control has no <controlPeriod>, so it runs controllers at the physics step.
+  # empty.world sets max_step_size to 0.001. SimulationAttitudeController::update() calls rotor.setForce()
+  # every step without throttling.
+  rotor_damping_rate: 0.0645  # corresponding to t_rotor = 0.015 s
+
 
   # --- RPM Mode ---
   pwm_conversion_mode: 2

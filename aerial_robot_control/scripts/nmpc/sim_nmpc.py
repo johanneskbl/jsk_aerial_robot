@@ -295,7 +295,7 @@ def main(args):
             x_now[nmpc.wrench_state_start_idx : nmpc.wrench_state_end_idx] = current_body_wrench.flatten()
         if nmpc.include_cog_dist_model:
             # Disturbance state is zeroed out for this simulation
-            x_now[nmpc.cog_dist_state_start_idx : nmpc.cog_dist_state_end_idx] = np.zeros(3)
+            x_now[nmpc.cog_dist_state_start_idx : nmpc.cog_dist_state_end_idx] = np.zeros(6)
 
         # --------- Update control target ---------
         target_xyz = np.array([[0.0, 0.0, 1.0]]).T

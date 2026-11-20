@@ -85,6 +85,19 @@ void nmpc::TiltMtServoNMPC::reset()
 
   resetPlugins();
 
+  /* Reset control input */
+  // [!] Don't publish actuation here
+  // NOTE: Before meas2VecX() since the thrust estimator of derived classes needs a thrust command for each rotor
+  flight_cmd_.base_thrust = std::vector<float>(motor_num_, 0.0);
+
+  gimbal_ctrl_cmd_.name.clear();
+  gimbal_ctrl_cmd_.position.clear();
+  for (int i = 0; i < joint_num_; i++)
+  {
+    gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
+    gimbal_ctrl_cmd_.position.push_back(0.0);
+  }
+
   /* Reset reference x_u_ref_ to the current state of the Tracking frame */
   std::vector<double> x_vec_ref = meas2VecX(isTrackingEE());
   std::vector<double> u_vec(mpc_solver_ptr_->NU_, 0);
@@ -98,18 +111,6 @@ void nmpc::TiltMtServoNMPC::reset()
   std::copy(x_vec_ref.begin(), x_vec_ref.begin() + NX, x_u_ref_.x.data.begin() + NX * NN);
 
   mpc_solver_ptr_->resetXrUrByX0U0(x_vec_ref, u_vec);
-
-  /* Reset control input */
-  // [!] Don't publish actuation here
-  flight_cmd_.base_thrust = std::vector<float>(motor_num_, 0.0);
-
-  gimbal_ctrl_cmd_.name.clear();
-  gimbal_ctrl_cmd_.position.clear();
-  for (int i = 0; i < joint_num_; i++)
-  {
-    gimbal_ctrl_cmd_.name.emplace_back("gimbal" + std::to_string(i + 1));
-    gimbal_ctrl_cmd_.position.push_back(0.0);
-  }
 
   /* Reset solver and set initial guess to hovering */
   resetSolver();
