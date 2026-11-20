@@ -13,7 +13,10 @@ physical:  # with original ball and battery
   kq_d_kt: 0.0165
 
   num_rotors: 4
-  t_rotor: 0.0942
+  t_rotor: 0.015  # RPM-mode ESC (AM32 P65 I0 D3000), identified from bench and flight data. The previous value was 0.0942
+  # Rate model of the thrust rate estimation: t_thrust_rate * d2F/dt2 + dF/dt = gain_thrust_rate * dF_cmd/dt(t - d_in)
+  gain_thrust_rate: 0.73
+  t_thrust_rate: 0.022
 
   num_servos: 4
   t_servo: 0.0480  # Dynamixel servo: XC330-T181 with self-tuned PID. As contrary, the previous kondo's value was 0.085883

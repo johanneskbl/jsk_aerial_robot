@@ -337,7 +337,7 @@ std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_ce
       // double thrust_velocity = (last_thrust_c - thrust_meas_[i]) / t_rotor_;
 
       // ==== ESTIMATE ====
-      // Thrust rate measured on the ESC, propagated over its age with the command history (ThrustEstimator)
+      // Thrust rate measured on the ESC, propagated over its age with the rate model and the command history (ThrustEstimator)
       double thrust_velocity = thrust_rate_est_[i];
 
       // ==== MEASUREMENT ====

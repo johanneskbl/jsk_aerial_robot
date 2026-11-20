@@ -40,12 +40,7 @@ protected:
   std::vector<u_int8_t> crc_errors_;  // record if a frame was valid
 
   /* Initialization methods */
-  inline void initActuatorStates() override
-  {
-    TiltMtServoNMPC::initActuatorStates();
-    thrust_meas_.resize(motor_num_, 0.0);
-    crc_errors_.resize(motor_num_, 0);
-  }
+  void initActuatorStates() override;
   void initMPCCostW() override;
   void initMPCConstraints() override;
 

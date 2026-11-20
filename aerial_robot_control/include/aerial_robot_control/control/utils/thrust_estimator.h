@@ -17,16 +17,27 @@ namespace aerial_robot_control
 /**
  * @brief Estimation of the current thrust and thrust rate of each rotor from the delayed ESC telemetry and the history
  * of the thrust commands
- * Rotor model:       dF/dt = (F_cmd(t - d_in) - F(t)) / t_rotor
- * Measurement model: F_meas(t) = F(t - d_meas)
- *                    dF_meas/dt(t) = dF/dt(t - d_meas - d_rate)
- * Each measurement is propagated over its age with the exact solution of the rotor model for each thrust command that
- * acted in the meantime:
- *   F = F_cmd + (F - F_cmd) * exp(-duration / t_rotor)
- * The age is the measurement delay d_meas of the ESC plus the time since the measurement was received, for the thrust
- * rate additionally the delay d_rate of the rate estimation on the ESC.
- * The rotor model links the thrust rate to the thrust by dF/dt = (F_cmd - F) / t_rotor, so the measured thrust rate is
- * propagated as its equivalent thrust F_cmd - t_rotor * dF/dt.
+ * Rotor thrust model:       t_rotor * dF(t)/dt + F(t) = F_cmd(t - d_in)
+ * Rotor thrust rate model:  t_thrust_rate * d^2F(t)/dt^2 + dF(t)/dt = K * dF_cmd(t - d_in)/dt
+ * Measurement model:        F_meas(t) = F(t - d_meas)
+ *                           dF_meas(t)/dt = dF(t - d_meas - d_rate)/dt
+ * Each thrust measurement is propagated over its age with the exact solution of its model for the piecewise constant thrust
+ * commands that acted in the meantime. The exact solution of the thrust model is:
+ * 
+ *    F = F_cmd + (F_meas - F_cmd) * exp(-duration / t_rotor)
+ * 
+ * Each thrust rate measurement is propagated over its age with the exact solution of its model (!) for the piecewise constant
+ * thrust commands that acted in the meantime. The rate model is the derivative of the first-order thrust model, but
+ * with its own gain K_rate and time constant t_thrust_rate. The exact solution of the rate model is:
+ * 
+ *   dF/dt = dF_meas/dt * exp(-age / t_thrust_rate) + K / t_thrust_rate * sum_j step_j * exp(-(now - t_j) / t_thrust_rate)
+ * 
+ * where step_j is the change of the thrust command that acts from t_j on. The age is the measurement delay d_meas of
+ * the ESC plus the time since the measurement was received, for the thrust rate additionally the delay d_rate of the
+ * rate estimation on the ESC. Since the rate measurement is highly filtered its delay (~38 ms) covers multiple command steps. 
+ *  - K_rate: With the gain K_rate < 1 the real rotor's rate reacts to a command step less strongly, and more
+ *    smoothly, than an instantaneous first-order jump which fits the real behavior better
+ *  - t_thrust_rate > t_rotor: The measured thrust rate decays slower than the thrust
  */
 class ThrustEstimator
 {
@@ -39,21 +50,17 @@ public:
     ros::NodeHandle physical_nh(nh, "physical");
     ros::NodeHandle motor_nh(nh, "motor_info");
     physical_nh.param<double>("t_rotor", t_rotor_, 0.0);
+    physical_nh.param<double>("t_thrust_rate", t_thrust_rate_, 0.0);
+    motor_nh.param<double>("gain_thrust_rate", gain_thrust_rate_, 1.0);
     motor_nh.param<std::vector<double>>("delay_thrust_meas", delay_thrust_meas_, std::vector<double>());
     motor_nh.param<double>("delay_thrust_rate_meas", delay_thrust_rate_meas_, 0.0);
     motor_nh.param<double>("delay_thrust_cmd", delay_thrust_cmd_, 0.0);
 
-    /* Initialize command history */
-    // The command history covers published commands for the duration until the last useful command
-    // It is used to propagate the measurements from the delayed time to current time
-    history_duration_ = *std::max_element(delay_thrust_meas_.begin(), delay_thrust_meas_.end()) +
-                        delay_thrust_rate_meas_ + ESC_TELEMETRY_DEADTIME;
-    last_call_time_ = ros::Time::now();;
-
     /* Sanity checks */
-    if (t_rotor_ <= 0.0 || motor_num <= 0 || static_cast<int>(delay_thrust_meas_.size()) != motor_num)
+    if (t_rotor_ <= 0.0 || t_thrust_rate_ <= 0.0 || motor_num <= 0 ||
+        static_cast<int>(delay_thrust_meas_.size()) != motor_num)
     {
-      std::string err_msg = "[Thrust estimator] Rotor time constant must be positive and delay vector "
+      std::string err_msg = "[Thrust estimator] Time constants of rotor and thrust rate must be positive and delay vector "
                             "must have " + std::to_string(motor_num) + " entries " +
                             "(found " + std::to_string(delay_thrust_meas_.size()) + ")!";
       ROS_ERROR("%s", err_msg.c_str());
@@ -68,6 +75,13 @@ public:
         throw std::invalid_argument(err_msg.c_str());
       }
     }
+
+    /* Initialize command history */
+    // The command history covers published commands for the duration until the last useful command
+    // It is used to propagate the measurements from the delayed time to current time
+    history_duration_ = *std::max_element(delay_thrust_meas_.begin(), delay_thrust_meas_.end()) +
+                        delay_thrust_rate_meas_ + ESC_TELEMETRY_DEADTIME;
+    last_call_time_ = ros::Time::now();;
   }
 
   /**
@@ -87,6 +101,7 @@ public:
 
     /* Update the command history */
     // The last command was calculated from the state of the previous call and acts after the actuation delay
+    // NOTE here we compensate for the actual actuation delay (NOT the delay with respect to the last publishing time!) which is more accurate
     thrust_cmd_history_.emplace_back(last_call_time_ + ros::Duration(delay_thrust_cmd_),
                                      std::vector<double>(thrust_cmd.begin(), thrust_cmd.end()));
     last_call_time_ = now;
@@ -103,19 +118,25 @@ public:
       // Propagate thrust state forward to current time, i.e., estimate its value based on past command and rotor model
       thrust.at(i) = propagate(i, thrust_meas.at(i), age, now);
 
-      // Propagate thrust rate state forward to current time, i.e., estimate its value based on past command and rotor model
+      // Propagate thrust rate state forward to current time with the exact solution of the rate model
       if (thrust_rate_meas != nullptr && thrust_rate != nullptr)
       {
         // Thrust rate has an additional and wider filter, i.e., the measurement corresponds to an older timestamp
         const double age_rate = age + delay_thrust_rate_meas_;
 
-        // Compute the equivalent thrust that would have caused the measured thrust rate at the time of the measurement based on the published command
-        // tau * dF/dt + F = command <=> F = command - tau * dF/dt
-        const double thrust_equivalent = getActiveCommand(i, -age_rate, now) - t_rotor_ * thrust_rate_meas->at(i);
-
-        // Estimate the current thrust rate from propagating the equivalent thrust and current command
-        // tau * dF/dt + F = command <=> dF/dt = (command - F) / tau
-        thrust_rate->at(i) = (getActiveCommand(i, 0.0, now) - propagate(i, thrust_equivalent, age_rate, now)) / t_rotor_;
+        // The measured rate decays and each command step since the measurement adds a decaying jump
+        // The first command of the history has no known previous command, but acts before the age of the measurement
+        double rate = thrust_rate_meas->at(i) * std::exp(-age_rate / t_thrust_rate_);
+        for (size_t j = 1; j < thrust_cmd_history_.size(); j++)
+        {
+          const double t_cmd = (thrust_cmd_history_[j].first - now).toSec();  // Time relative to now from which the command acts
+          if (t_cmd <= -age_rate || t_cmd > 0.0)
+            continue;
+          // NOTE: The thrust rate model is defined by dF_cmd/dt such that we need the difference in the command step history!
+          const double cmd_step = thrust_cmd_history_[j].second.at(i) - thrust_cmd_history_[j - 1].second.at(i);
+          rate += gain_thrust_rate_ / t_thrust_rate_ * cmd_step * std::exp(t_cmd / t_thrust_rate_);
+        }
+        thrust_rate->at(i) = rate;
       }
     }
   }
@@ -127,6 +148,8 @@ private:
   std::vector<double> delay_thrust_meas_;  // Measurement delay d_meas of each ESC [s]
   double delay_thrust_rate_meas_ = 0.0;    // Measurement delay d_rate of the thrust rate [s]
   double delay_thrust_cmd_ = 0.0;          // Actuation delay d_in from the state of the MPC until the ESC acts [s]
+  double gain_thrust_rate_ = 1.0;          // Short-term gain K of the rate model [-]
+  double t_thrust_rate_ = 0.0;             // Time constant of the rate model [s]
   double history_duration_ = 0.0;          // Duration covered by the command history [s]
   ros::Time last_call_time_;               // Time of the previous call of estimate()
   std::deque<std::pair<ros::Time, std::vector<double>>> thrust_cmd_history_;  // Structured array to hold previous thrust commands and their time of actuation
@@ -142,7 +165,7 @@ private:
     double cmd = thrust_cmd_history_.front().second.at(i);
     for (const auto& entry : thrust_cmd_history_)
     {
-      if ((entry.first - now).toSec() <= t)  // entry.first is the publish time
+      if ((entry.first - now).toSec() <= t)  // entry.first is the actuation time, i.e., the publish time + actuation delay
         cmd = entry.second.at(i);            // entry.second is the actual thrust command published at entry.first
     }
     return cmd;
