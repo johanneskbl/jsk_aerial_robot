@@ -85,11 +85,11 @@ add_custom_target(gen_acados_code ALL
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/scripts/nmpc/
   COMMENT "Generating acados code for NMPC models"
 )
-add_custom_target(gen_acados_code_neural ALL
-  COMMAND python3 ${PROJECT_SOURCE_DIR}/scripts/neural_mpc/gen_neural_controller.py
-  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/scripts/neural_mpc/
-  COMMENT "Generating acados code for neural MPC models"
-)
+# add_custom_target(gen_acados_code_neural ALL
+#   COMMAND python3 ${PROJECT_SOURCE_DIR}/scripts/neural_mpc/gen_neural_controller.py
+#   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/scripts/neural_mpc/
+#   COMMENT "Generating acados code for neural MPC models"
+# )
 add_custom_target(gen_acados_code_differential ALL
   COMMAND python3 ${PROJECT_SOURCE_DIR}/scripts/differential_mpc/gen_differential_controller.py
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/scripts/differential_mpc/
@@ -123,21 +123,22 @@ target_link_libraries(mpc_solver_plugins ${catkin_LIBRARIES} acados
         # ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/tilt_bi_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_bi_servo_mdl.so
         # ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/nmpc/tilt_bi_2_ord_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_bi_2_ord_servo_mdl.so
         # Neural controllers
-        ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/neural_mpc/tilt_qd_nominal_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_nominal_servo_mdl.so
+        # ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/neural_mpc/tilt_qd_nominal_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_nominal_servo_mdl.so
         # ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/neural_mpc/tilt_qd_neural_servo_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_neural_servo_mdl.so
         # Differential controller
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/differential_mpc/tilt_qd_servo_thrust_diff_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_servo_thrust_diff_mdl.so
         ${PROJECT_SOURCE_DIR}/include/aerial_robot_control/differential_mpc/tilt_qd_servo_thrust_diff_second_order_mdl/c_generated_code/libacados_ocp_solver_tilt_qd_servo_thrust_diff_second_order_mdl.so
 )
-add_dependencies(mpc_solver_plugins gen_acados_code gen_acados_code_neural gen_acados_code_differential)
+# add_dependencies(mpc_solver_plugins gen_acados_code gen_acados_code_neural gen_acados_code_differential)
+add_dependencies(mpc_solver_plugins gen_acados_code gen_acados_code_differential)
 
 ### flight control plugin
 add_library(flight_control_pluginlib
-  src/control/base/pose_linear_controller.cpp
-  src/control/fully_actuated_controller.cpp
-  src/control/under_actuated_controller.cpp
-  src/control/under_actuated_lqi_controller.cpp
-  src/control/under_actuated_tilted_lqi_controller.cpp
+  # src/control/base/pose_linear_controller.cpp
+  # src/control/fully_actuated_controller.cpp
+  # src/control/under_actuated_controller.cpp
+  # src/control/under_actuated_lqi_controller.cpp
+  # src/control/under_actuated_tilted_lqi_controller.cpp
 #  src/nmpc/fix_qd_angvel_out_mdl/nmpc_solver.cpp
 #  src/nmpc/fix_qd_angvel_out_mdl/nmpc_controller.cpp
   # src/nmpc/fix_qd_thrust_out_mdl/nmpc_controller.cpp
@@ -151,8 +152,8 @@ add_library(flight_control_pluginlib
   # src/nmpc/tilt_mt_servo_thrust_imp_nmpc_controller.cpp
   # src/nmpc/tilt_bi_2_ord_servo_mdl/nmpc_controller.cpp
   # Neural controllers
-  src/neural_mpc/tilt_mt_nominal_servo_mpc_controller.cpp
-  src/neural_mpc/tilt_mt_neural_servo_mpc_controller.cpp
+  # src/neural_mpc/tilt_mt_nominal_servo_mpc_controller.cpp
+  # src/neural_mpc/tilt_mt_neural_servo_mpc_controller.cpp
   # Differential controller
   src/differential_mpc/tilt_mt_servo_thrust_diff_mpc_controller.cpp
   src/differential_mpc/tilt_mt_servo_thrust_diff_second_order_mpc_controller.cpp
