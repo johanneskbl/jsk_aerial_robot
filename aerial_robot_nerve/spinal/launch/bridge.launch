@@ -2,7 +2,7 @@
   <arg name="mode" default="serial" />
 
   <arg name="serial_port" default="/dev/ttyUSB0" />
-  <arg name="serial_baud" default="921600" />
+  <arg name="serial_baud" default="2000000" />  <!-- previously: 921600 -->
 
   <arg name="udp_port" default="12345" />
   <arg name="udp_addr" default="192.168.25.238" />

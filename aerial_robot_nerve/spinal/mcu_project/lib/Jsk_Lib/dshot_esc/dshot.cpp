@@ -37,7 +37,7 @@ void DShot::write(uint16_t* motor_value_array, bool is_telemetry)
 
   if (is_telemetry)
   {
-    if (num_freq_divide == 1)
+    if (num_freq_divide == (ESC_TELEM_REQUEST_DIVIDER - 1))
     {
       // Receive the telemetry of the previous round
 
@@ -67,15 +67,20 @@ void DShot::write(uint16_t* motor_value_array, bool is_telemetry)
          no flush and no new request until it has landed, see ESCReader::update() */
       if (is_read_done)
       {
+        id_telem_prev_ = -1;  // Reply consumed: a slot without a request reads nothing in the next round
+
         /* Re-synch in case of overlap of multiple telemetry packages */
         esc_reader_.flush();
 
-        // Request the telemetry of the next ESC
-        id_telem_ = id_telem_ % 4;
-        is_telemetry_array[id_telem_] = true;
+        // Slot schedule: slot 0 is idle, slots 1-4 request ESC 1-4, any further slot is idle as well.
+        if (id_telem_ >= 1 && id_telem_ <= 4)
+        {
+          const int motor_id = id_telem_ - 1;
+          is_telemetry_array[motor_id] = true;
+          id_telem_prev_ = motor_id;
+        }
 
-        id_telem_prev_ = id_telem_;
-        id_telem_++;
+        id_telem_ = (id_telem_ + 1) % ESC_TELEM_SLOT_COUNT;
       }
 
       num_freq_divide = 0;

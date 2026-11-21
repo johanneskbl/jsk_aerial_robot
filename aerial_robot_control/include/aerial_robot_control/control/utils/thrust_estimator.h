@@ -41,7 +41,7 @@ namespace aerial_robot_control
  * 
  * where step_j is the change of the thrust command that acts from t_j on. The age is the measurement delay d_meas of
  * the ESC plus the time from the reception of the measurement until t_act, for the thrust rate additionally the delay
- * d_rate of the rate estimation on the ESC. Since the rate measurement is highly filtered its delay (~38 ms) covers
+ * d_rate of the rate estimation on the ESC. Since the rate measurement is highly filtered its delay (~33 ms) covers
  * multiple command steps.
  *  - K_rate: With the gain K_rate < 1 the real rotor's rate reacts to a command step less strongly, and more
  *    smoothly, than an instantaneous first-order jump which fits the real behavior better

@@ -60,13 +60,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-// Run servo_.update() every 5th core iteration, see coreTaskFunc
-// NOTE: We choose 5 here since the main loop runs at 1kHz (1ms),
-// so only updating the servo every 5 iterations leads to an effective 200Hz (5ms) update rate.
-// This is sufficient for the Dynamixel bus, which is slow (blocking UART TX).
-// NOTE: Should be quicker than the minimal period of the servo in dynamixel_serial.h, i.e., 10ms.
-// NOTE: The sync read replies are parsed in the following call.
-#define SERVO_UPDATE_DIVIDER 5
+// Run servo_.update() every SERVO_UPDATE_DIVIDER-th core iteration (1kHz), see coreTaskFunc
+// NOTE: We choose 1 here (1ms), since DynamixelSerial times its instructions itself in 1ms steps
+// (SET_POS_DU/OFFSET, GET_POS_DU/OFFSET, ... in dynamixel_serial.h): the goal position write and the
+// state read run at 200Hz in separate calls, 2ms apart.
+// NOTE: The (fast) sync read reply is parsed in the following call, i.e., 1ms after its request.
+#define SERVO_UPDATE_DIVIDER 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -902,13 +901,13 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 921600;
+  huart1.Init.BaudRate = 2000000;  // rosserial, was 921600
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
   huart1.Init.Mode = UART_MODE_TX_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_8;
   huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
   huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
@@ -950,7 +949,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 460800;  // ESC telemetry, aligned with AM32
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -1184,10 +1183,9 @@ void coreTaskFunc(void const * argument)
 
 #if SERVO_FLAG
       /* Servo update: run every SERVO_UPDATE_DIVIDER*1ms
-         NOTE: The servo update is done after the DShot write, so that its UART TX
-         delays blocks neither the motor commands nor the ESC telemetry requests.
-         Only every SERVO_UPDATE_DIVIDER*1ms = 5 ms, as each call sends a sync read
-         whose replies the next call parses. */
+         NOTE: The servo update is done after the DShot write, so that its blocking UART I/O
+         (instruction TX, wait for the rest of a read reply) delays neither the motor commands
+         nor the ESC telemetry requests. */
       if (++servo_update_count >= SERVO_UPDATE_DIVIDER)
         {
           servo_update_count = 0;

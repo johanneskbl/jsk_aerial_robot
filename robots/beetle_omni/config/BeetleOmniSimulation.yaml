@@ -10,6 +10,8 @@ sensor_plugin:
 # ground truth parameter
 # global namespace
 simulation:
+  esc_telem_pub_rate: 0.02  # 50 Hz, real-machine runs on 200 Hz, i.e., 0.005 s
+
   # gaussian noise
   ground_truth_pos_noise: 0.001
   ground_truth_vel_noise: 0.005

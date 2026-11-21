@@ -24,6 +24,9 @@ void ESCReader::init(UART_HandleTypeDef* huart)
   esc_telem_rd_ptr_ = 0;
 
   HAL_UART_Receive_DMA(huart, esc_telem_rx_buf_, ESC_BUFFER_SIZE);
+
+  // discard any stale idle event from before DMA start
+  __HAL_UART_CLEAR_IDLEFLAG(huart_);
 }
 
 bool ESCReader::update(spinal::ESCTelemetry& esc_msg)
@@ -47,7 +50,7 @@ bool ESCReader::update(spinal::ESCTelemetry& esc_msg)
      Issue: a reply still arriving at the end of its slot could be flushed and its last arriving byte then
      shifts the next ESC's frame by one byte.
      Fix: a reply is complete once the line went idle after it. IDLE flag: set one character after the last byte and
-     cleared by flush(). A reply missing at most its last byte is waited for (<= 174 us at 115200 baud), a later one
+     cleared by flush(). A reply missing at most its last byte is waited for (<= 44 us at 460800 baud), a later one
      keeps the line for one more slot: update() returns false, DShot::write() neither flushes nor requests the next
      ESC, and the next call reads the reply in full. */
   uint32_t available = bytesAvailable();
@@ -133,8 +136,8 @@ bool ESCReader::update(spinal::ESCTelemetry& esc_msg)
     // Decode the two's complement value of the eRPM rate from the extended telemetry frame
     // Latency Note: AM32 already averages each period over about one electrical revolution before the
     // filter gets it. That adds 1.1 ms at hover and 12 ms at 785 rpm.
-    // Including Spinal's 8 ms polling, the rate reaches Spinal's controller about
-    // 18 ms after the rotor at hover.
+    // Including Spinal's 5 ms polling, the rate reaches Spinal's controller about
+    // 15 ms after the rotor at hover.
     int16_t erpm_rate = (int16_t)(buffer[9] << 8 | buffer[10]);
     esc_msg.rpm_rate = (int32_t)erpm_rate * 100 / pole_pairs;
   }

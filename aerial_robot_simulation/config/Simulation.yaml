@@ -1,7 +1,7 @@
 # control
 joint_state_controller:
   type: joint_state_controller/JointStateController
-  publish_rate: 50
+  publish_rate: 50  # Real-machine runs on 200 Hz, but simulation runs on 50 Hz to reduce logging
 
 attitude_controller:
   type: flight_controllers/SimulationAttitudeController
