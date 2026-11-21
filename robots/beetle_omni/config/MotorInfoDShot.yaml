@@ -35,8 +35,8 @@ motor_info:
   delay_thrust_rate_meas: 0.027  # in seconds
 
   # Actuation delay from the MPC state read until the ESC acts on the thrust command
-  # = solver time (5 ms) + PC to spinal communication (0.564 ms) + spinal computation (2 ms) + ESC computation (1 ms)
-  delay_thrust_cmd: 0.008564  # in seconds
+  # = solver time (6.5 ms) + PC to spinal communication (0.564 ms) + spinal computation (2 ms) + ESC computation (1 ms)
+  delay_thrust_cmd: 0.01  # in seconds
 
   # Rotor damping: only for sim. First-order lag per Gazebo control step (1 kHz): 1 - exp(-0.001 / t_rotor)
   # NOTE: Previosly: dt/t_thrust = 0.01 (guess, now know that shouldve been 0.001) / 0.0942
