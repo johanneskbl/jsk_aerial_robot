@@ -131,7 +131,7 @@ bool nmpc::BaseMPC::update()
     double t_stamp_start = ros::Time::now().toSec();
     controlCore();
     double t_stamp_core = ros::Time::now().toSec();
-    ROS_INFO_THROTTLE(1.0, "[MPC] controlCore(): \t%.3f ms", (t_stamp_core - t_stamp_start) * 1000.0);
+    ROS_INFO_THROTTLE(1.0, "[MPC] controlCore():\t%.3f ms", (t_stamp_core - t_stamp_start) * 1000.0);
     
     // Publish command to spinal
     sendCmd();
@@ -141,7 +141,7 @@ bool nmpc::BaseMPC::update()
     if (t_stamp_record_ - t_last_record_ > 1.0 / record_rate_)
     {
       publishRecording();
-      ROS_INFO_THROTTLE(1.0, "[MPC] publishRecording(): \t%.3f ms", (t_stamp_record_ - t_stamp_core) * 1000.0);
+      ROS_INFO_THROTTLE(1.0, "[MPC] publishRecording():\t%.3f ms", (t_stamp_record_ - t_stamp_core) * 1000.0);
       t_last_record_ = t_stamp_record_;
     }
   }

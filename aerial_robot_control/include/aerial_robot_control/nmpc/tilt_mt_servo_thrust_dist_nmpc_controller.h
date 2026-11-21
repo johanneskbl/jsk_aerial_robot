@@ -48,6 +48,9 @@ protected:
   using TiltMtServoDistNMPC::meas2VecX;
   std::vector<double> meas2VecX(bool is_ee_centric) override;
 
+  /* Update methods */
+  void publishRecording() override;
+
   /* Control methods */
   void allocateToXU(const tf::Vector3& ref_pos_w, const tf::Vector3& ref_vel_w, const tf::Quaternion& ref_quat_wt,
                     const tf::Vector3& ref_omega_t, const Eigen::VectorXd& ref_wrench_b, std::vector<double>& x,

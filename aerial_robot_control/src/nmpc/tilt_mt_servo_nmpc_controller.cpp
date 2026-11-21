@@ -1168,16 +1168,30 @@ void nmpc::TiltMtServoNMPC::callbackSetFixedRotor(const aerial_robot_msgs::FixRo
 /**
  * @brief Publish the predicted and reference trajectory with
  * full state and controls vectors for dataset recording.
- * NOTE: Both trajectories describe the Body frame. For EE tracking, the reference (in the EE frame for the solver) is
- * transformed back to the Body frame here, only for the recording.
  */
 void nmpc::TiltMtServoNMPC::publishRecording()
+{
+  aerial_robot_msgs::MPCTrajectory ref_msg, pred_msg;
+  populateRecordingMsgs(ref_msg, pred_msg);
+
+  pub_record_ref_.publish(ref_msg);
+  pub_record_pred_.publish(pred_msg);
+}
+
+/**
+ * @brief Fill the reference and predicted trajectory messages with the states and controls shared by all servo models
+ * NOTE: Both trajectories describe the Body frame. For EE tracking, the reference (in the EE frame for the solver) is
+ * transformed back to the Body frame here, only for the recording.
+ * @param ref_msg Reference trajectory message to be filled
+ * @param pred_msg Predicted trajectory message to be filled
+ */
+void nmpc::TiltMtServoNMPC::populateRecordingMsgs(aerial_robot_msgs::MPCTrajectory& ref_msg,
+                                                aerial_robot_msgs::MPCTrajectory& pred_msg)
 {
   int& NN = mpc_solver_ptr_->NN_;
   ros::Time stamp = ros::Time::now();
 
-  // Publish reference states
-  aerial_robot_msgs::MPCTrajectory ref_msg;
+  // Reference states
   ref_msg.header.frame_id = "world";
   ref_msg.header.stamp = stamp;
   ref_msg.states.resize(NN + 1);
@@ -1239,10 +1253,8 @@ void nmpc::TiltMtServoNMPC::publishRecording()
       ref_msg.controls[i].servo_angle_cmd[j] = mpc_solver_ptr_->ur_[i][j + motor_num_];
     }
   }
-  pub_record_ref_.publish(ref_msg);
 
   // Predicted states
-  aerial_robot_msgs::MPCTrajectory pred_msg;
   pred_msg.header.frame_id = "world";
   pred_msg.header.stamp = stamp;
   pred_msg.states.resize(NN + 1);
@@ -1295,7 +1307,6 @@ void nmpc::TiltMtServoNMPC::publishRecording()
       pred_msg.controls[i].servo_angle_cmd[j] = mpc_solver_ptr_->uo_[i][j + motor_num_];
     }
   }
-  pub_record_pred_.publish(pred_msg);
 }
 
 /**

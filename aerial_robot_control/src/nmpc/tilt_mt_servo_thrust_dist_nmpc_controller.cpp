@@ -217,6 +217,33 @@ std::vector<double> nmpc::TiltMtServoThrustDistNMPC::meas2VecX(bool is_ee_centri
   return bx0;
 }
 
+/**
+ * @brief Publish the recording including the thrust states, and the estimated external wrench used by the controller
+ * NOTE: Skip TiltMtServoDistNMPC::publishRecording() since the thrust states must be added before the trajectories are
+ * published. The thrust of the predicted state at stage 0 is the estimated thrust from meas2VecX().
+ */
+void nmpc::TiltMtServoThrustDistNMPC::publishRecording()
+{
+  aerial_robot_msgs::MPCTrajectory ref_msg, pred_msg;
+  TiltMtServoNMPC::populateRecordingMsgs(ref_msg, pred_msg);
+
+  /* Append thrust states to the recording messages */
+  const int idx_thrust = 13 + joint_num_;
+  for (int i = 0; i <= mpc_solver_ptr_->NN_; ++i)
+  {
+    const std::vector<double>& xr = mpc_solver_ptr_->xr_[i];
+    const std::vector<double>& xo = mpc_solver_ptr_->xo_[i];
+    ref_msg.states[i].thrust.assign(xr.begin() + idx_thrust, xr.begin() + idx_thrust + motor_num_);
+    pred_msg.states[i].thrust.assign(xo.begin() + idx_thrust, xo.begin() + idx_thrust + motor_num_);
+  }
+
+  pub_record_ref_.publish(ref_msg);
+  pub_record_pred_.publish(pred_msg);
+
+  if (!is_warmup_)
+    pubDisturbWrench();
+}
+
 void nmpc::TiltMtServoThrustDistNMPC::callbackMPCcfg(aerial_robot_control::NMPCConfig& config, uint32_t level)
 {
   using Levels = aerial_robot_msgs::DynamicReconfigureLevels;
