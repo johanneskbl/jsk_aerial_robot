@@ -24,6 +24,9 @@ physical:  # with original ball and battery
   #   t_servo + dead time = 31 ms (see delay_servo_cmd in Servo.yaml).
   # Previous: 0.0480 (kondo's 0.085883)
   t_servo: 0.015 # (optimal: 0.008 with total cmd delay of 0.031)
+  # Velocity predictor: t_servo_rate * d2a/dt2 + da/dt = gain_servo_rate * da_cmd/dt(t - d_in)
+  t_servo_rate: 0.021
+  gain_servo_rate: 1.0
 
   ball_effector_p: [0, 0, 0.264]  # m
   ball_effector_q: [1, 0, 0, 0]  # quaternion, qw, qx, qy, qz

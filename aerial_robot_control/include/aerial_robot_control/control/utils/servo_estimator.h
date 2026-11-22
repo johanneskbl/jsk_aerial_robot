@@ -17,7 +17,7 @@ namespace aerial_robot_control
  * @brief Estimation of the angle and angular velocity of each servo at the actuation time of the next angle command
  * from the delayed servo states and the history of the angle commands, analogous to the ThrustEstimator
  * Servo angle model:     t_servo * da(t)/dt + a(t) = a_cmd(t - d_in)
- * Servo velocity model:  t_servo * d^2a(t)/dt^2 + da(t)/dt = da_cmd(t - d_in)/dt
+ * Servo velocity model:  t_servo_rate * d^2a(t)/dt^2 + da(t)/dt = K_rate * da_cmd(t - d_in)/dt
  * Measurement model:     a_meas(t) = a(t - d_meas)
  *                        da_meas(t)/dt = da(t - d_meas - d_vel)/dt
  * As in the ThrustEstimator, the actuation delay d_in is compensated by predicting the servo state until the actuation
@@ -31,7 +31,8 @@ namespace aerial_robot_control
  * The velocity model is the derivative of the angle model. Each velocity measurement is propagated over its age with
  * the exact solution of the velocity model for the piecewise constant angle commands that acted in the meantime:
  *
- *    da/dt = da_meas/dt * exp(-age / t_servo) + 1 / t_servo * sum_j step_j * exp(-(t_act - t_j) / t_servo)
+ *    da/dt = da_meas/dt * exp(-age / t_servo_rate)
+ *            + K_rate / t_servo_rate * sum_j step_j * exp(-(t_act - t_j) / t_servo_rate)
  *
  * where step_j is the change of the angle command that acts from t_j on. The age is the measurement delay d_meas of
  * the servo states plus the time from their reception until t_act, for the velocity additionally the delay d_vel of the
@@ -49,15 +50,20 @@ public:
     ros::NodeHandle physical_nh(nh, "physical");
     ros::NodeHandle servo_nh(nh, "servo_controller/gimbals");
     physical_nh.param<double>("t_servo", t_servo_, 0.0);
+    physical_nh.param<double>("t_servo_rate", t_servo_rate_, t_servo_);
+    physical_nh.param<double>("gain_servo_rate", gain_servo_rate_, 1.0);
     servo_nh.param<double>("delay_servo_meas", delay_servo_meas_, 0.0);
     servo_nh.param<double>("delay_servo_vel_meas", delay_servo_vel_meas_, 0.0);
     servo_nh.param<double>("delay_servo_cmd", delay_servo_cmd_, 0.0);
 
     /* Sanity checks */
-    if (t_servo_ <= 0.0 || delay_servo_meas_ < 0.0 || delay_servo_vel_meas_ < 0.0 || delay_servo_cmd_ < 0.0)
+    if (!std::isfinite(t_servo_) || t_servo_ <= 0.0 || !std::isfinite(t_servo_rate_) || t_servo_rate_ <= 0.0 ||
+        !std::isfinite(gain_servo_rate_) || gain_servo_rate_ < 0.0 ||
+        delay_servo_meas_ < 0.0 || delay_servo_vel_meas_ < 0.0 || delay_servo_cmd_ < 0.0)
     {
-      std::string err_msg = "[Servo estimator] Time constant of the servo must be positive and delays of measurement "
-                            "and command must not be negative!";
+      std::string err_msg = "[Servo estimator] Servo angle and velocity time constants must be finite and positive, "
+                            "velocity gain must be finite and nonnegative, and measurement and command delays "
+                            "must not be negative!";
       ROS_ERROR("%s", err_msg.c_str());
       throw std::invalid_argument(err_msg.c_str());
     }
@@ -109,14 +115,14 @@ public:
 
         // The measured velocity decays and each command step since the measurement adds a decaying jump
         // The first command of the history has no known previous command, but acts before the age of the measurement
-        double vel = servo_vel_meas->at(i) * std::exp(-age_vel / t_servo_);
+        double vel = servo_vel_meas->at(i) * std::exp(-age_vel / t_servo_rate_);
         for (size_t j = 1; j < servo_cmd_history_.size(); j++)
         {
           const double t_cmd = (servo_cmd_history_[j].first - t_act).toSec();  // Time relative to t_act from which the command acts
           if (t_cmd <= -age_vel || t_cmd > 0.0)
             continue;
           const double cmd_step = servo_cmd_history_[j].second.at(i) - servo_cmd_history_[j - 1].second.at(i);
-          vel += cmd_step / t_servo_ * std::exp(t_cmd / t_servo_);
+          vel += gain_servo_rate_ / t_servo_rate_ * cmd_step * std::exp(t_cmd / t_servo_rate_);
         }
         servo_vel->at(i) = vel;
       }
@@ -127,6 +133,8 @@ private:
   static constexpr double SERVO_STATES_DEADTIME = 0.1;  // Longest potential tolerated deadtime without servo states [s]
 
   double t_servo_ = 0.0;               // Time constant of the servo [s]
+  double t_servo_rate_ = 0.0;          // Time constant of the velocity predictor [s]
+  double gain_servo_rate_ = 1.0;       // Gain K_rate of the velocity predictor [-]
   double delay_servo_meas_ = 0.0;      // Measurement delay d_meas of the servo states [s]
   double delay_servo_vel_meas_ = 0.0;  // Measurement delay d_vel of the servo velocity [s]
   double delay_servo_cmd_ = 0.0;       // Actuation delay d_in from the state of the MPC until the servo acts [s]
