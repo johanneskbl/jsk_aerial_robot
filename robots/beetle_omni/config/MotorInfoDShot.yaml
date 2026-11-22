@@ -26,9 +26,9 @@ motor_info:
   m_f_rate: -0.0168  # -0.0165  # (-0.0166 + -0.0165 + -0.0166 +  -0.0164 + -0.0162) / 5 = -0.0165
   
   # Age of the thrust measured by the ESC telemetry at read time
-  # = ZC averaging (1.5 ms) + alpha-beta RPM filter (~1.5 ms) + ESC to spinal (1 ms) + spinal batching ([3, 2, 1, 0] ms)
-  #   + spinal to PC (0.4 ms)
-  delay_thrust_meas: [0.0074, 0.0064, 0.0054, 0.0044]  # for ESC [1,2,3,4] in seconds
+  # = ZC averaging (1.5 ms) + alpha-beta RPM filter (~1.5 ms) + ESC to spinal (~1 ms)
+  #   + spinal batching ([3, 2, 1, 0] ms) + spinal to PC (~0.4 ms)
+  delay_thrust_meas: [0.0092, 0.0082, 0.0072, 0.0062]  # measured for ESC [1,2,3,4] in seconds
 
   # Additional age of the thrust rate measured by the ESC telemetry w.r.t. the thrust
   # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC (measured: 26-28 ms behind d(rpm)/dt)
