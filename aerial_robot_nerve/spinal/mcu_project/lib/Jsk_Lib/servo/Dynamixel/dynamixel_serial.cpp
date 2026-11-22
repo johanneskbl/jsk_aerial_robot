@@ -1,4 +1,5 @@
 #include "dynamixel_serial.h"
+#include "servo_filtering.h"
 // #include "flashmemory/flashmemory.h"
 
 namespace
@@ -243,6 +244,7 @@ void DynamixelSerial::update()
     }
     if (read_success && instruction_last_.first == INST_GET_CUR_VEL_POS)
     {
+      ServoFiltering::update(servo_, servo_num_);  // Low-pass filter the new angles and velocities (servo_filtering.cpp)
       setROSCommFlag(true);
     }
   }
