@@ -11,6 +11,23 @@ servo_controller:
     torque_scale: 0.00064  # 1 [mA] -> Nm·A, 0.64/1000 Dynamixel servo: XC330-T181
     zero_point_offset: 2048
 
+    # Age of the servo state measured by the Dynamixel telemetry at read time
+    # = Dynamixel to spinal (~1 ms) + alpha-beta state filter (~0.5 ms) + spinal to PC (~0.8 ms)
+    #   + servo_bridge (~0.3 ms) 
+    delay_servo_meas: 0.0025  # in seconds
+
+    # Additional age of the servo velocity estimated in spinal w.r.t. the filtered angle
+    # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC
+    # (subtracting the state filter (alpha-beta) included in delay_servo_meas above) (measured: 26-28 ms behind d(state)/dt)
+    delay_servo_vel_meas: 0.0295  # in seconds
+
+    # Actuation delay from the MPC state read until the Dynamixel acts on the angle command
+    # Only delay_servo_cmd + delay_servo_meas is identifiable. Bench 2026-11-22 with t_servo = 8 ms: dead time 23 ms from the
+    # command to the measured angle (steps from rest: 27 ms), flight 2026-11-21: ~3 ms more. The motion starts ~11 ms after
+    # the command (wait for the 5 ms goal write + servo latency), the rest is the servo's acceleration.
+    # Sum = solver time (5.5 ms) + servo_bridge (~1.4 ms) + PC to spinal (~0.3 ms) + dead time (16 OR 23-27 ms depending on t_servo)
+    delay_servo_cmd: 0.023  # in seconds (optimal: 0.031)
+
     controller1:
       id: 0
       name: gimbal1

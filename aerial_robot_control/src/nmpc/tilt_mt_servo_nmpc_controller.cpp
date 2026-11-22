@@ -36,6 +36,9 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   /* Initialize actuator states */
   initActuatorStates();
 
+  /* Initialize servo estimator */
+  joint_estimator_.initialize(nh_);
+
   /* Initialize cost weights */
   initMPCCostW();
 
@@ -128,7 +131,7 @@ void nmpc::TiltMtServoNMPC::resetSolver()
   for (int i = 0; i < motor_num_ && i < static_cast<int>(u_guess.size()); ++i)
     u_guess[i] = mass_ * gravity_const_ / motor_num_;  // in [N]
   for (int i = 0; i < joint_num_ && motor_num_ + i < static_cast<int>(u_guess.size()); ++i)
-    u_guess[motor_num_ + i] = joint_angles_[i];  // in [rad]
+    u_guess[motor_num_ + i] = joint_angles_est_[i];  // in [rad]
   mpc_solver_ptr_->resetSolverByX0U0(x_vec, u_guess);
 }
 
@@ -532,10 +535,24 @@ std::vector<double> nmpc::TiltMtServoNMPC::meas2VecX(bool is_ee_centric)
   bx0.at(10) = omega.x();
   bx0.at(11) = omega.y();
   bx0.at(12) = omega.z();
+
+  /* Estimate servo states from servo measurements and previous commands based on servo model
+   * This compensates the age of servo measurement coming from filtering and communication delays */
+  estimateJointStates();
+
   for (int i = 0; i < joint_num_; i++)
-    bx0[13 + i] = joint_angles_[i];
+    bx0[13 + i] = joint_angles_est_[i];
 
   return bx0;
+}
+
+/**
+ * @brief Estimate the servo angle at the actuation time of the next command (ServoEstimator)
+ * NOTE: Call only once per meas2VecX() since each call appends the last command to the command history
+ */
+void nmpc::TiltMtServoNMPC::estimateJointStates()
+{
+  joint_estimator_.estimate(joint_states_time_, joint_angles_, gimbal_ctrl_cmd_.position, joint_angles_est_);
 }
 
 /**
@@ -979,7 +996,7 @@ void nmpc::TiltMtServoNMPC::callbackJointStates(const sensor_msgs::JointStateCon
   {
     for (int i = 0; i < joint_num_; i++)
       joint_angles_[i] = msg->position[i];
-    // has_joint_states_ = true;
+    joint_states_time_ = ros::Time::now();  // Receipt time for delay compensation
   }
   else
   {

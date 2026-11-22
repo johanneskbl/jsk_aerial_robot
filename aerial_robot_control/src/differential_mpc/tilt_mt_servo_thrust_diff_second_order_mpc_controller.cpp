@@ -8,6 +8,10 @@ void TiltMtServoThrustDiffSecondOrderMPC::initActuatorStates()
 {
   TiltMtServoThrustDiffMPC::initActuatorStates();
 
+  /* Initialize joint velocity */
+  joint_vel_.resize(joint_num_, 0.0);
+  joint_vel_est_.resize(joint_num_, 0.0);
+
   // Override starting indices for this controller's state-space
   servo_start_idx_ = 13;
   servo_vel_start_idx_ = 13 + joint_num_;
@@ -29,7 +33,7 @@ void TiltMtServoThrustDiffSecondOrderMPC::resetSolver()
   for (int i = 0; i < motor_num_; i++)
     uo_prev_.at(i) = std::clamp(thrust_meas_[i], thrust_ctrl_min_, thrust_ctrl_max_);
   for (int i = 0; i < joint_num_; i++)
-    uo_prev_.at(motor_num_ + i) = std::clamp(joint_angles_[i], servo_angle_min_, servo_angle_max_);
+    uo_prev_.at(motor_num_ + i) = std::clamp(joint_angles_est_[i], servo_angle_min_, servo_angle_max_);
 
   TiltMtServoThrustDiffMPC::resetSolver();
 }
@@ -279,7 +283,7 @@ void TiltMtServoThrustDiffSecondOrderMPC::allocateToXU(const tf::Vector3& ref_po
     for (int i = 0; i < joint_num_; i++)
     {
       // Incentivize servo angle to go back to 0 rad (or pi rad) to avoid singularity point FOR LOW THRUSTS
-      // x.at(servo_vel_start_idx_ + i) = - std::sin(joint_angles_[i] / 2.0) * std::cos((std::max(thrust_meas_[i], 0.0) + 1e-3) / thrust_ctrl_max_ * M_PI_2);  // Alternative
+      // x.at(servo_vel_start_idx_ + i) = - std::sin(joint_angles_est_[i] / 2.0) * std::cos((std::max(thrust_meas_[i], 0.0) + 1e-3) / thrust_ctrl_max_ * M_PI_2);  // Alternative
       x.at(servo_vel_start_idx_ + i) = 0.0;
     }
 
@@ -289,6 +293,35 @@ void TiltMtServoThrustDiffSecondOrderMPC::allocateToXU(const tf::Vector3& ref_po
       x.at(thrust_vel_start_idx_ + i) = 0.0;
     }
   }
+}
+
+void TiltMtServoThrustDiffSecondOrderMPC::callbackJointStates(const sensor_msgs::JointStateConstPtr& msg)
+{
+  if (static_cast<int>(msg->position.size()) == joint_num_ && static_cast<int>(msg->velocity.size()) == joint_num_)
+  {
+    for (int i = 0; i < joint_num_; i++)
+    {
+      joint_angles_[i] = msg->position[i];
+      joint_vel_[i] = msg->velocity[i];
+    }
+    joint_states_time_ = ros::Time::now();  // Receipt time for delay compensation
+  }
+  else
+  {
+    ROS_WARN_THROTTLE(1, "Received joint states with size %zu and joint velocities size %zu, but expected %d and %d. "
+                      "Ignoring this message.",
+                      msg->position.size(), msg->velocity.size(), joint_num_, joint_num_);
+  }
+}
+
+/**
+ * @brief Estimate the servo angle AND velocity at the actuation time of the next command
+ * NOTE: Overrides the angle-only estimation of TiltMtServoNMPC
+ */
+void TiltMtServoThrustDiffSecondOrderMPC::estimateJointStates()
+{
+  joint_estimator_.estimate(joint_states_time_, joint_angles_, gimbal_ctrl_cmd_.position, joint_angles_est_,
+                            &joint_vel_, &joint_vel_est_);
 }
 
 std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_centric)
@@ -301,21 +334,23 @@ std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_ce
     for (int i = 0; i < joint_num_; i++)
     {
       // ==== MODEL ====
-      double last_servo_cmd = uo_prev_.at(motor_num_ + i);
-      // TODO is this really correctly computing the velocity???
-      double servo_angle_velocity = (last_servo_cmd - joint_angles_[i]) / t_servo_;
-
+      // double last_servo_cmd = uo_prev_.at(motor_num_ + i);
+      // // TODO is this really correctly computing the velocity???
+      // double servo_angle_velocity = (last_servo_cmd - joint_angles_[i]) / t_servo_;
+      
       // ==== NUMERICAL DERIVATIVE ====
       // double servo_angle_velocity = (joint_angles_[i] - prev_servo_angles_[i]) / du_;
       // prev_servo_angles_[i] = servo_angles_[i];
-
+      
       // ==== FILTERED NUMERICAL DERIVATIVE ====
       // double weight = 0.9;
       // auto servo_angle_velocity = weight * prev_servo_angle_vel_estimate_.at(i) + (1-weight) * (joint_angles_[i] - prev_servo_angle_.at(i)) * ctrl_loop_du_;
       // prev_servo_angle_.at(i) = joint_angles_[i];
       // prev_servo_angle_vel_estimate_.at(i) = servo_angle_velocity;
-
-      bx0[13 + joint_num_ + i] = servo_angle_velocity;
+      
+      // ==== ESTIMATE ====
+      // Servo velocity measured in spinal, propagated over its age with the servo model and the command history
+      bx0[13 + joint_num_ + i] = joint_vel_est_[i];
     }
 
     // Thrust velocity estimate
@@ -407,14 +442,14 @@ double TiltMtServoThrustDiffSecondOrderMPC::getCommand(int idx_u, double T_horiz
   //   uo = thrust_meas_[idx_u] + uo_derivative * t_rotor_;
   // } else {
   //   // For servo: use measured angle as ground truth
-  //   uo = joint_angles_[idx_u - motor_num_] + uo_derivative * t_servo_;
+  //   uo = joint_angles_est_[idx_u - motor_num_] + uo_derivative * t_servo_;
   // }
 
   // ------- OR -------
 
   double uo_derivative = mpc_solver_ptr_->uo_.at(0).at(idx_u);
   double tau  = (idx_u < motor_num_) ? t_rotor_ : t_servo_;
-  double meas = (idx_u < motor_num_) ? thrust_meas_[idx_u] : joint_angles_[idx_u - motor_num_];
+  double meas = (idx_u < motor_num_) ? thrust_meas_[idx_u] : joint_angles_est_[idx_u - motor_num_];
 
   // Blind integration realizes the planned rate exactly; the slow leak pins the command
   // to the measurement-consistent lead (meas + tau*u_dot) so open-loop drift stays bounded.

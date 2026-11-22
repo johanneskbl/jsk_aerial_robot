@@ -39,8 +39,8 @@ controller:
     a_min: -3.15
     a_max: 3.15  # 180 deg + a little bit
 
-    a_vel_min: -3 # -8  # 3 (from Claude due to urdf)  # 8 (from Eugenio)  # rad/s
-    a_vel_max: 3 # 8  # rad/s
+    a_vel_min: -11 # 11 / 3 (from Claude due to real / urdf); 8 (from Eugenio)  # rad/s
+    a_vel_max: 11  # rad/s
 
     Qp_xy: 300
     Qp_z: 400

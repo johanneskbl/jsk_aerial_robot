@@ -19,6 +19,8 @@ namespace nmpc
 class TiltMtServoThrustDiffSecondOrderMPC : public TiltMtServoThrustDiffMPC
 {
 protected:
+  std::vector<double> joint_vel_;  // from the velocity estimation on spinal
+  std::vector<double> joint_vel_est_;
   std::vector<double> prev_servo_angle_;
   std::vector<double> prev_servo_angle_vel_estimate_;
   std::vector<double> prev_thrust_meas_;
@@ -37,6 +39,7 @@ protected:
   void publishRecording() override;
 
   /* State methods */
+  void estimateJointStates() override;
   using TiltMtServoThrustDiffMPC::meas2VecX;
   std::vector<double> meas2VecX(bool is_ee_centric) override;
 
@@ -46,6 +49,7 @@ protected:
                     std::vector<double>& u) override;
 
   /* Callback methods */
+  void callbackJointStates(const sensor_msgs::JointStateConstPtr& msg) override;
   void callbackMPCcfg(NMPCConfig& config, uint32_t level) override;
 };
 

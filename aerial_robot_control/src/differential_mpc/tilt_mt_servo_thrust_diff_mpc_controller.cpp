@@ -468,8 +468,8 @@ void TiltMtServoThrustDiffMPC::computeInternalWrenchB()
   Eigen::VectorXd allocation_matrix_input = Eigen::VectorXd::Zero(2 * motor_num_);
   for (int i = 0; i < motor_num_; ++i)
   {
-    allocation_matrix_input(2 * i) = thrust_est_[i] * std::sin(joint_angles_[i]);
-    allocation_matrix_input(2 * i + 1) = thrust_est_[i] * std::cos(joint_angles_[i]);
+    allocation_matrix_input(2 * i) = thrust_est_[i] * std::sin(joint_angles_est_[i]);
+    allocation_matrix_input(2 * i + 1) = thrust_est_[i] * std::cos(joint_angles_est_[i]);
   }
 
   // Compute current body wrench from current force and torque
@@ -514,7 +514,7 @@ double TiltMtServoThrustDiffMPC::getCommand(int idx_u, double T_horizon)
   //   uo = thrust_meas_[idx_u] + uo_derivative / ctrl_loop_du_;
   // } else {
   //   // For servo: use measured angle as ground truth
-  //   uo = joint_angles_[idx_u - motor_num_] + uo_derivative / ctrl_loop_du_;
+  //   uo = joint_angles_est_[idx_u - motor_num_] + uo_derivative / ctrl_loop_du_;
   // }
 
   // ------- OR -------
@@ -530,7 +530,7 @@ double TiltMtServoThrustDiffMPC::getCommand(int idx_u, double T_horizon)
   // if (idx_u < motor_num_) {
   //   measurement = thrust_meas_[idx_u];
   // } else {
-  //   measurement = joint_angles_[idx_u - motor_num_];
+  //   measurement = joint_angles_est_[idx_u - motor_num_];
   // }
   // // Blend: favor MPC integration but correct for divergence
   // uo += feedback_gain * (measurement - uo_prev_[idx_u]);

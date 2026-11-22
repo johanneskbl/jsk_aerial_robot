@@ -6,6 +6,7 @@
 #define TILT_MT_SERVO_NMPC_CONTROLLER_H
 
 #include "aerial_robot_control/nmpc/base_mpc_controller.h"
+#include "aerial_robot_control/control/utils/servo_estimator.h"
 
 #include <angles/angles.h>
 
@@ -81,6 +82,9 @@ protected:
   double servo_angle_max_;
   double servo_angle_min_;
   std::vector<double> joint_angles_;
+  std::vector<double> joint_angles_est_;
+  ServoEstimator joint_estimator_;
+  ros::Time joint_states_time_;
   bool is_gimbal_centered_ = false;
 
   int idx_p_quat_end_ = 0;
@@ -115,7 +119,10 @@ protected:
   void initGeneralParams() override;
   void initMPCCostW() override;
   void initMPCConstraints() override;
-  virtual inline void initActuatorStates() { joint_angles_.resize(joint_num_, 0.0); };
+  virtual inline void initActuatorStates() {
+    joint_angles_.resize(joint_num_, 0.0);
+    joint_angles_est_.resize(joint_num_, 0.0);
+  };
 
   /* Reset methods */
   virtual void resetPlugins() {};
@@ -127,6 +134,7 @@ protected:
   std::vector<double> getPhysicalParams() const;
 
   /* State methods */
+  virtual void estimateJointStates();
   virtual std::vector<double> meas2VecX(bool is_ee_centric);
   inline std::vector<double> meas2VecX() override { return meas2VecX(false); }
 

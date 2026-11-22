@@ -31,7 +31,8 @@ motor_info:
   delay_thrust_meas: [0.0092, 0.0082, 0.0072, 0.0062]  # measured for ESC [1,2,3,4] in seconds
 
   # Additional age of the thrust rate measured by the ESC telemetry w.r.t. the thrust
-  # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC (measured: 26-28 ms behind d(rpm)/dt)
+  # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC
+  # (subtracting the RPM filter (ZC & alpha-beta) included in delay_thrust_meas above) (measured: 26-28 ms behind d(rpm)/dt)
   delay_thrust_rate_meas: 0.027  # in seconds
 
   # Actuation delay from the MPC state read until the ESC acts on the thrust command
