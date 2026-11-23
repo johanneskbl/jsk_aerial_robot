@@ -220,7 +220,7 @@ def main(args):
                 nmpc.acados_parameters[0:4] = quaternion_r
 
                 if nmpc.include_impedance:
-                    nmpc.acados_parameters[34:40] = np.array(
+                    nmpc.acados_parameters[nmpc.cog_dist_param_end_idx : nmpc.cog_dist_param_end_idx + 6] = np.array(
                         [
                             nmpc.params["pMxy"],
                             nmpc.params["pMxy"],
@@ -241,7 +241,7 @@ def main(args):
             nmpc.acados_parameters[0:4] = quaternion_r
 
             if nmpc.include_impedance:
-                nmpc.acados_parameters[34:40] = np.array(
+                nmpc.acados_parameters[nmpc.cog_dist_param_end_idx : nmpc.cog_dist_param_end_idx + 6] = np.array(
                     [
                         nmpc.params["pMxy"],
                         nmpc.params["pMxy"],

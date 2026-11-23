@@ -788,10 +788,10 @@ void TiltMtServoThrustDiffSecondOrderMPC::callbackMPCcfg(aerial_robot_control::N
           ROS_INFO_STREAM("change Qtau for NMPC '" << config.Qtau << "'");
           break;
         }
-        case Levels::RECONFIGURE_NMPC_R_TC_D: {
+        case Levels::RECONFIGURE_NMPC_R_TD_C: {
           for (int i = mpc_solver_ptr_->NX_; i < mpc_solver_ptr_->NX_ + motor_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Rtc_d, false);
-          ROS_INFO_STREAM("change Rtc_d for NMPC '" << config.Rtc_d << "'");
+            mpc_solver_ptr_->setCostWDiagElement(i, config.Rtd_c, false);
+          ROS_INFO_STREAM("change Rtd_c for NMPC '" << config.Rtd_c << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_R_AD_C: {

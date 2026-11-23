@@ -25,14 +25,17 @@ servo_controller:
     # Only delay_servo_cmd + delay_servo_meas is identifiable. Bench 2026-11-22 with t_servo = 8 ms: dead time 23 ms from the
     # command to the measured angle (steps from rest: 27 ms), flight 2026-11-21: ~3 ms more. The motion starts ~11 ms after
     # the command (wait for the 5 ms goal write + servo latency), the rest is the servo's acceleration.
-    # Sum = solver time (6.2 ms) + servo_bridge (~0.3 ms) + PC to spinal (~0.3 ms) + dead time (16 OR 23-27 ms depending on t_servo)
-    delay_servo_cmd: 0.023  # in seconds (optimal: 0.031)
+    # Sum = solver time (6.2 ms) + servo_bridge (~0.3 ms) + PC to spinal (~0.3 ms) + dead time (16~21 OR 23-27 ms depending on t_servo)
+    delay_servo_cmd: 0.0246  # in seconds (optimal: 0.031)
 
+    # Gazebo: Effort PID on the gimbal joint with inertia J ~ 1.1e-3 kg m^2 (incl. the virtual thrust link) and joint damping
+    # c = 0.8 Nms/rad (urdf). Step response J*a'' + (c + d)*a' + p*(a - a_cmd) = 0 has the time constant (c + d) / p,
+    # so p = 60 matches t_servo = 15 ms (poles at 13.7 ms and 1.3 ms). Previously p = 5, i.e., 180 ms.
     controller1:
       id: 0
       name: gimbal1
       simulation:
-        pid: {p: 5.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
+        pid: {p: 60.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
         init_value: 0
         type: effort_controllers/JointPositionController
 
@@ -40,7 +43,7 @@ servo_controller:
       id: 1
       name: gimbal2
       simulation:
-        pid: {p: 5.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
+        pid: {p: 60.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
         init_value: 0
         type: effort_controllers/JointPositionController
 
@@ -48,7 +51,7 @@ servo_controller:
       id: 2
       name: gimbal3
       simulation:
-        pid: {p: 5.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
+        pid: {p: 60.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
         init_value: 0
         type: effort_controllers/JointPositionController
 
@@ -56,6 +59,6 @@ servo_controller:
       id: 3
       name: gimbal4
       simulation:
-        pid: {p: 5.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
+        pid: {p: 60.0, i: 0.1, d: 0.1, i_clamp_max: 2.0, i_clamp_min: -2.0}
         init_value: 0
         type: effort_controllers/JointPositionController

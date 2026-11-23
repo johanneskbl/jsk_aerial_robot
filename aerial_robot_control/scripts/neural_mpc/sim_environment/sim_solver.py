@@ -17,7 +17,7 @@ def create_acados_sim_solver(mpc: NeuralMPC, acados_model: AcadosModel, T_sim) -
     n_param = acados_model.p.size()[0]
     sim_acados_parameters = np.zeros(n_param)
     sim_acados_parameters[0] = 1.0  # qw
-    # same order: phy_params = ca.vertcat(mass, gravity, inertia, kq_d_kt, dr, p1_b, p2_b, p3_b, p4_b, t_rotor, t_servo)
+    # same order: phy_params = ca.vertcat(mass, gravity, inertia, kq_d_kt, dr, p1_b, p2_b, p3_b, p4_b, t_rotor, t_servo, ee_p, ee_q)
     sim_acados_parameters[4 : 4 + len(mpc.phys.physical_param_list)] = np.array(mpc.phys.physical_param_list)
     acados_sim.parameter_values = sim_acados_parameters
 

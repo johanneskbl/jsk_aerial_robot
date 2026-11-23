@@ -13,7 +13,7 @@ controller:
 
     # Frame tracked by the MPC cost
     # Need rebuild after changing it! Read by both the Python generation and the C++ controller
-    tracking_frame: cog_tracking  # 'cog_tracking' or 'ee_tracking'
+    tracking_frame: ee_tracking  # 'cog_tracking' or 'ee_tracking'
 
     # Hard constraints
     w_min: -6
@@ -50,9 +50,9 @@ controller:
     Qq_z: 600
     Qw_xy: 5
     Qw_z: 5
-    Qa: 0.0 # 0.1
+    Qa: 0.0 #  NEEDS TO BE ZERO FOR NULLSPACE CONTROL! 0.1
     Qad: 1
-    Qt: 0.1 # 0.1
+    Qt: 0.1 # NEEDS TO BE ZERO FOR NULLSPACE CONTROL! 0.1
     Qtd: 0.001
     Qfu: 0.01 # Generated body force
     Qtau: 0.001 # Generated body torque

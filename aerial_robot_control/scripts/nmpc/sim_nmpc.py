@@ -30,7 +30,7 @@ import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from differential_mpc.tilt_qd_servo_thrust_diff import NMPCTiltQdServoThrustDiff
 from differential_mpc.tilt_qd_servo_thrust_diff_second_order import NMPCTiltQdServoThrustDiffSecondOrder
-from differential_mpc.tilt_qd_servo_diff_second_order import NMPCTiltQdServoDiffSecondOrder
+from differential_mpc.integrate_actuator_command import get_command_zoh_lead, get_command_leaky_integrator
 
 # - Consider the absolute servo angle command in cost
 from nmpc_tilt_mt.archive.tilt_qd_servo_old_cost import NMPCTiltQdServoOldCost
@@ -77,9 +77,6 @@ def main(args):
             nmpc = NMPCTiltQdServoThrustDiffSecondOrder(phys=phys_jetson)
             a_c_integ = np.zeros(4)
             ft_c_integ = np.zeros(4)
-        elif args.model == 6:
-            nmpc = NMPCTiltQdServoDiffSecondOrder(phys=phys_jetson)
-            a_c_integ = np.zeros(4)
 
         elif args.model == 21:
             nmpc = NMPCTiltQdServoDist(phys=phys_omni)
@@ -427,13 +424,25 @@ def main(args):
                 break
 
             # If simulator is also a differential model, the control inputs stay as the derivative
-            # But if not, we integrate the actuator velocity command translating to the absolute command
+            # But if not, the actuator velocity is integrated to the actuator command
             if nmpc.include_thrust_derivative and not sim_nmpc.include_thrust_derivative:
-                ft_c_integ += u_cmd[0:4] * ts_ctrl
-                u_cmd[0:4] = ft_c_integ
+                ft_s = x_now[nmpc.thrust_start_idx:nmpc.thrust_end_idx]
+                if nmpc.include_thrust_second_order:
+                    ft_c_integ = get_command_leaky_integrator(ft_c_integ, ft_s, u_cmd[0:4], ts_ctrl, nmpc.phys.t_rotor,
+                                                              nmpc.params["thrust_min"], nmpc.params["thrust_max"])
+                    u_cmd[0:4] = ft_c_integ
+                else:
+                    u_cmd[0:4] = get_command_zoh_lead(ft_s, u_cmd[0:4], ts_ctrl, nmpc.phys.t_rotor,
+                                                      nmpc.params["thrust_min"], nmpc.params["thrust_max"])
             if nmpc.include_servo_derivative and not sim_nmpc.include_servo_derivative:
-                a_c_integ += u_cmd[4:8] * ts_ctrl
-                u_cmd[4:8] = a_c_integ
+                a_s = x_now[nmpc.servo_start_idx:nmpc.servo_end_idx]
+                if nmpc.include_servo_second_order:
+                    a_c_integ = get_command_leaky_integrator(a_c_integ, a_s, u_cmd[4:8], ts_ctrl, nmpc.phys.t_servo,
+                                                             nmpc.params["a_min"], nmpc.params["a_max"])
+                    u_cmd[4:8] = a_c_integ
+                else:
+                    u_cmd[4:8] = get_command_zoh_lead(a_s, u_cmd[4:8], ts_ctrl, nmpc.phys.t_servo,
+                                                      nmpc.params["a_min"], nmpc.params["a_max"])
 
             # Nullspace control for differential allocation
             # TODO: Understand and verify this (especially if indexing is correct)

@@ -478,25 +478,56 @@ void TiltMtServoThrustDiffMPC::computeInternalWrenchB()
 
 double TiltMtServoThrustDiffMPC::getCommand(int idx_u, double T_horizon)
 {
+  // ZOH-exact lead:
+  // The MPC plans the actuator state x(t) = x0 + uo_vel * t from the estimated state x0 at the actuation
+  // time. Therefore, the state follows exactly
+  //   x1 - x0 = T_step * uo_vel, and
+  //   x(T_samp) - x0 = T_samp * uo_vel,
+  // since the actuator states are pure integrators of uo_vel. The command uo_cmd is held for
+  // one control period T_samp, in which the first-order actuator
+  //   tau * dx/dt + x = uo_cmd
+  // moves by
+  //   x(T_samp) - x0 = (uo_cmd - x0) * (1 - exp(-T_samp / tau)).
+  // So the command
+  //   uo_cmd = x0 + uo_vel * T_samp / (1 - exp(-T_samp / tau))
+  // realizes exactly the planned increment of uo_vel * T_samp.
+  // The lead satisfies the following approximation for small T_samp / tau:
+  //    T_samp / (1 - exp(-T_samp / tau)) ~ tau + T_samp / 2,
+  // whereas the continuous-time inversion x0 + tau * uo_vel neglects the hold and realizes only 73 %
+  // of the planned increment (with tau = 15 ms, T_samp = 10 ms).
+  if (idx_u < motor_num_)
+  {
+    const double x0 = mpc_solver_ptr_->xo_.at(0).at(thrust_start_idx_ + idx_u);
+    const double uo_vel = mpc_solver_ptr_->uo_.at(0).at(idx_u);
+
+    // Lead factor for ZOH-exact inversion of first-order actuator dynamics
+    const double lead = t_mpc_samp_ / (1.0 - std::exp(-t_mpc_samp_ / t_rotor_));
+
+    // Compute the command based on the estimated initial state and the lead factor
+    const double uo_cmd = x0 + lead * uo_vel;
+
+    // The command is hard constrained here to stay in actuator limits.
+    return std::clamp(uo_cmd, thrust_ctrl_min_, thrust_ctrl_max_);
+  }
+  else
+  {
+    const double x0 = mpc_solver_ptr_->xo_.at(0).at(servo_start_idx_ + (idx_u - motor_num_));
+    const double uo_vel = mpc_solver_ptr_->uo_.at(0).at(idx_u);
+
+    // Lead factor for ZOH-exact inversion of first-order actuator dynamics
+    const double lead = t_mpc_samp_ / (1.0 - std::exp(-t_mpc_samp_ / t_servo_));
+
+    // Compute the command based on the estimated initial state and the lead factor
+    const double uo_cmd = x0 + lead * uo_vel;
+
+    // The command is hard constrained here to stay in actuator limits.
+    return std::clamp(uo_cmd, servo_angle_min_, servo_angle_max_);
+  }
+
   // ENTIRELY DIFFERENT IDEA:
   // Instead of using control input here, get the predicted STATE of thrust and servo inside the MODEL!
   // This makes sense since in SQP-RTI the state is also an optimization variable
   // Interpolate to next sample time based on current and next state in the horizon
-  // TODO why not use the thrust state directly then (no need to integrate)?
-  if (idx_u < motor_num_)
-  {
-    // Interpolate one control period into the horizon WITH rotor time constant
-    double x0 = mpc_solver_ptr_->xo_.at(0).at(thrust_start_idx_ + idx_u);
-    double x1 = mpc_solver_ptr_->xo_.at(1).at(thrust_start_idx_ + idx_u);
-    return x0 + (x1 - x0) * t_rotor_ / t_mpc_step_;
-  }
-  else
-  {
-    // Interpolate one control period into the horizon WITH servo time constant
-    double x0 = mpc_solver_ptr_->xo_.at(0).at(servo_start_idx_ + (idx_u - motor_num_));
-    double x1 = mpc_solver_ptr_->xo_.at(1).at(servo_start_idx_ + (idx_u - motor_num_));
-    return x0 + (x1 - x0) * t_servo_ / t_mpc_step_;
-  }
 
   // ------- OR -------
 
@@ -828,10 +859,10 @@ void TiltMtServoThrustDiffMPC::callbackMPCcfg(aerial_robot_control::NMPCConfig& 
           ROS_INFO_STREAM("change Qtau for NMPC '" << config.Qtau << "'");
           break;
         }
-        case Levels::RECONFIGURE_NMPC_R_TC_D: {
+        case Levels::RECONFIGURE_NMPC_R_TD_C: {
           for (int i = mpc_solver_ptr_->NX_; i < mpc_solver_ptr_->NX_ + motor_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Rtc_d, false);
-          ROS_INFO_STREAM("change Rtc_d for NMPC '" << config.Rtc_d << "'");
+            mpc_solver_ptr_->setCostWDiagElement(i, config.Rtd_c, false);
+          ROS_INFO_STREAM("change Rtd_c for NMPC '" << config.Rtd_c << "'");
           break;
         }
         case Levels::RECONFIGURE_NMPC_R_AD_C: {

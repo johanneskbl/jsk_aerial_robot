@@ -35,24 +35,28 @@ class QDNMPCBase(RecedingHorizonBase):
         if not hasattr(self, "include_servo_model"):
             self.include_servo_model = False
             raise AttributeError("Servo model flag not set in the child class.")
-        # - include_servo_derivative: Flag to include the servo angle velocity as control input(!)
+        # - include_servo_derivative: Flag to include the servo angle velocity as control input
         if not hasattr(self, "include_servo_derivative"):
             self.include_servo_derivative = False
-        # - include_servo_second_order: Flag to use second-order servo dynamics in state and for the cost function instead of first-order
+        # - include_servo_second_order: Flag to use second-order servo dynamics in state and for the cost function instead of first-order.
+        # [!] This means the servo acceleration is predicted. If not included, the angle velocity control is assumed to be equal to the angle velocity state.
+        # [!] This does NOT mean that the servo dynamics is modelled as a second-order system!
         if not hasattr(self, "include_servo_second_order"):
             self.include_servo_second_order = False
         # - include_thrust_model: Flag to include dynamics from rotor and use thrust as state. If not included, thrust control is assumed to be equal to thrust state.
         if not hasattr(self, "include_thrust_model"):
             self.include_thrust_model = False
             raise AttributeError("Thrust model flag not set in the child class.")
-        # - include_thrust_derivative: Flag to include the thrust velocity as control input(!)
+        # - include_thrust_derivative: Flag to include the thrust velocity as control input
         if not hasattr(self, "include_thrust_derivative"):
             self.include_thrust_derivative = False
         # - include_thrust_second_order: Flag to use second-order thrust dynamics in state and for the cost function instead of first-order
+        # [!] This means the thrust acceleration is predicted. If not included, the thrust velocity control is assumed to be equal to the thrust velocity state.
+        # [!] This does NOT mean that the thrust dynamics is modelled as a second-order system!
         if not hasattr(self, "include_thrust_second_order"):
             self.include_thrust_second_order = False
 
-        # - include_differential_allocation: Flag to use differential allocation, i.e., to include wrench as state to set its reference and use it for nullspace control.
+        # - include_differential_allocation: Flag to use differential allocation, i.e., to include wrench as a state to set its reference and use it for nullspace control.
         if not hasattr(self, "include_differential_allocation"):
             self.include_differential_allocation = False
         # - include_nullspace_control: Flag to use nullspace projection for differential allocation. Requires both servo and thrust derivatives to be included in the model.
@@ -222,7 +226,7 @@ class QDNMPCBase(RecedingHorizonBase):
         self.qzr = ca.MX.sym("qzr")
         parameters = ca.vertcat(self.qwr, self.qxr, self.qyr, self.qzr)
 
-        # Make physical parameters available in the model
+        # Physical parameters as acados parameters (can be overwritten at runtime!)
         mass = ca.MX.sym("mass")
         gravity = ca.MX.sym("gravity")
 
@@ -252,10 +256,10 @@ class QDNMPCBase(RecedingHorizonBase):
         self.ee_p = ca.MX.sym("ee_p", 3)
         self.ee_q = ca.MX.sym("ee_qwxyz", 4)  # qw, qx, qy, qz
 
-        phy_params = ca.vertcat(mass, gravity, Ixx, Iyy, Izz, kq_d_kt,
+        phys_params = ca.vertcat(mass, gravity, Ixx, Iyy, Izz, kq_d_kt,
                                 dr1, p1_b, dr2, p2_b, dr3, p3_b, dr4, p4_b, self.t_rotor, self.t_servo,
                                 self.ee_p, self.ee_q)
-        parameters = ca.vertcat(parameters, phy_params)
+        parameters = ca.vertcat(parameters, phys_params)
 
         # - Extend model parameters by CoG disturbance
         if self.include_cog_dist_parameter:
@@ -540,22 +544,26 @@ class QDNMPCBase(RecedingHorizonBase):
 
         # - Extend model by servo angle dynamics
         # Assumption if not included: a_c = a_s
+        # First-order system: t_servo * d(a_s)/dt + a_s = K * a_c
         if self.include_servo_model:
             if not self.include_servo_derivative:
-                # Use servo first-order dynamics (based on time constant of servo motor)
+                # Use servo first-order dynamics
                 ds[self.servo_start_idx:self.servo_end_idx] = (self.a_c - self.a_s) / self.t_servo
             else:
                 if not self.include_servo_second_order:
                     # Use servo angle velocity command
+                    # Assumed: d(a_s)/dt = self.ad_c, i.e., the servo angle velocity is realized instantaneously.
                     ds[self.servo_start_idx:self.servo_end_idx] = self.ad_c
                 else:
-                    # Use servo angle velocity state
+                    # Servo angle velocity state
                     ds[self.servo_start_idx:self.servo_end_idx] = self.ad_s
-                    # Second-order servo dynamics
+                    # Servo angle velocity dynamics, i.e., servo acceleration:
+                    #   t_servo * d(ad_s)/dt + ad_s = K * ad_c
                     ds[self.servo_vel_start_idx:self.servo_vel_end_idx] = (self.ad_c - self.ad_s) / self.t_servo
 
         # - Extend model by thrust dynamics
         # Assumption if not included: ft_c = ft_s
+        # First-order system: t_rotor * d(ft_s)/dt + ft_s = K * ft_c
         if self.include_thrust_model:
             if not self.include_thrust_derivative:
                 # Use thrust first-order dynamics (based on time constant of rotor)
@@ -563,11 +571,13 @@ class QDNMPCBase(RecedingHorizonBase):
             else:
                 if not self.include_thrust_second_order:
                     # Use thrust velocity command
+                    # Assumed: d(ft_s)/dt = self.ftd_c, i.e., the thrust velocity is realized instantaneously.
                     ds[self.thrust_start_idx:self.thrust_end_idx] = self.ftd_c
                 else:
                     # Use thrust velocity state
                     ds[self.thrust_start_idx:self.thrust_end_idx] = self.ftd_s
-                    # Second-order thrust dynamics
+                    # Second-order thrust dynamics, i.e., thrust acceleration:
+                    #   t_rotor * d(ftd_s)/dt + ftd_s = K * ftd_c
                     ds[self.thrust_vel_start_idx:self.thrust_vel_end_idx] = (self.ftd_c - self.ftd_s) / self.t_rotor
 
         # - Extend model by forces and torques in Body frame for differential allocation
@@ -576,31 +586,22 @@ class QDNMPCBase(RecedingHorizonBase):
             # dw/dt = dw/d(ft) * d(ft)/dt + dw/da * da/dt
             # Jacobian J = [dw/d(ft), dw/da]
             # dw/dt = J @ (ftd, ad)
-            if self.include_thrust_model:
-                stacked_actuator_states = ca.vertcat(self.ft_s, self.a_s)
-            else:
-                stacked_actuator_states = self.a_s
+            stacked_actuator_states = ca.vertcat(self.ft_s, self.a_s)
             jacobian_fu_b = ca.simplify(ca.jacobian(fu_b_expr, stacked_actuator_states))
             jacobian_tau_b = ca.simplify(ca.jacobian(tau_b_expr, stacked_actuator_states))
 
             # Actuator velocities d(ft)/dt and da/dt
-            # Priority: Use state if possible, else use control input, else use first-order model
+            # Priority: Use state if possible, else use first-order model
+            # NOTE: Command u (ad_c / ftd_c) may not influence the cost function by acados definition, so we cannot use it here
             if self.include_servo_second_order:
                 servo_velocity = self.ad_s
-            # elif self.include_servo_derivative:  # NOTE: Cost function cannot depend on u
-            #     servo_velocity = self.ad_c
             else:
                 servo_velocity = (self.a_c - self.a_s) / self.t_servo
-            if self.include_thrust_model:
-                if self.include_thrust_second_order:
-                    thrust_velocity = self.ftd_s
-                # elif self.include_thrust_derivative:  # NOTE: Cost function cannot depend on u
-                #     thrust_velocity = self.ftd_c
-                else:
-                    thrust_velocity = (self.ft_c - self.ft_s) / self.t_rotor
-                stacked_actuator_velocities = ca.vertcat(thrust_velocity, servo_velocity)
+            if self.include_thrust_second_order:
+                thrust_velocity = self.ftd_s
             else:
-                stacked_actuator_velocities = servo_velocity
+                thrust_velocity = (self.ft_c - self.ft_s) / self.t_rotor
+            stacked_actuator_velocities = ca.vertcat(thrust_velocity, servo_velocity)
 
             ds[self.wrench_state_start_idx:self.wrench_state_end_idx] = ca.vertcat(
                 ca.mtimes(jacobian_fu_b, stacked_actuator_velocities),
@@ -683,14 +684,14 @@ class QDNMPCBase(RecedingHorizonBase):
         model.p = parameters
         model.cost_y_expr = ca.vertcat(state_y, control_y)  # NONLINEAR_LS
         model.cost_y_expr_e = state_y_e
-        model.disc_dyn_expr = self._get_discrete_dynamics(ds, state, controls, parameters, actuator_models)  # DISCRETE
+        model.disc_dyn_expr = self._get_discrete_dynamics(ds, state, controls, parameters, actuator_models)  # `DISCRETE` integrator of acados
 
         # Store model properties
         self.nx = state.size()[0]
         self.nu = controls.size()[0]
         self.np = parameters.size()[0]
 
-        # Print dynamic equations for debugging
+        # Logging
         print("State variables (x):")
         for i in range(state.size()[0]):
             print(f"x[{i}]: {state[i]}")
@@ -816,18 +817,32 @@ class QDNMPCBase(RecedingHorizonBase):
 
         R_diag = np.zeros(self.nu)
         if not self.include_thrust_derivative:
-            R_diag[:self.num_rotors] = np.array(
-                [self.params["Rt_c"]] * self.num_rotors
-            )
+            if not self.include_thrust_model:
+                R_diag[:self.num_rotors] = np.array(
+                    [self.params["Rt_c"]] * self.num_rotors
+                )
+            else:
+                # Cost function contains difference of thrust cmd and thrust state!
+                # NOTE: Care for indices!
+                R_diag[:self.num_rotors] = np.array(
+                    [self.params["Rtc_d"]] * self.num_rotors
+                )
         else:
             R_diag[:self.num_rotors] = np.array(
                 [self.params["Rtd_c"]] * self.num_rotors
             )
         if self.tilt:
             if not self.include_servo_derivative:
-                R_diag[self.num_servos:self.num_servos*2] = np.array(
-                    [self.params["Ra_c"]] * self.num_servos
-                )
+                if not self.include_servo_model:
+                    R_diag[self.num_servos:self.num_servos*2] = np.array(
+                        [self.params["Ra_c"]] * self.num_servos
+                    )
+                else:
+                    # Cost function contains difference of servo cmd and servo state!
+                    # NOTE: Care for indices!
+                    R_diag[self.num_servos:self.num_servos*2] = np.array(
+                        [self.params["Rac_d"]] * self.num_servos
+                    )
             else:
                 R_diag[self.num_servos:self.num_servos*2] = np.array(
                     [self.params["Rad_c"]] * self.num_servos
@@ -1069,7 +1084,7 @@ class QDNMPCBase(RecedingHorizonBase):
         ocp.cost.yref_e = x_ref
 
         # Model parameters
-        # same order: phy_params = ca.vertcat(mass, gravity, inertia, kq_d_kt, dr, p1_b, p2_b, p3_b, p4_b, t_rotor, t_servo)
+        # same order: phys_params = ca.vertcat(mass, gravity, inertia, kq_d_kt, dr, p1_b, p2_b, p3_b, p4_b, t_rotor, t_servo, ee_p, ee_q)
         self.acados_parameters = np.zeros(n_param)
         self.acados_parameters[0] = x_ref[6]  # qw
         if len(self.phys.physical_param_list) != 31:
@@ -1088,7 +1103,7 @@ class QDNMPCBase(RecedingHorizonBase):
         ocp.solver_options.hessian_approx = "GAUSS_NEWTON"  # "EXACT", "GAUSS_NEWTON"
         # DISCRETE: exact actuator dynamics and RK4 for the other states, ERK: explicit Runge-Kutta integrator for all states
         # NOTE! Using 1-step ERK with small time constants in the actuator dynamics leads to numerical instability!
-        ocp.solver_options.integrator_type = "DISCRETE" # "ERK"
+        ocp.solver_options.integrator_type = "DISCRETE" # see _get_discrete_dynamics(); "ERK"
         ocp.solver_options.print_level = 0
         ocp.solver_options.nlp_solver_type = "SQP_RTI"
         ocp.solver_options.qp_solver_cond_N = self.params["N_steps"]
@@ -1123,7 +1138,7 @@ class QDNMPCBase(RecedingHorizonBase):
         acados_sim.model = ocp_model
 
         n_param = ocp_model.p.size()[0]
-        # same order: phy_params = ca.vertcat(mass, gravity, inertia, kq_d_kt, dr, p1_b, p2_b, p3_b, p4_b, t_rotor, t_servo)
+        # same order: phys_params = ca.vertcat(mass, gravity, inertia, kq_d_kt, dr, p1_b, p2_b, p3_b, p4_b, t_rotor, t_servo, ee_p, ee_q)
         self.acados_parameters = np.zeros(n_param)
         self.acados_parameters[0] = 1.0  # qw
         self.acados_parameters[4 : 4 + len(self.phys.physical_param_list)] = np.array(self.phys.physical_param_list)

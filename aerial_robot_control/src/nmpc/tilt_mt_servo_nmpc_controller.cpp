@@ -389,6 +389,15 @@ void nmpc::TiltMtServoNMPC::initMPCPhysicalParams()
   if (mpc_solver_ptr_->NP_ > 4 + 6)
   {
     std::vector<double> phys_p = getPhysicalParams();
+    // Sanity check: A model generated with another layout of the physical parameters would be written out of bounds
+    if (idx_p_quat_end_ + 1 + static_cast<int>(phys_p.size()) > mpc_solver_ptr_->NP_)
+    {
+      std::string err_msg = "The MPC model has " + std::to_string(mpc_solver_ptr_->NP_) + " parameters, which is too "
+                            "few for the " + std::to_string(phys_p.size()) + " physical parameters. Regenerate the "
+                            "model code!";
+      ROS_ERROR("%s", err_msg.c_str());
+      throw std::runtime_error(err_msg);
+    }
     std::copy(phys_p.begin(), phys_p.end(), acados_p.begin() + idx_p_quat_end_ + 1);
     idx = idx_p_quat_end_ + static_cast<int>(phys_p.size());
 
@@ -596,7 +605,7 @@ void nmpc::TiltMtServoNMPC::controlCore()
   }
 
   /* Update command */
-  if (is_valid)
+  if (is_valid && !is_warmup_)
   {
     flight_cmd_.base_thrust = thrust_cmd;
 
@@ -606,7 +615,7 @@ void nmpc::TiltMtServoNMPC::controlCore()
       gimbal_ctrl_cmd_.position.at(i) = servo_cmd[i];
     }
   }
-  else
+  else if (!is_valid)
   {
     handleSolverFailure();
   }

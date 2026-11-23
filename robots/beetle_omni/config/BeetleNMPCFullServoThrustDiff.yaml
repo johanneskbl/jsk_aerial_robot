@@ -13,7 +13,7 @@ controller:
 
     # Frame tracked by the MPC cost
     # Need rebuild after changing it! Read by both the Python generation and the C++ controller
-    tracking_frame: cog_tracking  # 'cog_tracking' or 'ee_tracking'
+    tracking_frame: ee_tracking  # 'cog_tracking' or 'ee_tracking'
 
     # Hard constraints
     w_min: -6
@@ -25,14 +25,22 @@ controller:
     thrust_min: 0  # N
     thrust_max: 23  # N
 
-    thrust_vel_min: -200  # N/s
-    thrust_vel_max: 200  # N/s
+    # From Claude: In AM32 firmware the output_limit=50000 clamps the throttle to 5 units per ms,
+    # With props, full throttle is ~13.9 kRPM so the rate caps at 33 kRPM/s
+    # Analyzing bench test data, the maximum positive rate caps at +/- 60 kRPM/s but this is for sharp throttle changes
+    # In thrust, the mapping depends on the RPM rate as well as on the RPM itself.
+    # The limit is also skewed at about +80 N/s and -120 N/s. Although, the instantaneous thrust rate is lower since the
+    # airflow is inert. Therefore, a good limit is about +65 N/s and -90 N/s.
+    # From Claude: Due to setting in urdf: 100 N/s
+    # From Eugenio: 200 N/s
+    thrust_vel_min: -90  # N/s
+    thrust_vel_max: 65  # N/s
 
     a_min: -3.15
     a_max: 3.15  # 180 deg + a little bit
 
-    a_vel_min: -5  # 8 (from Eugenio)  # rad/s
-    a_vel_max: 5  # rad/s
+    a_vel_min: -11 # 11 / 3 (from Claude due to real / urdf); 8 (from Eugenio)  # rad/s
+    a_vel_max: 11  # rad/s
 
     Qp_xy: 300
     Qp_z: 400
@@ -43,12 +51,12 @@ controller:
     Qw_xy: 5
     Qw_z: 5
     Qa: 1
-    Qt: 0.1
-    Qfu: 0.0 # Generated body force
-    Qtau: 0.0 # Generated body torque
+    Qt: 2
+    Qfu: 0.01 # Generated body force
+    Qtau: 0.001 # Generated body torque
 
-    Rtd_c: 1  # Thrust velocity
-    Rad_c: 1 # Servo angle velocity
+    Rtd_c: 0.001  # Thrust velocity
+    Rad_c: 2.5 # Servo angle velocity
 
     # Slack constraint weights
     linear_slack_weight: 10
