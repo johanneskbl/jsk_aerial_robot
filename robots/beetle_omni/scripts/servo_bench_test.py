@@ -10,17 +10,22 @@ maps linearly onto the joint angle with the gimbals parameters of Servo.yaml (as
     raw = angle_sgn * angle / angle_scale + zero_point_offset
 
 Test plan, each group starts after a short rest at angle_neutral:
-  steps     N random step setpoints in each third of the angle range (low / middle / high)
-  linear    linear rise angle_min -> angle_max and fall back
-  logistic  logistic (S-curve) rise angle_min -> angle_max and fall back
-  sine      sine wave around osc_center_angle
-  chirp     sine with exponentially increasing frequency, excites the servo dynamics
-            over a whole frequency band (e.g. for a Bode plot)
+  steps        N random step setpoints in each third of the angle range (low / middle / high)
+  small_steps  N setpoints in each of n_small_splits equal splits of the angle range, starting at the
+               center of the split. Each setpoint changes by small_step_min to small_step_max in a random
+               direction, which is reversed at the edges of the split. So the small-signal step responses
+               cover the whole angle range in both directions
+  linear       linear rise angle_min -> angle_max and fall back
+  logistic     logistic (S-curve) rise angle_min -> angle_max and fall back
+  sine         sine wave around osc_center_angle
+  chirp        sine with exponentially increasing frequency, excites the servo dynamics
+               over a whole frequency band (e.g. for a Bode plot)
 
 Servo protection: the commanded angle never changes faster than max_angle_rate, except for the setpoint
 changes inside the step sequences, which are true steps of at most max_step_angle:
   steps        every setpoint change jumps within one command. A step can be as large as the split
-               it is drawn from, which is checked against max_step_angle when the config is validated
+               it is drawn from, which is checked against max_step_angle when the config is validated.
+               The small steps jump the same way, by at most small_step_max
   transition   before each segment, the angle ramps at max_angle_rate from the last command to the
                start angle of the segment. So the first setpoint of a step sequence is reached by a
                ramp and then held, and n_steps setpoints give n_steps - 1 step responses.
@@ -36,7 +41,7 @@ Usage:
   rosrun beetle_omni servo_bench_test.py
 Optional args (every field of BenchTestConfig), e.g.:
   _servo_indices:="0,1"
-  _segments:="steps,chirp"     # subset of steps,linear,logistic,sine,chirp
+  _segments:="steps,chirp"     # subset of steps,small_steps,linear,logistic,sine,chirp
   _n_steps:=10 _step_hold:=1.0 _seed:=0
   _dry_run:=true               # only print the test plan
 
@@ -57,7 +62,7 @@ import yaml
 from spinal.msg import ServoControlCmd, ServoStates  # index: uint8[], angles: int16[] (raw)
 from std_msgs.msg import String
 
-SEGMENT_GROUPS = ("steps", "linear", "logistic", "sine", "chirp")
+SEGMENT_GROUPS = ("steps", "small_steps", "linear", "logistic", "sine", "chirp")
 
 
 # ---------------------------------------------------------------------------
@@ -91,8 +96,11 @@ class BenchTestConfig:
     max_step_angle: float = 2.1  # [rad] largest step of a step sequence, a split spans (angle_max - angle_min) / 3
 
     # Step sequences
-    n_steps: int = 10  # steps per low / middle / high split
+    n_steps: int = 10  # setpoints per split of steps (low / middle / high) and of small_steps
     step_hold: float = 1.0  # [s] hold time of each setpoint
+    n_small_splits: int = 9  # splits of small_steps, 9 centers them every 40 deg including 0 rad
+    small_step_min: float = math.radians(0.5)  # [rad]
+    small_step_max: float = math.radians(1.0)  # [rad]
 
     # Rest at angle_neutral before each segment group
     rest_duration: float = 3.0  # [s]
@@ -166,6 +174,11 @@ def validate_config(cfg: BenchTestConfig):
     require(
         (cfg.angle_max - cfg.angle_min) / 3 <= cfg.max_step_angle,
         "A split spans (angle_max - angle_min) / 3, so its steps can exceed max_step_angle",
+    )
+    require(0 < cfg.small_step_min <= cfg.small_step_max, "Need 0 < small_step_min <= small_step_max")
+    require(
+        cfg.n_small_splits > 0 and (cfg.angle_max - cfg.angle_min) / cfg.n_small_splits >= 2 * cfg.small_step_max,
+        "Each of the n_small_splits > 0 splits must span 2 * small_step_max, so that a small step can always reverse",
     )
     require(
         cfg.angle_min <= cfg.osc_center_angle - cfg.osc_amplitude_angle
@@ -266,6 +279,29 @@ def step_sequence(name: str, lo: float, hi: float, n_steps: int, step_hold: floa
     return Segment(name, n_steps * step_hold, angle_at, info, stepped=True)
 
 
+def small_step_sequence(
+    name: str, lo: float, hi: float, step_min: float, step_max: float, n_steps: int, step_hold: float, seed: int
+) -> Segment:
+    """Piecewise-constant random walk of `n_steps` setpoints from the center of [lo, hi]. Each setpoint changes by
+    step_min to step_max in a random direction, which is reversed where the walk would leave [lo, hi]."""
+    rng = random.Random(f"{seed}/{name}")
+    setpoints = [(lo + hi) / 2]
+    for _ in range(n_steps - 1):
+        step = rng.choice((-1, 1)) * rng.uniform(step_min, step_max)
+        if not lo <= setpoints[-1] + step <= hi:
+            step = -step
+        setpoints.append(setpoints[-1] + step)
+
+    def angle_at(t):
+        return setpoints[min(int(t / step_hold), n_steps - 1)]
+
+    info = (
+        f"{n_steps} steps of {math.degrees(step_min):.1f} to {math.degrees(step_max):.1f} deg "
+        f"in [{lo:.2f}, {hi:.2f}] rad: " + ", ".join(f"{s:.3f}" for s in setpoints)
+    )
+    return Segment(name, n_steps * step_hold, angle_at, info, stepped=True)
+
+
 def linear_ramp(name: str, angle_start: float, angle_end: float, duration: float) -> Segment:
     def angle_at(t):
         return angle_start + (angle_end - angle_start) * t / duration
@@ -321,10 +357,24 @@ def build_test_plan(cfg: BenchTestConfig) -> List[Segment]:
     lo, hi = cfg.angle_min, cfg.angle_max
     osc_center, osc_amplitude = cfg.osc_center_angle, cfg.osc_amplitude_angle
     edges = [lo + i * (hi - lo) / 3 for i in range(4)]
+    small_edges = [lo + i * (hi - lo) / cfg.n_small_splits for i in range(cfg.n_small_splits + 1)]
     groups = {
         "steps": [
             step_sequence(f"steps/{name}", split_lo, split_hi, cfg.n_steps, cfg.step_hold, cfg.seed)
             for name, split_lo, split_hi in zip(("low", "middle", "high"), edges[:-1], edges[1:])
+        ],
+        "small_steps": [
+            small_step_sequence(
+                f"small_steps/{i}",
+                split_lo,
+                split_hi,
+                cfg.small_step_min,
+                cfg.small_step_max,
+                cfg.n_steps,
+                cfg.step_hold,
+                cfg.seed,
+            )
+            for i, (split_lo, split_hi) in enumerate(zip(small_edges[:-1], small_edges[1:]))
         ],
         "linear": [
             linear_ramp("linear/rise", lo, hi, cfg.ramp_duration),

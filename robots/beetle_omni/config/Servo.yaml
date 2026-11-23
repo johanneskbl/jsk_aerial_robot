@@ -25,7 +25,7 @@ servo_controller:
     # Only delay_servo_cmd + delay_servo_meas is identifiable. Bench 2026-11-22 with t_servo = 8 ms: dead time 23 ms from the
     # command to the measured angle (steps from rest: 27 ms), flight 2026-11-21: ~3 ms more. The motion starts ~11 ms after
     # the command (wait for the 5 ms goal write + servo latency), the rest is the servo's acceleration.
-    # Sum = solver time (5.5 ms) + servo_bridge (~1.4 ms) + PC to spinal (~0.3 ms) + dead time (16 OR 23-27 ms depending on t_servo)
+    # Sum = solver time (6.2 ms) + servo_bridge (~0.3 ms) + PC to spinal (~0.3 ms) + dead time (16 OR 23-27 ms depending on t_servo)
     delay_servo_cmd: 0.023  # in seconds (optimal: 0.031)
 
     controller1:
