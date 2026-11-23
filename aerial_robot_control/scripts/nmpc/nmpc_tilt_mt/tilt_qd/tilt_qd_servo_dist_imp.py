@@ -5,6 +5,7 @@ import casadi as ca
 from .qd_nmpc_base import QDNMPCBase
 from .fake_sensor import FakeSensor
 from . import phys_param_beetle_omni as phys_omni
+from . import phys_param_beetle_jetson as phys_jetson
 
 
 class NMPCTiltQdServoImpedance(QDNMPCBase):
@@ -15,7 +16,7 @@ class NMPCTiltQdServoImpedance(QDNMPCBase):
     The output of the controller is the thrust and servo angle command for each rotor.
     """
 
-    def __init__(self, build: bool = True, phys=phys_omni):
+    def __init__(self, build: bool = True, phys=phys_jetson):
         # Model name
         self.model_name = "tilt_qd_servo_dist_imp_mdl"
         self.phys = phys

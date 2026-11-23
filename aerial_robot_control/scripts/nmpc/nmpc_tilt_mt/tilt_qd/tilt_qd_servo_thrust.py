@@ -4,6 +4,7 @@ import numpy as np
 import casadi as ca
 from .qd_nmpc_base import QDNMPCBase
 from . import phys_param_beetle_omni as phys_omni
+from . import phys_param_beetle_jetson as phys_jetson
 
 
 class NMPCTiltQdServoThrust(QDNMPCBase):
@@ -14,7 +15,7 @@ class NMPCTiltQdServoThrust(QDNMPCBase):
     The output of the controller is the thrust and servo angle command for each rotor.
     """
 
-    def __init__(self, build: bool = True, phys=phys_omni):
+    def __init__(self, build: bool = True, phys=phys_jetson):
         # Model name
         self.model_name = "tilt_qd_servo_thrust_mdl"
         self.phys = phys

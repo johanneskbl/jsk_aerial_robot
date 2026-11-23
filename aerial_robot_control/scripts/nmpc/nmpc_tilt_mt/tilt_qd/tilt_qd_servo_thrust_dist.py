@@ -5,6 +5,7 @@ import casadi as ca
 from .qd_nmpc_base import QDNMPCBase
 from .fake_sensor import FakeSensor
 from . import phys_param_beetle_omni as phys_omni
+from . import phys_param_beetle_jetson as phys_jetson
 
 
 class NMPCTiltQdServoThrustDist(QDNMPCBase):
@@ -20,7 +21,7 @@ class NMPCTiltQdServoThrustDist(QDNMPCBase):
         model_name: str = "tilt_qd_servo_thrust_dist_mdl",
         method: str = "nmpc",
         build: bool = True,
-        phys=phys_omni,
+        phys=phys_jetson,
         include_cog_dist_parameter=True,
         include_motor_noise_parameter=False,
         include_soft_constraints=True,
