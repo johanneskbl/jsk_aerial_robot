@@ -54,6 +54,7 @@ public:
     /* Get parameters */
     ros::NodeHandle physical_nh(nh, "physical");
     ros::NodeHandle servo_nh(nh, "servo_controller/gimbals");
+    physical_nh.param<double>("num_servos", num_servos_, 0.0);
     physical_nh.param<double>("t_servo", t_servo_, 0.0);
     physical_nh.param<double>("t_servo_rate", t_servo_rate_, t_servo_);
     physical_nh.param<double>("gain_servo_rate", gain_servo_rate_, 1.0);
@@ -61,6 +62,7 @@ public:
     servo_nh.param<double>("delay_servo_vel_meas", delay_servo_vel_meas_, 0.0);
     servo_nh.param<double>("delay_servo_cmd", delay_servo_cmd_, 0.0);
     servo_nh.param<double>("t_servo_bias", t_servo_bias_, 0.0);
+    servo_bias_.resize(static_cast<int>(num_servos_), 0.0);
 
     /* Sanity checks */
     if (!std::isfinite(t_servo_) || t_servo_ <= 0.0 || !std::isfinite(t_servo_rate_) || t_servo_rate_ <= 0.0 ||
@@ -155,6 +157,7 @@ private:
   static constexpr double SERVO_STATES_DEADTIME = 0.1;  // Longest potential tolerated deadtime without servo states [s]
   static constexpr double MAX_SERVO_BIAS = 0.035;        // Limit of bias (2 deg) [rad]
 
+  double num_servos_ = 0.0;
   double t_servo_ = 0.0;               // Time constant of the servo [s]
   double t_servo_rate_ = 0.0;          // Time constant of the velocity predictor [s]
   double gain_servo_rate_ = 1.0;       // Gain K_rate of the velocity predictor [-]
