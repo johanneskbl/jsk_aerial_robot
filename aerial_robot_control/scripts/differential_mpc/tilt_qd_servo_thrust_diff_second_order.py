@@ -12,10 +12,20 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
     This file is used to define the properties of the controller, specifically, the weights and cost function for the acados solver.
     The output of the controller is the thrust and servo angle velocities for each arm.
     """
-
-    def __init__(self, build: bool = True, phys=phys_jetson):
+    def __init__(
+        self,
+        model_name: str = "tilt_qd_servo_thrust_diff_second_order_mdl",
+        method: str = "differential_mpc",
+        build: bool = True,
+        phys=phys_jetson,
+        include_cog_dist_parameter=False,
+        include_motor_noise_parameter=False,
+        include_soft_constraints=True,
+        include_quaternion_constraint=False,
+        include_floor_bounds=False,
+    ):
         # Model name
-        self.model_name = "tilt_qd_servo_thrust_diff_second_order_mdl"
+        self.model_name = model_name
         self.phys = phys
         self.num_rotors = 4
         self.num_servos = 4
@@ -27,13 +37,19 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
         self.include_thrust_model = True
         self.include_thrust_derivative = True
         self.include_thrust_second_order = True
-        self.include_differential_allocation = True
-        self.include_nullspace_control = True
+        self.include_differential_allocation = False
+        self.include_nullspace_control = False
         self.include_cog_dist_model = False
-        self.include_cog_dist_parameter = False  # TODO seperation between model and parameter necessary?)
         self.include_impedance = False
 
-        self.include_soft_constraints = True
+        # Optional disturbances
+        self.include_cog_dist_parameter = include_cog_dist_parameter
+        self.include_motor_noise_parameter = include_motor_noise_parameter
+
+        # Optional constraint settings
+        self.include_floor_bounds = include_floor_bounds  # Height constraint
+        self.include_soft_constraints = include_soft_constraints
+        self.include_quaternion_constraint = include_quaternion_constraint
 
         # Read parameters from configuration file in the robot's package
         self.read_params(
@@ -41,7 +57,7 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
         )
 
         # Create acados model & solver and generate c code
-        super().__init__(method="differential_mpc", build=build)
+        super().__init__(method=method, build=build)
 
     def get_cost_function(self, lin_acc_w=None, ang_acc_b=None, nullspace_proj=None):
         # fmt: off
@@ -65,12 +81,14 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
             nullspace_servo_gain = self.params["nullspace_servo_gain"]    # [1/s]
             thrust_target = 0.0
             servo_target = 0.0
+            # Derived from first-order actuator dynamics: u_dot = (u_target - u) * gain
             velocity_target = ca.vertcat(
-                - nullspace_thrust_gain * (self.ft_s - thrust_target),
-                - nullspace_servo_gain * (self.a_s - servo_target),
+                nullspace_thrust_gain * (thrust_target - self.ft_s),
+                nullspace_servo_gain * (servo_target - self.a_s),
             )
             # Residual = actuator velocity - achievable (nullspace) part of the target velocity.
-            # NOTE!: the reference for the velocity entries in the cost must stay 0.
+            # NOTE!: the reference for the actuator velocity state entries in the cost must stay 0
+            # since they are already tracked to the nullspace target in state_y above.
             velocity_residual = ca.simplify(
                 ca.vertcat(self.ftd_s, self.ad_s) - ca.mtimes(nullspace_proj, velocity_target)
             )
@@ -161,8 +179,6 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
         :param target_qwxyz: Target quarternions
         :param body_forces_ref: Reference body forces
         :param body_torques_ref: Reference body torques
-        :param ad_ref: Reference servo angle derivatives
-        :param ftd_ref: Reference thrust derivatives
         :return xr: Reference for the state x
         :return ur: Reference for the input u
         """
@@ -177,23 +193,23 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
         xr[:, 0] = target_xyz[0]  # x
         xr[:, 1] = target_xyz[1]  # y
         xr[:, 2] = target_xyz[2]  # z
-        # No reference for vx, vy, vz (idx: 3, 4, 5)
+        # Zero reference for vx, vy, vz (idx: 3, 4, 5)
         xr[:, 6] = target_qwxyz[0]  # qx
         xr[:, 7] = target_qwxyz[1]  # qx
         xr[:, 8] = target_qwxyz[2]  # qy
         xr[:, 9] = target_qwxyz[3]  # qz
-        # No reference for wx, wy, wz (idx: 10, 11, 12)
+        # Zero reference for wx, wy, wz (idx: 10, 11, 12)
         if not self.include_nullspace_control:
             xr[:, self.servo_start_idx + 0] = a_ref[0]  # TODO: The servo reference is ill defined and therefore should be avoided at all
             xr[:, self.servo_start_idx + 1] = a_ref[1]
             xr[:, self.servo_start_idx + 2] = a_ref[2]
             xr[:, self.servo_start_idx + 3] = a_ref[3]
-            # No reference for servo velocity
+            # Zero reference for servo velocity
             xr[:, self.thrust_start_idx + 0] = ft_ref[0]
             xr[:, self.thrust_start_idx + 1] = ft_ref[1]
             xr[:, self.thrust_start_idx + 2] = ft_ref[2]
             xr[:, self.thrust_start_idx + 3] = ft_ref[3]
-            # No reference for thrust velocity
+            # Zero reference for thrust velocity
         else:
             if self.params["Qa"] > 0.0 or self.params["Qt"] > 0.0:
                 raise ValueError(
@@ -208,19 +224,6 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
             xr[:, self.wrench_state_start_idx + 5] = body_torques_ref[2]
 
         # Assemble input reference
-        # NOTE: Reference has to be zero if variable is included as state in cost function!
+        # NOTE: Reference has to be zero if the cost function already contains the difference of the command to the state
         ur = np.zeros([nn, nu])
-
-        # DONT use reference if having a difference in the cost function, since the difference is already minimized by the cost function itself
-        # if self.include_thrust_derivative:
-        #     ur[:, 0] = ftd_ref[0]
-        #     ur[:, 1] = ftd_ref[1]
-        #     ur[:, 2] = ftd_ref[2]
-        #     ur[:, 3] = ftd_ref[3]
-        # if self.include_servo_derivative:
-        #     ur[:, 4] = ad_ref[0]
-        #     ur[:, 5] = ad_ref[1]
-        #     ur[:, 6] = ad_ref[2]
-        #     ur[:, 7] = ad_ref[3]
-
         return xr, ur

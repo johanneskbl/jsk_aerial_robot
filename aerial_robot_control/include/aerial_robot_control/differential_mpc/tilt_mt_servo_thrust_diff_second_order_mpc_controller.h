@@ -19,12 +19,8 @@ namespace nmpc
 class TiltMtServoThrustDiffSecondOrderMPC : public TiltMtServoThrustDiffMPC
 {
 protected:
-  std::vector<double> joint_vel_;  // from the velocity estimation on spinal
+  std::vector<double> joint_vel_meas_;  // from the velocity estimation on spinal
   std::vector<double> joint_vel_est_;
-  std::vector<double> prev_servo_angle_;
-  std::vector<double> prev_servo_angle_vel_estimate_;
-  std::vector<double> prev_thrust_meas_;
-  std::vector<double> prev_thrust_vel_estimate_;
 
   /* Initialization methods */
   void initActuatorStates() override;

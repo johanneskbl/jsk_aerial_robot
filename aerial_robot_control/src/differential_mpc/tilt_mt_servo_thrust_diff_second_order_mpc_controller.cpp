@@ -9,7 +9,7 @@ void TiltMtServoThrustDiffSecondOrderMPC::initActuatorStates()
   TiltMtServoThrustDiffMPC::initActuatorStates();
 
   /* Initialize joint velocity */
-  joint_vel_.resize(joint_num_, 0.0);
+  joint_vel_meas_.resize(joint_num_, 0.0);
   joint_vel_est_.resize(joint_num_, 0.0);
 
   // Override starting indices for this controller's state-space
@@ -18,11 +18,6 @@ void TiltMtServoThrustDiffSecondOrderMPC::initActuatorStates()
   thrust_start_idx_ = 13 + joint_num_ * 2;
   thrust_vel_start_idx_ = 13 + joint_num_ * 2 + motor_num_;
   wrench_state_start_idx_ = 13 + joint_num_ * 2 + motor_num_ * 2;
-
-  prev_servo_angle_.resize(joint_num_, 0.0);
-  prev_servo_angle_vel_estimate_.resize(joint_num_, 0.0);
-  prev_thrust_meas_.resize(motor_num_, 0.0);
-  prev_thrust_vel_estimate_.resize(motor_num_, 0.0);
 }
 
 /**
@@ -40,74 +35,19 @@ void TiltMtServoThrustDiffSecondOrderMPC::resetSolver()
 
 void TiltMtServoThrustDiffSecondOrderMPC::initMPCCostW()
 {
-  /* control parameters with dynamic reconfigure */
-  double Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qad, Qt, Qtd, Qfu, Qtau, Rtd_c, Rad_c;
-  getParam<double>(mpc_nh_, "Qp_xy", Qp_xy, 300);
-  getParam<double>(mpc_nh_, "Qp_z", Qp_z, 400);
-  getParam<double>(mpc_nh_, "Qv_xy", Qv_xy, 10);
-  getParam<double>(mpc_nh_, "Qv_z", Qv_z, 10);
-  getParam<double>(mpc_nh_, "Qq_xy", Qq_xy, 300);
-  getParam<double>(mpc_nh_, "Qq_z", Qq_z, 300);
-  getParam<double>(mpc_nh_, "Qw_xy", Qw_xy, 5);
-  getParam<double>(mpc_nh_, "Qw_z", Qw_z, 5);
-  getParam<double>(mpc_nh_, "Qa", Qa, 1);
+  /* Solver weights set with dynamic reconfigure */
+  TiltMtServoThrustDiffMPC::initMPCCostW();
+
+  // Actuator velocity state related cost weights
+  double Qad, Qtd;
   getParam<double>(mpc_nh_, "Qad", Qad, 1.0);
-  getParam<double>(mpc_nh_, "Qt", Qt, 1);
-  getParam<double>(mpc_nh_, "Qtd", Qtd, 1);
-  getParam<double>(mpc_nh_, "Qfu", Qfu, 0);
-  getParam<double>(mpc_nh_, "Qtau", Qtau, 0);
-
-  getParam<double>(mpc_nh_, "Rtd_c", Rtd_c, 1);
-  getParam<double>(mpc_nh_, "Rad_c", Rad_c, 250);
-
-  // State cost
-  mpc_solver_ptr_->setCostWDiagElement(0, Qp_xy);
-  mpc_solver_ptr_->setCostWDiagElement(1, Qp_xy);
-  mpc_solver_ptr_->setCostWDiagElement(2, Qp_z);
-  mpc_solver_ptr_->setCostWDiagElement(3, Qv_xy);
-  mpc_solver_ptr_->setCostWDiagElement(4, Qv_xy);
-  mpc_solver_ptr_->setCostWDiagElement(5, Qv_z);
-  mpc_solver_ptr_->setCostWDiagElement(6, 0);
-  mpc_solver_ptr_->setCostWDiagElement(7, Qq_xy);
-  mpc_solver_ptr_->setCostWDiagElement(8, Qq_xy);
-  mpc_solver_ptr_->setCostWDiagElement(9, Qq_z);
-  mpc_solver_ptr_->setCostWDiagElement(10, Qw_xy);
-  mpc_solver_ptr_->setCostWDiagElement(11, Qw_xy);
-  mpc_solver_ptr_->setCostWDiagElement(12, Qw_z);
-  // Servo state
-  for (int i = servo_start_idx_; i < servo_start_idx_ + joint_num_; ++i)
-    mpc_solver_ptr_->setCostWDiagElement(i, Qa);
-  // Servo velocity state
+  getParam<double>(mpc_nh_, "Qtd", Qtd, 1.0);
   for (int i = servo_vel_start_idx_; i < servo_vel_start_idx_ + joint_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Qad);
-  // Thrust state
-  for (int i = thrust_start_idx_; i < thrust_start_idx_ + motor_num_; ++i)
-    mpc_solver_ptr_->setCostWDiagElement(i, Qt);
-  // Thrust velocity cost
   for (int i = thrust_vel_start_idx_; i < thrust_vel_start_idx_ + motor_num_; ++i)
     mpc_solver_ptr_->setCostWDiagElement(i, Qtd);
 
-  // Wrench state cost
-  if (hasWrenchState())
-  {
-    mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 0, Qfu);
-    mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 1, Qfu);
-    mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 2, Qfu);
-    mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 3, Qtau);
-    mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 4, Qtau);
-    mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 5, Qtau);
-  }
-
-  // Control input cost
-  for (int i = mpc_solver_ptr_->NX_; i < mpc_solver_ptr_->NX_ + motor_num_; ++i)
-    mpc_solver_ptr_->setCostWDiagElement(i, Rtd_c, false);
-  for (int i = mpc_solver_ptr_->NX_ + motor_num_; i < mpc_solver_ptr_->NX_ + motor_num_ + joint_num_; ++i)
-    mpc_solver_ptr_->setCostWDiagElement(i, Rad_c, false);
-
-  ROS_INFO("MPC cost W initialized:\n"
-           "\tQp_xy=%f, Qp_z=%f, Qv_xy=%f, Qv_z=%f, Qq_xy=%f, Qq_z=%f, Qw_xy=%f, Qw_z=%f,\n"
-           "\tQa=%f, Qad=%f, Qt=%f, Qtd=%f, Qfu=%f, Qtau=%f, Rtd_c=%f, Rad_c=%f",
-           Qp_xy, Qp_z, Qv_xy, Qv_z, Qq_xy, Qq_z, Qw_xy, Qw_z, Qa, Qad, Qt, Qtd, Qfu, Qtau, Rtd_c, Rad_c);
+  ROS_INFO("MPC cost W initialized:\n\tQad=%f, Qtd=%f", Qad, Qtd);
 }
 
 void TiltMtServoThrustDiffSecondOrderMPC::initMPCConstraints()
@@ -302,7 +242,7 @@ void TiltMtServoThrustDiffSecondOrderMPC::callbackJointStates(const sensor_msgs:
     for (int i = 0; i < joint_num_; i++)
     {
       joint_angles_[i] = msg->position[i];
-      joint_vel_[i] = msg->velocity[i];
+      joint_vel_meas_[i] = msg->velocity[i];
     }
     joint_states_time_ = ros::Time::now();  // Receipt time for delay compensation
   }
@@ -320,86 +260,25 @@ void TiltMtServoThrustDiffSecondOrderMPC::callbackJointStates(const sensor_msgs:
  */
 void TiltMtServoThrustDiffSecondOrderMPC::estimateJointStates()
 {
+  // The servo bias is only adapted while the commands are sent
+  bool adapt_servo_bias = !is_warmup_ && !has_triggered_force_landing_;
   joint_estimator_.estimate(joint_states_time_, joint_angles_, gimbal_ctrl_cmd_.position, joint_angles_est_,
-                            &joint_vel_, &joint_vel_est_);
+                            &joint_vel_meas_, &joint_vel_est_, adapt_servo_bias);
 }
 
 std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_centric)
 {
   auto bx0 = TiltMtServoThrustDiffMPC::meas2VecX(is_ee_centric);
 
-  if (!is_warmup_)
-  {
-    // Servo velocity estimate
-    for (int i = 0; i < joint_num_; i++)
-    {
-      // ==== MODEL ====
-      // double last_servo_cmd = uo_prev_.at(motor_num_ + i);
-      // // TODO is this really correctly computing the velocity???
-      // double servo_angle_velocity = (last_servo_cmd - joint_angles_[i]) / t_servo_;
-      
-      // ==== NUMERICAL DERIVATIVE ====
-      // double servo_angle_velocity = (joint_angles_[i] - prev_servo_angles_[i]) / du_;
-      // prev_servo_angles_[i] = servo_angles_[i];
-      
-      // ==== FILTERED NUMERICAL DERIVATIVE ====
-      // double weight = 0.9;
-      // auto servo_angle_velocity = weight * prev_servo_angle_vel_estimate_.at(i) + (1-weight) * (joint_angles_[i] - prev_servo_angle_.at(i)) * ctrl_loop_du_;
-      // prev_servo_angle_.at(i) = joint_angles_[i];
-      // prev_servo_angle_vel_estimate_.at(i) = servo_angle_velocity;
-      
-      // ==== ESTIMATE ====
-      // Servo velocity measured in spinal, propagated over its age with the servo model and the command history
-      bx0[13 + joint_num_ + i] = joint_vel_est_[i];
-    }
+  /* Servo velocity */
+  // Measured in spinal and estimated to read time to compensate its age with the servo model and the command history
+  for (int i = 0; i < joint_num_; i++)
+    bx0[servo_vel_start_idx_ + i] = joint_vel_est_[i];
 
-    // Thrust velocity estimate
-    for (int i = 0; i < motor_num_; i++)
-    {
-      // ==== MODEL ====
-      // Rotor model: fdot = (f_cmd - f)/T_rotor
-      // -> Representing what the rate would be if the rotor were an exact first-order lag of the last command
-      // -> So the formula tells the MPC "the thrust is already on its way to my last command, arriving in about T_rotor seconds."
-      // -> BUT this doesn't include...
-      //    DEAD TIME: the rotor is still reacting to commands from over 20 ms ago and uo_prev hasn't really taken effect yet
-      //    RATE LIMIT: there is no limit on this model so it can give a way higher rate than actually possible (e.g. 128 N/s but with a 60 N/s limit)
-      //    MOMENTUM: the real rotor is second-order: it keeps accelerating after the error shrinks and overshoots
-      //    DELAY: no compensation for the fact that the measurement is 20+ ms old by the time the command goes out
-      // -> In the loop, the MPC believes thrust is arriving faster than it is
-      
-      // double last_thrust_c = uo_prev_.at(i);
-      // // double thrust_velocity = (last_thrust_c - thrust_meas_[i] + 0.2) / t_rotor_;  // 0.2 correction factor for model mismatch
-      // double thrust_velocity = (last_thrust_c - thrust_meas_[i]) / t_rotor_;
-
-      // ==== ESTIMATE ====
-      // Thrust rate measured on the ESC, propagated over its age with the rate model and the command history (ThrustEstimator)
-      double thrust_velocity = thrust_rate_est_[i];
-
-      // ==== MEASUREMENT ====
-      // RPM rate estimated on the ESC (alpha-beta filter on the commutation period at ~1 kHz, ~10.1 ms lag),
-      // mapped to the thrust rate in callbackESCTelem() like the rpm to the thrust. Contains no rotor model.
-      // A stale ESC holds its last valid thrust, so its thrust rate is zero.
-      // double thrust_velocity = esc_telem_.isAlive(i) ? thrust_rate_meas_[i] : 0.0;
-
-      // ==== NUMERICAL DERIVATIVE ====
-      // double thrust_velocity = (thrust_meas_[i] - prev_thrust_meas_[i]) / du_;
-      // prev_thrust_meas_[i] = thrust_meas_[i];
-
-      // ==== FILTERED NUMERICAL DERIVATIVE ====
-      // auto thrust_velocity = 0.7 * prev_thrust_vel_estimate_.at(i) + 0.3 * (thrust_meas_[i] - prev_thrust_meas_[i]) / ctrl_loop_du_;
-      // prev_thrust_meas_.at(i) = thrust_meas_[i];
-      // prev_thrust_vel_estimate_.at(i) = thrust_velocity;
-
-      bx0[13 + joint_num_ * 2 + motor_num_ + i] = thrust_velocity;
-    }
-  }
-  else
-  {
-    for (int i = 0; i < joint_num_; i++)
-      bx0[13 + joint_num_ + i] = 0.0;
-    for (int i = 0; i < motor_num_; i++)
-      bx0[13 + joint_num_ * 2 + motor_num_ + i] = 0.0;
-  }
+  /* Thrust velocity estimate */
+  // Measured on the ESCs and estimated to read time to compensate its age with the rate model and the command history
+  for (int i = 0; i < motor_num_; i++)
+    bx0[thrust_vel_start_idx_ + i] = thrust_rate_est_[i];
 
   return bx0;
 }
@@ -447,33 +326,76 @@ double TiltMtServoThrustDiffSecondOrderMPC::getCommand(int idx_u, double T_horiz
 
   // ------- OR -------
 
-  double uo_derivative = mpc_solver_ptr_->uo_.at(0).at(idx_u);
-  double tau  = (idx_u < motor_num_) ? t_rotor_ : t_servo_;
-  double meas = (idx_u < motor_num_) ? thrust_meas_[idx_u] : joint_angles_est_[idx_u - motor_num_];
+  // double uo_derivative = mpc_solver_ptr_->uo_.at(0).at(idx_u);
+  // double tau  = (idx_u < motor_num_) ? t_rotor_ : t_servo_;
+  // double meas = (idx_u < motor_num_) ? thrust_meas_[idx_u] : joint_angles_est_[idx_u - motor_num_];
 
-  // Blind integration realizes the planned rate exactly; the slow leak pins the command
-  // to the measurement-consistent lead (meas + tau*u_dot) so open-loop drift stays bounded.
-  const double T_leak = 0.4;  // s; must be >> tau - leaking at 1/tau halves the realized velocity
-  double uo = uo_prev_.at(idx_u) + uo_derivative * t_mpc_dt_;
-  uo += (t_mpc_dt_ / T_leak) * ((meas + tau * uo_derivative) - uo);
+  // // Blind integration realizes the planned rate exactly; the slow leak pins the command
+  // // to the measurement-consistent lead (meas + tau*u_dot) so open-loop drift stays bounded.
+  // const double T_leak = 0.4;  // s; must be >> tau - leaking at 1/tau halves the realized velocity
+  // double uo = uo_prev_.at(idx_u) + uo_derivative * t_mpc_dt_;
+  // uo += (t_mpc_dt_ / T_leak) * ((meas + tau * uo_derivative) - uo);
 
-  // -----------------
+  // // -----------------
 
-  // Clamp to constraints
+  // // Clamp to constraints
+  // if (idx_u < motor_num_)
+  // {
+  //   uo = std::clamp(uo, thrust_ctrl_min_, thrust_ctrl_max_);
+  // }
+  // else
+  // {
+  //   uo = std::clamp(uo, servo_angle_min_, servo_angle_max_);
+  // }
+
+  // ------- OR -------
+
+  // Integrated command with ZOH-exact hold:
+  // The actuator velocity model
+  //   tau * d(x_vel)/dt + x_vel = uo_vel
+  // is the derivative of the first-order actuator model
+  //   tau * dx/dt + x = x_cmd            (Note: dx/dt = x_vel and d(x_cmd)/dt = uo_vel)
+  // Therefore, the MPC integrates the optimized velocity to the command, i.e., the command ramp s (uo_prev_)
+  // advances by uo_vel * T_samp each control period.
+  // The command is held for one control period T_samp, so the ramp itself is not realized. Instead, the held command
+  //   uo_cmd = s + (lead - t) * uo_vel,
+  //   lead = T_samp / (1 - exp(-T_samp / t))
+  // moves the first-order actuator exactly as the model with the ramp over the period. This holds the ramp at about
+  // the middle of the period, whereas holding its end s + uo_vel * T_samp leads the model by ~(T_samp / 2).
+  // A slow leak pulls the ramp towards the estimated command x0 + tau * x_vel0 of the initial state of the MPC to avoid drift.
+  
+  // Get actuator position, velocity and command at the start of the horizon
+  double t_actuator, x0, x_vel0, x_min, x_max;
   if (idx_u < motor_num_)
   {
-    uo = std::clamp(uo, thrust_ctrl_min_, thrust_ctrl_max_);
+    t_actuator = t_rotor_;
+    x0 = mpc_solver_ptr_->xo_.at(0).at(thrust_start_idx_ + idx_u);
+    x_vel0 = mpc_solver_ptr_->xo_.at(0).at(thrust_vel_start_idx_ + idx_u);
+    x_min = thrust_ctrl_min_;
+    x_max = thrust_ctrl_max_;
   }
   else
   {
-    uo = std::clamp(uo, servo_angle_min_, servo_angle_max_);
+    t_actuator = t_servo_;
+    x0 = mpc_solver_ptr_->xo_.at(0).at(servo_start_idx_ + (idx_u - motor_num_));
+    x_vel0 = mpc_solver_ptr_->xo_.at(0).at(servo_vel_start_idx_ + (idx_u - motor_num_));
+    x_min = servo_angle_min_;
+    x_max = servo_angle_max_;
   }
+  const double uo_vel = mpc_solver_ptr_->uo_.at(0).at(idx_u);
 
-  if (!is_warmup_ && std::isfinite(uo))  // Only integrate valid commands
-  {
-    uo_prev_.at(idx_u) = uo;
-  }
-  return uo;
+  // Compute command that needs to be held to realize uo_vel over T_samp
+  const double lead = t_mpc_samp_ / (1.0 - std::exp(-t_mpc_samp_ / t_actuator));
+  const double uo_cmd = std::clamp(uo_prev_.at(idx_u) + (lead - t_actuator) * uo_vel, x_min, x_max);
+
+  // Advance the command ramp to the next control period with the leak towards the estimated command
+  const double T_leak = 0.4;  // in seconds; must be >> t_actuator, otherwise the leak reduces the realized velocity
+  double s_next = uo_prev_.at(idx_u) + uo_vel * t_mpc_dt_;
+  s_next += (t_mpc_dt_ / T_leak) * ((x0 + t_actuator * x_vel0) - s_next);
+  if (!is_warmup_ && std::isfinite(s_next))  // Only integrate valid commands
+    uo_prev_.at(idx_u) = std::clamp(s_next, x_min, x_max);
+
+  return uo_cmd;
 }
 
 /**

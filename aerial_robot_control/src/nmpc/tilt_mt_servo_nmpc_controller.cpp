@@ -63,11 +63,11 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
  */
 void nmpc::TiltMtServoNMPC::activate()
 {
-  /* Generic activation: warm-up flag, sanity checks, inertial parameters and flight state to spinal */
-  BaseMPC::activate();
-
   /* Initialize allocation matrix */
   initAllocMat();
+
+  /* Activate base class */
+  BaseMPC::activate();
 
   /* Initialize MPC parameters */
   initMPCPhysicalParams();
@@ -561,7 +561,10 @@ std::vector<double> nmpc::TiltMtServoNMPC::meas2VecX(bool is_ee_centric)
  */
 void nmpc::TiltMtServoNMPC::estimateJointStates()
 {
-  joint_estimator_.estimate(joint_states_time_, joint_angles_, gimbal_ctrl_cmd_.position, joint_angles_est_);
+  // The servo bias is only adapted while the commands are sent
+  bool adapt_servo_bias = !is_warmup_ && !has_triggered_force_landing_;
+  joint_estimator_.estimate(joint_states_time_, joint_angles_, gimbal_ctrl_cmd_.position, joint_angles_est_, nullptr,
+                            nullptr, adapt_servo_bias);
 }
 
 /**
@@ -612,7 +615,8 @@ void nmpc::TiltMtServoNMPC::controlCore()
     gimbal_ctrl_cmd_.header.stamp = ros::Time::now();
     for (int i = 0; i < joint_num_; i++)
     {
-      gimbal_ctrl_cmd_.position.at(i) = servo_cmd[i];
+      // Compensate the steady-state offset (bias) of the servo, so that it settles at the command of the MPC
+      gimbal_ctrl_cmd_.position.at(i) = servo_cmd[i] - joint_estimator_.getBias(i);
     }
   }
   else if (!is_valid)

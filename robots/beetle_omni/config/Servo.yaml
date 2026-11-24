@@ -28,6 +28,10 @@ servo_controller:
     # Sum = solver time (6.2 ms) + servo_bridge (~0.3 ms) + PC to spinal (~0.3 ms) + dead time (16~21 OR 23-27 ms depending on t_servo)
     delay_servo_cmd: 0.0246  # in seconds (optimal: 0.031)
 
+    # Time constant of the steady-state offset (bias) estimation for each servo
+    # Should be >> 1 to compensate static offsets; 0 to disable
+    t_servo_bias: 10.0  # in seconds
+
     # Gazebo: Effort PID on the gimbal joint with inertia J ~ 1.1e-3 kg m^2 (incl. the virtual thrust link) and joint damping
     # c = 0.8 Nms/rad (urdf). Step response J*a'' + (c + d)*a' + p*(a - a_cmd) = 0 has the time constant (c + d) / p,
     # so p = 60 matches t_servo = 15 ms (poles at 13.7 ms and 1.3 ms). Previously p = 5, i.e., 180 ms.

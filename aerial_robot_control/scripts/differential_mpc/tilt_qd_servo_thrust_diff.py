@@ -12,7 +12,6 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
     This file is used to define the properties of the controller, specifically, the weights and cost function for the acados solver.
     The output of the controller is the thrust and servo angle velocities for each arm.
     """
-
     def __init__(
         self,
         model_name: str = "tilt_qd_servo_thrust_diff_mdl",
@@ -98,14 +97,14 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
             # produced wrench. See NMPCTiltQdServoThrustDiffSecondOrder.get_cost_function for
             # details. In this first-order model the actuator velocities are the control
             # inputs themselves, so the residual lives in control_y (weights Rtd_c, Rad_c).
-            thrust_task_gain = self.params["nullspace_thrust_gain"]  # [1/s]
-            servo_task_gain = self.params["nullspace_servo_gain"]    # [1/s]
+            nullspace_thrust_gain = self.params["nullspace_thrust_gain"]  # [1/s]
+            nullspace_servo_gain = self.params["nullspace_servo_gain"]    # [1/s]
             thrust_target = 0.0
             servo_target = 0.0
             # Derived from first-order actuator dynamics: u_dot = (u_target - u) * gain
             velocity_target = ca.vertcat(
-                thrust_task_gain * (thrust_target - self.ft_s),
-                servo_task_gain * (servo_target - self.a_s),
+                nullspace_thrust_gain * (thrust_target - self.ft_s),
+                nullspace_servo_gain * (servo_target - self.a_s),
             )
             control_y = ca.simplify(
                 ca.vertcat(self.ftd_c, self.ad_c) - ca.mtimes(nullspace_proj, velocity_target)
@@ -156,12 +155,12 @@ class NMPCTiltQdServoThrustDiff(QDNMPCBase):
         xr[:, 0] = target_xyz[0]  # x
         xr[:, 1] = target_xyz[1]  # y
         xr[:, 2] = target_xyz[2]  # z
-        # No reference for vx, vy, vz (idx: 3, 4, 5)
+        # Zero reference for vx, vy, vz (idx: 3, 4, 5)
         xr[:, 6] = target_qwxyz[0]  # qx
         xr[:, 7] = target_qwxyz[1]  # qx
         xr[:, 8] = target_qwxyz[2]  # qy
         xr[:, 9] = target_qwxyz[3]  # qz
-        # No reference for wx, wy, wz (idx: 10, 11, 12)
+        # Zero reference for wx, wy, wz (idx: 10, 11, 12)
         xr[:, self.servo_start_idx] = a_ref[0]  # TODO: The servo reference is ill defined and therefore should be avoided at all
         xr[:, self.servo_start_idx + 1] = a_ref[1]
         xr[:, self.servo_start_idx + 2] = a_ref[2]

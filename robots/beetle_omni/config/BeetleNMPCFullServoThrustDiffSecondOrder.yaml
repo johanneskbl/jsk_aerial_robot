@@ -50,9 +50,9 @@ controller:
     Qq_z: 600
     Qw_xy: 5
     Qw_z: 5
-    Qa: 0.0 #  NEEDS TO BE ZERO FOR NULLSPACE CONTROL! 0.1
+    Qa: 1.0  # NEEDS TO BE ZERO FOR NULLSPACE CONTROL!
     Qad: 1
-    Qt: 0.1 # NEEDS TO BE ZERO FOR NULLSPACE CONTROL! 0.1
+    Qt: 2.0  # NEEDS TO BE ZERO FOR NULLSPACE CONTROL!
     Qtd: 0.001
     Qfu: 0.01 # Generated body force
     Qtau: 0.001 # Generated body torque
@@ -63,8 +63,8 @@ controller:
     # Nullspace control:
     # rate [1/s] at which the actuators are pulled toward their rest values (servo angle 0,
     # thrust 0) within the nullspace of the Jacobian
-    nullspace_servo_gain: 3.0  # [1/s]
-    nullspace_thrust_gain: 1.0  # [1/s]
+    nullspace_servo_gain: 0.0 # 3.0  # [1/s]
+    nullspace_thrust_gain: 0.0 # 1.0  # [1/s]
 
     # Slack constraint weights
     linear_slack_weight: 10

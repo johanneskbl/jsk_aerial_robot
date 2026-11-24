@@ -75,9 +75,6 @@ protected:
   void allocateToXU(const tf::Vector3& ref_pos_w, const tf::Vector3& ref_vel_w, const tf::Quaternion& ref_quat_wt,
                     const tf::Vector3& ref_omega_t, const Eigen::VectorXd& ref_wrench_b, std::vector<double>& x,
                     std::vector<double>& u) override;
-  void allocateToXUwOneFixedRotor(int fix_rotor_idx, double fix_ft, double fix_alpha,
-                                  const Eigen::VectorXd& ref_wrench_b, std::vector<double>& x,
-                                  std::vector<double>& u) override;
 
   /* Callback methods */
   void callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg);
