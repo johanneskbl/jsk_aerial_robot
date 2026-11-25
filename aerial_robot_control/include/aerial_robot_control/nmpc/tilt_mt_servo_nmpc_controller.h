@@ -142,7 +142,8 @@ protected:
   void controlCore() override;
   void sendCmd() override;
   void publishRecording() override;
-  void populateRecordingMsgs(aerial_robot_msgs::MPCTrajectory& ref_msg, aerial_robot_msgs::MPCTrajectory& pred_msg);
+  virtual void populateRecordingMsgs(aerial_robot_msgs::MPCTrajectory& ref_msg,
+                                     aerial_robot_msgs::MPCTrajectory& pred_msg);
   void modifyVelConstraints(double vel_min, double vel_max) const;
 
   /* Control methods */

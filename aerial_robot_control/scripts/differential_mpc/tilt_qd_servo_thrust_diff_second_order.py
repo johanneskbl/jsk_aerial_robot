@@ -18,7 +18,7 @@ class NMPCTiltQdServoThrustDiffSecondOrder(QDNMPCBase):
         method: str = "differential_mpc",
         build: bool = True,
         phys=phys_jetson,
-        include_cog_dist_parameter=False,
+        include_cog_dist_parameter=True,  # I-term for model error
         include_motor_noise_parameter=False,
         include_soft_constraints=True,
         include_quaternion_constraint=False,

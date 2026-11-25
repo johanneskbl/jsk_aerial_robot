@@ -8,9 +8,12 @@ void TiltMtServoThrustDiffSecondOrderMPC::initActuatorStates()
 {
   TiltMtServoThrustDiffMPC::initActuatorStates();
 
-  /* Initialize joint velocity */
+  /* Initialize joint velocity, thrust rate and command integrator */
   joint_vel_meas_.resize(joint_num_, 0.0);
   joint_vel_est_.resize(joint_num_, 0.0);
+  thrust_rate_meas_.resize(motor_num_, 0.0);
+  thrust_rate_est_.resize(motor_num_, 0.0);
+  uo_prev_ = std::vector<double>(motor_num_ + joint_num_, 0.0);
 
   // Override starting indices for this controller's state-space
   servo_start_idx_ = 13;
@@ -255,6 +258,14 @@ void TiltMtServoThrustDiffSecondOrderMPC::callbackJointStates(const sensor_msgs:
 }
 
 /**
+ * @brief Update the measured thrust (clamped to >= 0) and its rate from the valid frames of the ESC telemetry
+ */
+void TiltMtServoThrustDiffSecondOrderMPC::callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg)
+{
+  esc_telem_.update(*msg, thrust_meas_, crc_errors_, &thrust_rate_meas_);
+}
+
+/**
  * @brief Estimate the servo angle AND velocity at the actuation time of the next command
  * NOTE: Overrides the angle-only estimation of TiltMtServoNMPC
  */
@@ -264,6 +275,17 @@ void TiltMtServoThrustDiffSecondOrderMPC::estimateJointStates()
   bool adapt_servo_bias = !is_warmup_ && !has_triggered_force_landing_;
   joint_estimator_.estimate(joint_states_time_, joint_angles_, gimbal_ctrl_cmd_.position, joint_angles_est_,
                             &joint_vel_meas_, &joint_vel_est_, adapt_servo_bias);
+}
+
+/**
+ * @brief Estimate the thrust AND thrust rate at the actuation time of the next command
+ * NOTE: Overrides the thrust-only estimation of TiltMtServoThrustDistNMPC
+ */
+void TiltMtServoThrustDiffSecondOrderMPC::estimateThrust()
+{
+  esc_telem_.checkAlive();  // Only logging
+  thrust_estimator_.estimate(esc_telem_, thrust_meas_, flight_cmd_.base_thrust, thrust_est_, &thrust_rate_meas_,
+                             &thrust_rate_est_);
 }
 
 std::vector<double> TiltMtServoThrustDiffSecondOrderMPC::meas2VecX(bool is_ee_centric)
@@ -399,338 +421,52 @@ double TiltMtServoThrustDiffSecondOrderMPC::getCommand(int idx_u, double T_horiz
 }
 
 /**
- * @brief Publish the predicted and reference trajectory with full state and controls
+ * @brief Populate the recording including the actuator velocity states
  */
-void TiltMtServoThrustDiffSecondOrderMPC::publishRecording()
+void TiltMtServoThrustDiffSecondOrderMPC::populateRecordingMsgs(aerial_robot_msgs::MPCTrajectory& ref_msg,
+                                                                aerial_robot_msgs::MPCTrajectory& pred_msg)
 {
-  // int& NN = mpc_solver_ptr_->NN_;
-  int NN = 1;  // Only for next prediction to avoid high runtime overhead
-  auto stamp = ros::Time::now();
+  TiltMtServoThrustDiffMPC::populateRecordingMsgs(ref_msg, pred_msg);
 
-  // Publish reference states
-  aerial_robot_msgs::MPCTrajectory ref_msg;
-  ref_msg.header.frame_id = "world";
-  ref_msg.header.stamp = stamp;
-  ref_msg.states.resize(NN + 1);
-  ref_msg.controls.resize(NN);
-
-  for (int i = 0; i <= NN; ++i)
+  /* Append servo angle velocity and thrust velocity states */
+  for (int i = 0; i < static_cast<int>(ref_msg.states.size()); ++i)
   {
     const std::vector<double>& xr = mpc_solver_ptr_->xr_[i];
-    tf::Vector3 pos(xr[0], xr[1], xr[2]);
-    tf::Vector3 vel(xr[3], xr[4], xr[5]);
-    tf::Quaternion quat(xr[7], xr[8], xr[9], xr[6]);  // (x, y, z, w)
-    tf::Vector3 omega(xr[10], xr[11], xr[12]);
-
-    // Map the reference from the Tracking frame back to the Body frame to match the predicted states
-    // (only for the recording)
-    convertFromTToB(pos, vel, quat, omega, pos, vel, quat, omega);
-
-    // Position
-    ref_msg.states[i].position.x = pos.x();
-    ref_msg.states[i].position.y = pos.y();
-    ref_msg.states[i].position.z = pos.z();
-
-    // Linear velocity
-    ref_msg.states[i].linear_velocity.x = vel.x();
-    ref_msg.states[i].linear_velocity.y = vel.y();
-    ref_msg.states[i].linear_velocity.z = vel.z();
-
-    // Quaternion
-    ref_msg.states[i].orientation.w = quat.w();
-    ref_msg.states[i].orientation.x = quat.x();
-    ref_msg.states[i].orientation.y = quat.y();
-    ref_msg.states[i].orientation.z = quat.z();
-
-    // Angular velocity
-    ref_msg.states[i].angular_velocity.x = omega.x();
-    ref_msg.states[i].angular_velocity.y = omega.y();
-    ref_msg.states[i].angular_velocity.z = omega.z();
-    
-    // Servo angle state
-    ref_msg.states[i].servo_angles.resize(joint_num_);
-    for (int j = 0; j < joint_num_; ++j)
-    {
-      ref_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xr_[i][servo_start_idx_ + j];
-    }
-
-    // Servo angle velocity state
-    ref_msg.states[i].servo_angle_velocity.resize(joint_num_);
-    for (int j = 0; j < joint_num_; ++j)
-    {
-      ref_msg.states[i].servo_angle_velocity[j] = mpc_solver_ptr_->xr_[i][servo_vel_start_idx_ + j];
-    }
-
-    // Thrust state
-    ref_msg.states[i].thrust.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
-    {
-      ref_msg.states[i].thrust[j] = mpc_solver_ptr_->xr_[i][thrust_start_idx_ + j];
-    }
-
-    // Thrust velocity state
-    ref_msg.states[i].thrust_velocity.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
-    {
-      ref_msg.states[i].thrust_velocity[j] = mpc_solver_ptr_->xr_[i][thrust_vel_start_idx_ + j];
-    }
-
-    // Wrench state
-    if (hasWrenchState())
-    {
-      ref_msg.states[i].wrench_forces.x = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 0];
-      ref_msg.states[i].wrench_forces.y = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 1];
-      ref_msg.states[i].wrench_forces.z = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 2];
-      ref_msg.states[i].wrench_torques.x = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 3];
-      ref_msg.states[i].wrench_torques.y = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 4];
-      ref_msg.states[i].wrench_torques.z = mpc_solver_ptr_->xr_[i][wrench_state_start_idx_ + 5];
-    }
+    const std::vector<double>& xo = mpc_solver_ptr_->xo_[i];
+    ref_msg.states[i].servo_angle_velocity.assign(xr.begin() + servo_vel_start_idx_,
+                                                  xr.begin() + servo_vel_start_idx_ + joint_num_);
+    pred_msg.states[i].servo_angle_velocity.assign(xo.begin() + servo_vel_start_idx_,
+                                                   xo.begin() + servo_vel_start_idx_ + joint_num_);
+    ref_msg.states[i].thrust_velocity.assign(xr.begin() + thrust_vel_start_idx_,
+                                             xr.begin() + thrust_vel_start_idx_ + motor_num_);
+    pred_msg.states[i].thrust_velocity.assign(xo.begin() + thrust_vel_start_idx_,
+                                              xo.begin() + thrust_vel_start_idx_ + motor_num_);
   }
-
-  for (int i = 0; i < NN; ++i)
-  {
-    // Thrust commands
-    ref_msg.controls[i].thrust_cmd.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
-    {
-      ref_msg.controls[i].thrust_cmd[j] = mpc_solver_ptr_->ur_[i][j];
-    }
-
-    // Servo angle commands
-    ref_msg.controls[i].servo_angle_cmd.resize(joint_num_);
-    for (int j = 0; j < joint_num_; ++j)
-    {
-      ref_msg.controls[i].servo_angle_cmd[j] = mpc_solver_ptr_->ur_[i][j+motor_num_];
-    }
-  }
-  pub_record_ref_.publish(ref_msg);
-
-  // Predicted states
-  aerial_robot_msgs::MPCTrajectory pred_msg;
-  pred_msg.header.frame_id = "world";
-  pred_msg.header.stamp = stamp;
-  pred_msg.states.resize(NN + 1);
-  pred_msg.controls.resize(NN);
-
-  for (int i = 0; i <= NN; ++i)
-  {
-    // Position
-    pred_msg.states[i].position.x = mpc_solver_ptr_->xo_[i][0];
-    pred_msg.states[i].position.y = mpc_solver_ptr_->xo_[i][1];
-    pred_msg.states[i].position.z = mpc_solver_ptr_->xo_[i][2];
-    
-    // Linear velocity
-    pred_msg.states[i].linear_velocity.x = mpc_solver_ptr_->xo_[i][3];
-    pred_msg.states[i].linear_velocity.y = mpc_solver_ptr_->xo_[i][4];
-    pred_msg.states[i].linear_velocity.z = mpc_solver_ptr_->xo_[i][5];
-    
-    // Quaternion
-    pred_msg.states[i].orientation.w = mpc_solver_ptr_->xo_[i][6];
-    pred_msg.states[i].orientation.x = mpc_solver_ptr_->xo_[i][7];
-    pred_msg.states[i].orientation.y = mpc_solver_ptr_->xo_[i][8];
-    pred_msg.states[i].orientation.z = mpc_solver_ptr_->xo_[i][9];
-    
-    // Angular velocity
-    pred_msg.states[i].angular_velocity.x = mpc_solver_ptr_->xo_[i][10];
-    pred_msg.states[i].angular_velocity.y = mpc_solver_ptr_->xo_[i][11];
-    pred_msg.states[i].angular_velocity.z = mpc_solver_ptr_->xo_[i][12];
-    
-    // Servo angle state
-    pred_msg.states[i].servo_angles.resize(joint_num_);
-    for (int j = 0; j < joint_num_; ++j)
-    {
-      pred_msg.states[i].servo_angles[j] = mpc_solver_ptr_->xo_[i][servo_start_idx_ + j];
-    }
-
-    // Servo angle velocity state
-    pred_msg.states[i].servo_angle_velocity.resize(joint_num_);
-    for (int j = 0; j < joint_num_; ++j)
-    {
-      pred_msg.states[i].servo_angle_velocity[j] = mpc_solver_ptr_->xo_[i][servo_vel_start_idx_ + j];
-    }
-
-    // Thrust state
-    pred_msg.states[i].thrust.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
-    {
-      pred_msg.states[i].thrust[j] = mpc_solver_ptr_->xo_[i][thrust_start_idx_ + j];
-    }
-
-    // Thrust velocity state
-    pred_msg.states[i].thrust_velocity.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
-    {
-      pred_msg.states[i].thrust_velocity[j] = mpc_solver_ptr_->xo_[i][thrust_vel_start_idx_ + j];
-    }
-
-    // Wrench state
-    if (hasWrenchState())
-    {
-      pred_msg.states[i].wrench_forces.x = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 0];
-      pred_msg.states[i].wrench_forces.y = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 1];
-      pred_msg.states[i].wrench_forces.z = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 2];
-      pred_msg.states[i].wrench_torques.x = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 3];
-      pred_msg.states[i].wrench_torques.y = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 4];
-      pred_msg.states[i].wrench_torques.z = mpc_solver_ptr_->xo_[i][wrench_state_start_idx_ + 5];
-    }
-  }
-  
-  for (int i = 0; i < NN; ++i)
-  {
-    // Thrust velocity control outputs
-    pred_msg.controls[i].thrust_velocity_uo.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
-    {
-      pred_msg.controls[i].thrust_velocity_uo[j] = mpc_solver_ptr_->uo_[i][j];
-    }
-
-    // Thrust commands (integrated in getCommand())
-    pred_msg.controls[i].thrust_cmd.resize(motor_num_);
-    for (int j = 0; j < motor_num_; ++j)
-    {
-      pred_msg.controls[i].thrust_cmd[j] = flight_cmd_.base_thrust[j];
-    }
-
-    // Servo angle velocity control outputs
-    pred_msg.controls[i].servo_angle_velocity_uo.resize(joint_num_);
-    for (int j = 0; j < joint_num_; ++j)
-    {
-      pred_msg.controls[i].servo_angle_velocity_uo[j] = mpc_solver_ptr_->uo_[i][j+motor_num_];
-    }
-
-    // Servo angle commands (integrated in getCommand())
-    pred_msg.controls[i].servo_angle_cmd.resize(joint_num_);
-    for (int j = 0; j < joint_num_; ++j)
-    {
-      pred_msg.controls[i].servo_angle_cmd[j] = gimbal_ctrl_cmd_.position[j];
-    }
-  }
-  pub_record_pred_.publish(pred_msg);
 }
 
 void TiltMtServoThrustDiffSecondOrderMPC::callbackMPCcfg(aerial_robot_control::NMPCConfig& config, uint32_t level)
 {
   using Levels = aerial_robot_msgs::DynamicReconfigureLevels;
-  if (config.nmpc_flag)
-  {
-    try
-    {
-      switch (level)
-      {
-        case Levels::RECONFIGURE_NMPC_Q_P_XY: {
-          mpc_solver_ptr_->setCostWDiagElement(0, config.Qp_xy);
-          mpc_solver_ptr_->setCostWDiagElement(1, config.Qp_xy);
+  if (!config.nmpc_flag)
+    return;
 
-          ROS_INFO_STREAM("change Qp_xy for NMPC '" << config.Qp_xy << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_P_Z: {
-          mpc_solver_ptr_->setCostWDiagElement(2, config.Qp_z);
-          ROS_INFO_STREAM("change Qp_z for NMPC '" << config.Qp_z << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_V_XY: {
-          mpc_solver_ptr_->setCostWDiagElement(3, config.Qv_xy);
-          mpc_solver_ptr_->setCostWDiagElement(4, config.Qv_xy);
-          ROS_INFO_STREAM("change Qv_xy for NMPC '" << config.Qv_xy << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_V_Z: {
-          mpc_solver_ptr_->setCostWDiagElement(5, config.Qv_z);
-          ROS_INFO_STREAM("change Qv_z for NMPC '" << config.Qv_z << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_Q_XY: {
-          mpc_solver_ptr_->setCostWDiagElement(7, config.Qq_xy);
-          mpc_solver_ptr_->setCostWDiagElement(8, config.Qq_xy);
-          ROS_INFO_STREAM("change Qq_xy for NMPC '" << config.Qq_xy << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_Q_Z: {
-          mpc_solver_ptr_->setCostWDiagElement(9, config.Qq_z);
-          ROS_INFO_STREAM("change Qq_z for NMPC '" << config.Qq_z << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_W_XY: {
-          mpc_solver_ptr_->setCostWDiagElement(10, config.Qw_xy);
-          mpc_solver_ptr_->setCostWDiagElement(11, config.Qw_xy);
-          ROS_INFO_STREAM("change Qw_xy for NMPC '" << config.Qw_xy << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_W_Z: {
-          mpc_solver_ptr_->setCostWDiagElement(12, config.Qw_z);
-          ROS_INFO_STREAM("change Qw_z for NMPC '" << config.Qw_z << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_A: {
-          for (int i = servo_start_idx_; i < servo_start_idx_ + joint_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Qa);
-          ROS_INFO_STREAM("change Qa for NMPC '" << config.Qa << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_AD: {
-          for (int i = servo_vel_start_idx_; i < servo_vel_start_idx_ + joint_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Qad);
-          ROS_INFO_STREAM("change Qad for NMPC '" << config.Qad << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_T: {
-          for (int i = thrust_start_idx_; i < thrust_start_idx_ + motor_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Qt);
-          ROS_INFO_STREAM("change Qt for NMPC '" << config.Qt << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_TD: {
-          for (int i = thrust_vel_start_idx_; i < thrust_vel_start_idx_ + motor_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Qtd);
-          ROS_INFO_STREAM("change Qtd for NMPC '" << config.Qtd << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_FU: {
-          if (!hasWrenchState())
-          {
-            ROS_WARN_STREAM("The MPC model has no wrench state, Qfu is not changed!");
-            break;
-          }
-          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 0, config.Qfu);
-          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 1, config.Qfu);
-          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 2, config.Qfu);
-          ROS_INFO_STREAM("change Qfu for NMPC '" << config.Qfu << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_Q_TAU: {
-          if (!hasWrenchState())
-          {
-            ROS_WARN_STREAM("The MPC model has no wrench state, Qtau is not changed!");
-            break;
-          }
-          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 3, config.Qtau);
-          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 4, config.Qtau);
-          mpc_solver_ptr_->setCostWDiagElement(wrench_state_start_idx_ + 5, config.Qtau);
-          ROS_INFO_STREAM("change Qtau for NMPC '" << config.Qtau << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_R_TD_C: {
-          for (int i = mpc_solver_ptr_->NX_; i < mpc_solver_ptr_->NX_ + motor_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Rtd_c, false);
-          ROS_INFO_STREAM("change Rtd_c for NMPC '" << config.Rtd_c << "'");
-          break;
-        }
-        case Levels::RECONFIGURE_NMPC_R_AD_C: {
-          for (int i = mpc_solver_ptr_->NX_ + motor_num_; i < mpc_solver_ptr_->NX_ + motor_num_ + joint_num_; ++i)
-            mpc_solver_ptr_->setCostWDiagElement(i, config.Rad_c, false);
-          ROS_INFO_STREAM("change Rad_c for NMPC '" << config.Rad_c << "'");
-          break;
-        }
-        default: {
-          ROS_INFO_STREAM("The setting variable is not in the list!");
-          break;
-        }
-      }
+  switch (level)
+  {
+    case Levels::RECONFIGURE_NMPC_Q_AD: {
+      for (int i = servo_vel_start_idx_; i < servo_vel_start_idx_ + joint_num_; ++i)
+        mpc_solver_ptr_->setCostWDiagElement(i, config.Qad);
+      ROS_INFO_STREAM("change Qad for NMPC '" << config.Qad << "'");
+      break;
     }
-    catch (std::invalid_argument& e)
-    {
-      ROS_ERROR_STREAM("NMPC config failed: " << e.what());
+    case Levels::RECONFIGURE_NMPC_Q_TD: {
+      for (int i = thrust_vel_start_idx_; i < thrust_vel_start_idx_ + motor_num_; ++i)
+        mpc_solver_ptr_->setCostWDiagElement(i, config.Qtd);
+      ROS_INFO_STREAM("change Qtd for NMPC '" << config.Qtd << "'");
+      break;
+    }
+    default: {
+      TiltMtServoThrustDiffMPC::callbackMPCcfg(config, level);
+      break;
     }
   }
 }

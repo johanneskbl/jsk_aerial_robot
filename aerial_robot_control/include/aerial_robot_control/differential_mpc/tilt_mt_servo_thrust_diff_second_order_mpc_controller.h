@@ -19,8 +19,14 @@ namespace nmpc
 class TiltMtServoThrustDiffSecondOrderMPC : public TiltMtServoThrustDiffMPC
 {
 protected:
-  std::vector<double> joint_vel_meas_;  // from the velocity estimation on spinal
+  std::vector<double> thrust_rate_meas_;  // from the rpm rate estimated on the ESC
+  std::vector<double> thrust_rate_est_;
+  std::vector<double> joint_vel_meas_;    // from the velocity estimation on spinal
   std::vector<double> joint_vel_est_;
+
+  int servo_vel_start_idx_;
+  int thrust_vel_start_idx_;
+  std::vector<double> uo_prev_;  // Previous optimal input (for command integration)
 
   /* Initialization methods */
   void initActuatorStates() override;
@@ -32,10 +38,12 @@ protected:
 
   /* Update methods */
   double getCommand(int idx_u, double T_horizon) override;
-  void publishRecording() override;
+  void populateRecordingMsgs(aerial_robot_msgs::MPCTrajectory& ref_msg,
+                             aerial_robot_msgs::MPCTrajectory& pred_msg) override;
 
   /* State methods */
   void estimateJointStates() override;
+  void estimateThrust() override;
   using TiltMtServoThrustDiffMPC::meas2VecX;
   std::vector<double> meas2VecX(bool is_ee_centric) override;
 
@@ -46,6 +54,7 @@ protected:
 
   /* Callback methods */
   void callbackJointStates(const sensor_msgs::JointStateConstPtr& msg) override;
+  void callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg) override;
   void callbackMPCcfg(NMPCConfig& config, uint32_t level) override;
 };
 

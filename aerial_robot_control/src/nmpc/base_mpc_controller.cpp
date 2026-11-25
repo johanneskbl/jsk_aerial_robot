@@ -63,7 +63,7 @@ void nmpc::BaseMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   srv_set_control_mode_ = nh_.serviceClient<spinal::SetControlMode>("set_control_mode");
 
   /* Timers */
-  tmr_viz_ = nh_.createTimer(ros::Duration(0.05), &BaseMPC::callbackViz, this);
+  tmr_viz_ = nh_.createTimer(ros::Duration(0.1), &BaseMPC::callbackViz, this);
   t_mpc_timestep_ = t_mpc_prev_timestep_ = ros::Time::now().toSec();
 }
 

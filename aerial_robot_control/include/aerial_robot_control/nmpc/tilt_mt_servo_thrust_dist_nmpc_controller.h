@@ -45,6 +45,7 @@ protected:
   void initMPCConstraints() override;
 
   /* State methods */
+  virtual void estimateThrust();
   using TiltMtServoDistNMPC::meas2VecX;
   std::vector<double> meas2VecX(bool is_ee_centric) override;
 
@@ -57,7 +58,7 @@ protected:
                     std::vector<double>& u) override;
 
   /* Callback methods */
-  void callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg);
+  virtual void callbackESCTelem(const spinal::ESCTelemetryArrayConstPtr& msg);
   void callbackMPCcfg(NMPCConfig& config, uint32_t level) override;
 };
 

@@ -88,7 +88,7 @@ protected:
   double t_mpc_prev_timestep_;
 
   // Recording
-  double record_rate_ = 5.0;  // Publishing rate of the recording in Hz
+  double record_rate_ = 50.0;  // Publishing rate of the recording in Hz
   double t_stamp_record_;
   double t_last_record_ = 0.0;
 

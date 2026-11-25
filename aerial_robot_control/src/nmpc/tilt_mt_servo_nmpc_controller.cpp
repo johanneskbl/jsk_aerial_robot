@@ -1218,7 +1218,8 @@ void nmpc::TiltMtServoNMPC::publishRecording()
 void nmpc::TiltMtServoNMPC::populateRecordingMsgs(aerial_robot_msgs::MPCTrajectory& ref_msg,
                                                 aerial_robot_msgs::MPCTrajectory& pred_msg)
 {
-  int& NN = mpc_solver_ptr_->NN_;
+  // int& NN = mpc_solver_ptr_->NN_;
+  int NN = 3; // temp lower to reduce rosbag size
   ros::Time stamp = ros::Time::now();
 
   // Reference states

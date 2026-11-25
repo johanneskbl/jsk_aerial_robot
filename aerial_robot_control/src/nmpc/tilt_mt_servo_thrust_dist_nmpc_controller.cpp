@@ -188,6 +188,16 @@ void nmpc::TiltMtServoThrustDistNMPC::allocateToXU(const tf::Vector3& ref_pos_w,
   }
 }
 
+/**
+ * @brief Estimate the thrust at the actuation time of the next command
+ * NOTE: Call only once per meas2VecX() since each call appends the last command to the command history
+ */
+void nmpc::TiltMtServoThrustDistNMPC::estimateThrust()
+{
+  esc_telem_.checkAlive();  // Only logging
+  thrust_estimator_.estimate(esc_telem_, thrust_meas_, flight_cmd_.base_thrust, thrust_est_);
+}
+
 std::vector<double> nmpc::TiltMtServoThrustDistNMPC::meas2VecX(bool is_ee_centric)
 {
   /* Disturbance rejection */
@@ -203,8 +213,7 @@ std::vector<double> nmpc::TiltMtServoThrustDistNMPC::meas2VecX(bool is_ee_centri
   // NOTE: Skip TiltMtServoDistNMPC::meas2VecX() since the thrust states come before the external wrench states
   auto bx0 = TiltMtServoNMPC::meas2VecX(is_ee_centric);
 
-  esc_telem_.checkAlive();  // Only logging
-  thrust_estimator_.estimate(esc_telem_, thrust_meas_, flight_cmd_.base_thrust, thrust_est_);
+  estimateThrust();
   for (int i = 0; i < motor_num_; i++)
     bx0[13 + joint_num_ + i] = thrust_est_[i];
 
