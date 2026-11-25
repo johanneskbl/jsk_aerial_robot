@@ -276,6 +276,28 @@ void TiltMtServoThrustDiffMPC::computeInternalWrenchB()
   internal_wrench_b_ = alloc_mat_ * allocation_matrix_input;
 }
 
+/**
+ * @brief Main control loop with a regularized solver during warm-up
+ * During warm-up (ARM_ON) the commands are not sent, so the solver iterates on the same problem every control period
+ * (robot on the ground, takeoff reference). On it, the full Gauss-Newton steps of SQP-RTI alternate between two
+ * iterates, e.g., in the servo plan. The Levenberg-Marquardt term damps the steps such that the iterate converges and
+ * is a good warm start for the takeoff. After warm-up it is zero, i.e., the full steps are used.
+ */
+void TiltMtServoThrustDiffMPC::controlCore()
+{
+  if (is_warmup_)
+  {
+    const double levenberg_marquardt_warmup = 10.0;  // converges for 3 - 100 in simulation
+    mpc_solver_ptr_->setLevenbergMarquardt(levenberg_marquardt_warmup);
+  }
+  else
+  {
+    mpc_solver_ptr_->setLevenbergMarquardt(0.0);
+  }
+
+  TiltMtServoThrustDistNMPC::controlCore();
+}
+
 double TiltMtServoThrustDiffMPC::getCommand(int idx_u, double T_horizon)
 {
   // ZOH-exact lead:

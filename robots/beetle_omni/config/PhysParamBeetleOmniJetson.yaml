@@ -1,5 +1,6 @@
 physical:  # with original ball and battery
-  mass: 3.146  # kg
+  # mass: 3.146  # kg
+  mass: 3.300  # WITH CABLE
   gravity: 9.798  #9.80665 # m/s^2   Tokyo 9.798; in sim: 9.80665
   inertia_diag: [0.0627958, 0.0620796, 0.0948795]  # kg m^2
   dr1: 1  # direction of motor 1

@@ -46,6 +46,7 @@ protected:
   void computeInternalWrenchB();
 
   /* Update methods */
+  void controlCore() override;
   double getCommand(int idx_u, double T_horizon) override;
   void publishRecording() override;
   void populateRecordingMsgs(aerial_robot_msgs::MPCTrajectory& ref_msg,

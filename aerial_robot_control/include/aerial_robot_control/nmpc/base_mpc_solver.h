@@ -153,6 +153,13 @@ public:
     ocp_nlp_solver_opts_set(nlp_config_, nlp_opts_, "rti_phase", &rti_phase);
   }
 
+  void setLevenbergMarquardt(double levenberg_marquardt = 0.0)  // Regularization of the Hessian, (0) off.
+  {
+    // This is a setting to dampen the solver steps and therefore avoid jitter (especially during arming)
+    // Levenberg-Marquardt damping adds μ·I to the Hessian of every QP. Each step gets shorter, mostly in directions with little curvature.
+    ocp_nlp_solver_opts_set(nlp_config_, nlp_opts_, "levenberg_marquardt", &levenberg_marquardt);
+  }
+
   void setParamSparseOneStage(int stage, std::vector<int>& idx, std::vector<double>& p, bool if_check_len = true)
   {
     if (if_check_len)
