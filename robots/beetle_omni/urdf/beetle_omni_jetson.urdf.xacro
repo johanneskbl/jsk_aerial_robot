@@ -9,7 +9,8 @@
     <link name="main_body">
       <inertial>
         <origin xyz="0.00000847 0.00023741 0.01491666" rpy="0 0 0"/>
-        <mass value="2.38432"/>  <!-- new main link = 3.146(measurement with ball) - (0.15944×4+0.005×4+0.1030(ball)) -->
+        <!-- <mass value="2.38432"/>  new main link = 3.146(measurement with ball) - (0.15944×4+0.005×4+0.1030(ball)) -->
+        <mass value="2.53"/>  <!-- new main link = 3.3 (measurement with brush and cables) - (0.15944×4+0.005×4+0.10(brush)) -->
         <inertia
             ixx="0.02747704" iyy="0.02676088" izz="0.04047304"
             ixy="-0.00000599" ixz="0.00009626" iyz="0.00006750"/>
@@ -214,10 +215,11 @@
     <!-- Tool geometry -->
     <link name="fork">
       <inertial>
-        <origin xyz="0.00000000 0.06681059 -0.00005783" rpy="0 0 0"/>
+        <!-- CAD mass properties (tool axis = CAD +y) rotated into the link frame like the mesh: (x, y, z) = (-z_cad, -x_cad, y_cad) -->
+        <origin xyz="0.00005783 0.00000000 0.06681059" rpy="0 0 0"/>
         <mass value="0.140"/>
         <inertia
-                ixx="0.00040632" iyy="0.00053824" izz="0.00040617"
+                ixx="0.00040617" iyy="0.00040632" izz="0.00053824"
                 ixy="0.00000000" ixz="0.00000000" iyz="0.00000000"/>
       </inertial>
       <visual>
@@ -246,10 +248,11 @@
   <xacro:if value="${end_effector == 'ball'}">
     <link name="ball">
       <inertial>
-        <origin xyz="0.00000000 0.08052689 0.00000000" rpy="0 0 0"/>
+        <!-- CAD mass properties (tool axis = CAD +y) rotated into the link frame like the mesh: (x, y, z) = (-z_cad, -x_cad, y_cad) -->
+        <origin xyz="0.00000000 0.00000000 0.08052689" rpy="0 0 0"/>
         <mass value="0.1030"/>
         <inertia
-                ixx="0.00020646" iyy="0.00008167" izz="0.00020646"
+                ixx="0.00020646" iyy="0.00020646" izz="0.00008167"
                 ixy="0.00000000" ixz="0.00000000" iyz="0.00000000"/>
       </inertial>
       <visual>
@@ -302,10 +305,11 @@
     <link name="ball">
       <!-- (same as plain ball) -->
       <inertial>
-        <origin xyz="0.00000000 0.08052689 0.00000000" rpy="0 0 0"/>
+        <!-- CAD mass properties (tool axis = CAD +y) rotated into the link frame like the mesh: (x, y, z) = (-z_cad, -x_cad, y_cad) -->
+        <origin xyz="0.00000000 0.00000000 0.08052689" rpy="0 0 0"/>
         <mass value="0.1030"/>
         <inertia
-                ixx="0.00020646" iyy="0.00008167" izz="0.00020646"
+                ixx="0.00020646" iyy="0.00020646" izz="0.00008167"
                 ixy="0.00000000" ixz="0.00000000" iyz="0.00000000"/>
       </inertial>
       <visual>
@@ -333,10 +337,11 @@
   <xacro:if value="${end_effector == 'brush'}">
     <link name="brush">
       <inertial>
-        <origin xyz="0.00000000 0.06565796 -0.00001172" rpy="0 0 0"/>
+        <!-- CAD mass properties (tool axis = CAD +y) rotated into the link frame like the mesh: (x, y, z) = (-z_cad, -x_cad, y_cad) -->
+        <origin xyz="0.00001172 0.00000000 0.06565796" rpy="0 0 0"/>
         <mass value="0.100"/>
         <inertia
-                ixx="0.00019687" iyy="0.00013173" izz="0.00019689"
+                ixx="0.00019689" iyy="0.00019687" izz="0.00013173"
                 ixy="0.00000000" ixz="0.00000000" iyz="0.00000000"/>
       </inertial>
       <visual>
