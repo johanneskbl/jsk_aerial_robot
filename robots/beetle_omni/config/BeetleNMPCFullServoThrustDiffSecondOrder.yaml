@@ -11,6 +11,12 @@ controller:
     T_horizon: 2.0  # seconds
     T_step: 0.1  # seconds
 
+    # Non-uniform grid: N_steps_short short shooting intervals of T_step_short and one interval with the rest of T_step
+    # replace the first interval of T_step (here 5 x 10 ms + 50 ms + 19 x 100 ms). 0 for a uniform grid.
+    # Need rebuild after changing it! Read by the Python generation, the C++ controller takes the grid from the solver
+    N_steps_short: 5
+    T_step_short: 0.01  # seconds
+
     # Frame tracked by the MPC cost
     # Need rebuild after changing it! Read by both the Python generation and the C++ controller
     tracking_frame: ee_tracking  # 'cog_tracking' or 'ee_tracking'

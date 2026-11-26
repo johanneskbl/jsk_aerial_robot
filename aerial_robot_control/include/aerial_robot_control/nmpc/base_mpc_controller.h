@@ -81,7 +81,7 @@ protected:
   double gravity_const_;
 
   double t_mpc_samp_;
-  double t_mpc_step_;
+  double t_mpc_step_;  // Duration of the first shooting interval (from node 0 to 1)
   double t_mpc_horizon_;
   double t_mpc_dt_ = 0.0;  // measured closed-loop timestep between two solves
   double t_mpc_timestep_;

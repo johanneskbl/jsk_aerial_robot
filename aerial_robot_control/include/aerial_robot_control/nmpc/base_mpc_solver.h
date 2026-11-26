@@ -367,6 +367,14 @@ public:
     return time_tot;
   }
 
+  // Duration of the shooting interval from the node at the stage to the next one in seconds
+  double getTimeStep(int stage) const
+  {
+    double time_step;
+    ocp_nlp_in_get(nlp_config_, nlp_dims_, nlp_in_, stage, "Ts", &time_step);
+    return time_step;
+  }
+
   /* for debugging */
   void printAcadosStatus(double min_time)
   {

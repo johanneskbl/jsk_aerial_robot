@@ -408,6 +408,8 @@ def main(args):
                 ocp_solver.set(j, "yref", yr)
                 quaternion_r = xr[j, 6:10]
                 nmpc.acados_parameters[0:4] = quaternion_r
+                if nmpc.params["N_steps_short"] > 0:
+                    nmpc.acados_parameters[-1] = nmpc.params["time_steps"][j]  # Duration of the shooting interval
                 ocp_solver.set(j, "p", nmpc.acados_parameters)  # For nonlinear quaternion error
             # N
             yr = xr[ocp_solver.N, :]

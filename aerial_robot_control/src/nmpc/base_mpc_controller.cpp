@@ -164,8 +164,8 @@ void nmpc::BaseMPC::reset()
 void nmpc::BaseMPC::initGeneralParams()
 {
   getParam<double>(mpc_nh_, "T_samp", t_mpc_samp_, 0.025);
-  getParam<double>(mpc_nh_, "T_step", t_mpc_step_, 0.1);
   getParam<double>(mpc_nh_, "T_horizon", t_mpc_horizon_, 2.0);
+  t_mpc_step_ = mpc_solver_ptr_->getTimeStep(0);  // Shorter than T_step for a non-uniform grid
 
   getParam<bool>(mpc_nh_, "is_attitude_ctrl", is_attitude_ctrl_, true);
   getParam<bool>(mpc_nh_, "is_body_rate_ctrl", is_body_rate_ctrl_, false);
