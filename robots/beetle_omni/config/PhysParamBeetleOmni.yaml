@@ -1,6 +1,9 @@
 physical:  # with original ball and battery
+
+  # ================ ONLY USED IN PYTHON SIM ===================
+  # ================== FOR C++, CHANGE URDF ====================
   mass: 3.0386  # kg
-  gravity: 9.798  #9.80665 # m/s^2   Tokyo 9.798; in sim: 9.80665
+  gravity: 9.798  #9.80665 # m/s^2   Tokyo 9.798; in Gazebo: 9.80665
   inertia_diag: [0.0627958, 0.0620796, 0.0948795]  # kg m^2
   dr1: 1  # direction of motor 1
   p1: [0.194824, 0.194652, -0.00368224]  # position of motor 1
@@ -12,11 +15,32 @@ physical:  # with original ball and battery
   p4: [0.194824, -0.195008, -0.00368224]  # position of motor 4
   kq_d_kt: 0.0165
 
+  ball_effector_p: [0, 0, 0.264]  # m
+  ball_effector_q: [1, 0, 0, 0]  # quaternion, qw, qx, qy, qz
+  # ============================================================
+
+  # Age of the state estimate from the time of measurement to when the MPC reads it (motion capture, filtering and communication)
+  delay_body_meas: 0.012  # in seconds
+
   num_rotors: 4
   t_rotor: 0.015  # RPM-mode ESC (AM32 P65 I0 D3000), identified from bench and flight data. The previous value was 0.0942
   # Rate model of the thrust rate estimation: t_thrust_rate * d2F/dt2 + dF/dt = gain_thrust_rate * dF_cmd/dt(t - d_in)
   gain_thrust_rate: 0.73
   t_thrust_rate: 0.022
+
+  # Age of the thrust measured by the ESC telemetry at read time
+  # = ZC averaging (1.5 ms) + alpha-beta RPM filter (~1.5 ms) + ESC to spinal (~1 ms)
+  #   + spinal batching ([3, 2, 1, 0] ms) + spinal to PC (~0.4 ms)
+  delay_thrust_meas: [0.0092, 0.0082, 0.0072, 0.0062]  # measured for ESC [1,2,3,4] in seconds
+
+  # Additional age of the thrust rate measured by the ESC telemetry w.r.t. the thrust
+  # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC
+  # (subtracting the RPM filter (ZC & alpha-beta) included in delay_thrust_meas above) (measured: 26-28 ms behind d(rpm)/dt)
+  delay_thrust_rate_meas: 0.027  # in seconds
+
+  # Actuation delay from the MPC state read until the ESC acts on the thrust command
+  # = solver time (6.5 ms) + PC to spinal communication (0.26 ms) + spinal computation (2 ms) + ESC computation (1 ms)
+  delay_thrust_cmd: 0.01  # in seconds
 
   num_servos: 4
   # Dynamixel servo XC330-T181 with self-tuned PID
@@ -28,5 +52,23 @@ physical:  # with original ball and battery
   t_servo_rate: 0.021
   gain_servo_rate: 1.0
 
-  ball_effector_p: [0, 0, 0.264]  # m
-  ball_effector_q: [1, 0, 0, 0]  # quaternion, qw, qx, qy, qz
+  # Age of the servo state measured by the Dynamixel telemetry at read time
+  # = Dynamixel to spinal (~1 ms) + alpha-beta state filter (~0.5 ms) + spinal to PC (~0.8 ms)
+  #   + servo_bridge (~0.3 ms) 
+  delay_servo_meas: 0.0025  # in seconds
+
+  # Additional age of the servo velocity estimated in spinal w.r.t. the filtered angle
+  # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC
+  # (subtracting the state filter (alpha-beta) included in delay_servo_meas above) (measured: 26-28 ms behind d(state)/dt)
+  delay_servo_vel_meas: 0.0295  # in seconds
+
+  # Actuation delay from the MPC state read until the Dynamixel acts on the angle command
+  # Only delay_servo_cmd + delay_servo_meas is identifiable. Bench 2026-11-22 with t_servo = 8 ms: dead time 23 ms from the
+  # command to the measured angle (steps from rest: 27 ms), flight 2026-11-21: ~3 ms more. The motion starts ~11 ms after
+  # the command (wait for the 5 ms goal write + servo latency), the rest is the servo's acceleration.
+  # Sum = solver time (6.2 ms) + servo_bridge (~0.3 ms) + PC to spinal (~0.3 ms) + dead time (16~21 OR 23-27 ms depending on t_servo)
+  delay_servo_cmd: 0.0246  # in seconds (optimal: 0.031)
+
+  # Time constant of the steady-state offset (bias) estimation for each servo
+  # Should be >> 1 to compensate static offsets; 0 to disable
+  t_servo_bias: 10.0  # in seconds

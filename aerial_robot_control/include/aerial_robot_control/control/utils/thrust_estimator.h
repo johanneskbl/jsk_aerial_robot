@@ -27,7 +27,6 @@ namespace aerial_robot_control
  * measurement delay d_meas but further predicted until t_act.
  * Then the MPC needs no model of the actuation delay since its first control input acts from the delayed initial state onwards.
  * All commands acting until t_act are known since they were calculated before `now`.
- * NOTE: The rigid body states are NOT predicted since they change little within d_in, in contrast to the rotors with t_rotor ~ d_in.
  * Each thrust measurement is propagated over its age with the exact solution of its model for the piecewise constant thrust
  * commands that acted in the meantime. The exact solution of the thrust model is:
  * 
@@ -56,13 +55,12 @@ public:
   {
     /* Get parameters */
     ros::NodeHandle physical_nh(nh, "physical");
-    ros::NodeHandle motor_nh(nh, "motor_info");
     physical_nh.param<double>("t_rotor", t_rotor_, 0.0);
     physical_nh.param<double>("t_thrust_rate", t_thrust_rate_, 0.0);
     physical_nh.param<double>("gain_thrust_rate", gain_thrust_rate_, 1.0);
-    motor_nh.param<std::vector<double>>("delay_thrust_meas", delay_thrust_meas_, std::vector<double>());
-    motor_nh.param<double>("delay_thrust_rate_meas", delay_thrust_rate_meas_, 0.0);
-    motor_nh.param<double>("delay_thrust_cmd", delay_thrust_cmd_, 0.0);
+    physical_nh.param<std::vector<double>>("delay_thrust_meas", delay_thrust_meas_, std::vector<double>());
+    physical_nh.param<double>("delay_thrust_rate_meas", delay_thrust_rate_meas_, 0.0);
+    physical_nh.param<double>("delay_thrust_cmd", delay_thrust_cmd_, 0.0);
 
     /* Sanity checks */
     if (t_rotor_ <= 0.0 || t_thrust_rate_ <= 0.0 || motor_num <= 0 ||

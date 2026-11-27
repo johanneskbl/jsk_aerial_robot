@@ -7,6 +7,7 @@
 
 #include "aerial_robot_control/nmpc/base_mpc_controller.h"
 #include "aerial_robot_control/control/utils/servo_estimator.h"
+#include "aerial_robot_control/control/utils/body_state_estimator.h"
 
 #include <angles/angles.h>
 
@@ -81,9 +82,10 @@ protected:
   double t_servo_;
   double servo_angle_max_;
   double servo_angle_min_;
+  BodyStateEstimator body_estimator_;
+  ServoEstimator joint_estimator_;
   std::vector<double> joint_angles_;
   std::vector<double> joint_angles_est_;
-  ServoEstimator joint_estimator_;
   ros::Time joint_states_time_;
   bool is_gimbal_centered_ = false;
 

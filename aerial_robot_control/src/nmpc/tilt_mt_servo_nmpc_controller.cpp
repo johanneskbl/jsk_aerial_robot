@@ -36,8 +36,9 @@ void nmpc::TiltMtServoNMPC::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   /* Initialize actuator states */
   initActuatorStates();
 
-  /* Initialize servo estimator */
+  /* Initialize servo and body state estimators */
   joint_estimator_.initialize(nh_);
+  body_estimator_.initialize(nh_);
 
   /* Initialize cost weights */
   initMPCCostW();
@@ -539,6 +540,17 @@ std::vector<double> nmpc::TiltMtServoNMPC::meas2VecX(bool is_ee_centric)
 
   // Check the sign of the quaternion to avoid flipping
   ensureQuaternionContinuity(q, q_prev_);
+
+  /* Estimate the Body state at the next actuation time to compensate for delays */
+  if (!is_warmup_)
+  {
+    // Numerically compute linear and angular acceleration from the solver state
+    const std::vector<double>& xo_0 = mpc_solver_ptr_->xo_.at(0);
+    const std::vector<double>& xo_1 = mpc_solver_ptr_->xo_.at(1);
+    tf::Vector3 delta_vel(xo_1.at(3) - xo_0.at(3), xo_1.at(4) - xo_0.at(4), xo_1.at(5) - xo_0.at(5));  // idx: 3,4,5 = vx,vy,vz
+    tf::Vector3 delta_omega(xo_1.at(10) - xo_0.at(10), xo_1.at(11) - xo_0.at(11), xo_1.at(12) - xo_0.at(12));  // idx: 10,11,12 = wx,wy,wz
+    body_estimator_.estimate(pos, vel, delta_vel / t_mpc_step_, q, omega, delta_omega / t_mpc_step_);
+  }
 
   /* Transform the state from the Body frame to the Tracking frame */
   if (is_ee_centric)

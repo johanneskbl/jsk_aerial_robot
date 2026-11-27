@@ -102,12 +102,15 @@ void nmpc::TiltMtServoDistNMPC::updateITerm()
   tf::Quaternion q_wb = estimator_->getQuat(Frame::COG, estimate_mode_);
 
   /* Get the target state */
-  // Note that the target state is the estimated state at the current time, after T_samp since last solve() call, from the MPC solver.
+  // NOTE: The target state is the state of the last solution at the time of the current measurement. The last
+  // solution starts at the actuation time of the last solve() call, so the measurement is T_samp
+  // minus the age of the state estimate later. For a negative time, the first shooting interval is extrapolated.
+  const double t_target = t_mpc_samp_ - body_estimator_.age_;  // Relative to the first node of the last solution
   tf::Vector3 pos_w_x0(mpc_solver_ptr_->xo_.at(0).at(0), mpc_solver_ptr_->xo_.at(0).at(1),
                        mpc_solver_ptr_->xo_.at(0).at(2));
   tf::Vector3 pos_w_x1(mpc_solver_ptr_->xo_.at(1).at(0), mpc_solver_ptr_->xo_.at(1).at(1),
                        mpc_solver_ptr_->xo_.at(1).at(2));
-  tf::Vector3 target_pos_w = pos_w_x0 + (pos_w_x1 - pos_w_x0) * t_mpc_samp_ / t_mpc_step_;
+  tf::Vector3 target_pos_w = pos_w_x0 + (pos_w_x1 - pos_w_x0) * t_target / t_mpc_step_;
 
   tf::Quaternion q_wb_x0(mpc_solver_ptr_->xo_.at(0).at(7), mpc_solver_ptr_->xo_.at(0).at(8),
                          mpc_solver_ptr_->xo_.at(0).at(9), mpc_solver_ptr_->xo_.at(0).at(6));
@@ -115,7 +118,7 @@ void nmpc::TiltMtServoDistNMPC::updateITerm()
   tf::Quaternion q_wb_x1(mpc_solver_ptr_->xo_.at(1).at(7), mpc_solver_ptr_->xo_.at(1).at(8),
                          mpc_solver_ptr_->xo_.at(1).at(9), mpc_solver_ptr_->xo_.at(1).at(6));
   q_wb_x1.normalize();
-  tf::Quaternion target_q_wb = q_wb_x0.slerp(q_wb_x1, t_mpc_samp_ / t_mpc_step_);
+  tf::Quaternion target_q_wb = q_wb_x0.slerp(q_wb_x1, t_target / t_mpc_step_);
 
   /* Update I-term */
   wrench_est_i_term_.update(target_pos_w, target_q_wb, pos_w, q_wb);

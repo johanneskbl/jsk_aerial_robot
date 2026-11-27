@@ -24,20 +24,6 @@ motor_info:
   krpm_to_thrust_exponent: 2.151  # previously: 2
   # - Ratio of torque (m) factor to thrust (f) factor
   m_f_rate: -0.0168  # -0.0165  # (-0.0166 + -0.0165 + -0.0166 +  -0.0164 + -0.0162) / 5 = -0.0165
-  
-  # Age of the thrust measured by the ESC telemetry at read time
-  # = ZC averaging (1.5 ms) + alpha-beta RPM filter (~1.5 ms) + ESC to spinal (~1 ms)
-  #   + spinal batching ([3, 2, 1, 0] ms) + spinal to PC (~0.4 ms)
-  delay_thrust_meas: [0.0092, 0.0082, 0.0072, 0.0062]  # measured for ESC [1,2,3,4] in seconds
-
-  # Additional age of the thrust rate measured by the ESC telemetry w.r.t. the thrust
-  # = center of the 60 ms Savitzky-Golay window of the RPM rate on the ESC
-  # (subtracting the RPM filter (ZC & alpha-beta) included in delay_thrust_meas above) (measured: 26-28 ms behind d(rpm)/dt)
-  delay_thrust_rate_meas: 0.027  # in seconds
-
-  # Actuation delay from the MPC state read until the ESC acts on the thrust command
-  # = solver time (6.5 ms) + PC to spinal communication (0.26 ms) + spinal computation (2 ms) + ESC computation (1 ms)
-  delay_thrust_cmd: 0.01  # in seconds
 
   # Rotor damping: only for sim. First-order lag per Gazebo control step (1 kHz): 1 - exp(-0.001 / t_rotor)
   # NOTE: Previosly: dt/t_thrust = 0.01 (guess, now know that shouldve been 0.001) / 0.0942
@@ -46,7 +32,6 @@ motor_info:
   # empty.world sets max_step_size to 0.001. SimulationAttitudeController::update() calls rotor.setForce()
   # every step without throttling.
   rotor_damping_rate: 0.0645  # corresponding to t_rotor = 0.015 s
-
 
   # --- RPM Mode ---
   pwm_conversion_mode: 2
