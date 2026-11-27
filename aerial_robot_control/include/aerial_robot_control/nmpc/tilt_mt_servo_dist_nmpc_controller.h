@@ -43,6 +43,8 @@ protected:
 
   int idx_p_dist_end_ = 0;
 
+  bool was_warmup_ = true;  // Warm-up state of the previous control period
+
   /* Initialization methods */
   void initPlugins() override;
 

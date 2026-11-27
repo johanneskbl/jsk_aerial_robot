@@ -1,4 +1,11 @@
 # I-term is always used and has higher priority than the other wrench estimation methods.
+# It integrates the residual between the measured and the predicted velocities, so each
+# component converges to the model error of the wrench with the time constant
+#   tau = mass / (i_gain * dt)  for the force,
+#   tau = inertia / (i_gain * dt)  for the torque,
+# where dt = T_samp is the period of the control loop. With the mass 3.146 kg and inertia
+# [0.0628, 0.0621, 0.0949] kg m^2:
+#   tau_xy = 5 s, tau_z = 3 s, tau_roll = tau_pitch = 5 s, tau_yaw = 3 s.
 controller:
   i_term:
     # disturb_rej
@@ -9,9 +16,9 @@ controller:
     limit_my: 0.5
     limit_mz: 0.5
 
-    i_gain_x: 100
-    i_gain_y: 100
-    i_gain_z: 500
-    i_gain_roll: 10
-    i_gain_pitch: 10
-    i_gain_yaw: 50
+    i_gain_x: 62.9  # N/m
+    i_gain_y: 62.9  # N/m
+    i_gain_z: 104.9  # N/m
+    i_gain_roll: 1.25  # Nm/rad
+    i_gain_pitch: 1.25  # Nm/rad
+    i_gain_yaw: 3.2  # Nm/rad

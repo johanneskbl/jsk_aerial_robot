@@ -63,6 +63,7 @@ void nmpc::TiltMtServoDistNMPC::resetPlugins()
 {
   wrench_est_i_term_.reset();
   wrench_est_ptr_->reset();
+  was_warmup_ = true;
 }
 
 std::vector<double> nmpc::TiltMtServoDistNMPC::meas2VecX(bool is_ee_centric)
@@ -91,37 +92,46 @@ std::vector<double> nmpc::TiltMtServoDistNMPC::meas2VecX(bool is_ee_centric)
 }
 
 /**
- * @brief Update the I-term with the error between the predicted and the measured state in Body frame
+ * @brief Update the I-term with the residual between the measured and the predicted velocities
+ * The I-term estimates the model error of the wrench from the velocity residual (a_real - a_model) * T over one control
+ * period T.
  * NOTE: The predicted state of the solver always describes the Body frame, independent of the Tracking frame.
+ * NOTE: Modified from position error to velocity error since velocity captures the planned motion and model error better
+ * With position error and Body state estimation, the I-term introduces instability!
  */
 void nmpc::TiltMtServoDistNMPC::updateITerm()
 {
-  /* HANDLING MODEL ERROR */
-  /* Get the current state */
-  tf::Vector3 pos_w = estimator_->getPos(Frame::COG, estimate_mode_);
-  tf::Quaternion q_wb = estimator_->getQuat(Frame::COG, estimate_mode_);
+  /* Get the measured velocities */
+  tf::Vector3 vel_w = estimator_->getVel(Frame::COG, estimate_mode_);
+  tf::Vector3 omega_b = estimator_->getAngularVel(Frame::COG, estimate_mode_);
 
-  /* Get the target state */
-  // NOTE: The target state is the state of the last solution at the time of the current measurement. The last
-  // solution starts at the actuation time of the last solve() call, so the measurement is T_samp
-  // minus the age of the state estimate later. For a negative time, the first shooting interval is extrapolated.
-  const double t_target = t_mpc_samp_ - body_estimator_.age_;  // Relative to the first node of the last solution
-  tf::Vector3 pos_w_x0(mpc_solver_ptr_->xo_.at(0).at(0), mpc_solver_ptr_->xo_.at(0).at(1),
-                       mpc_solver_ptr_->xo_.at(0).at(2));
-  tf::Vector3 pos_w_x1(mpc_solver_ptr_->xo_.at(1).at(0), mpc_solver_ptr_->xo_.at(1).at(1),
-                       mpc_solver_ptr_->xo_.at(1).at(2));
-  tf::Vector3 target_pos_w = pos_w_x0 + (pos_w_x1 - pos_w_x0) * t_target / t_mpc_step_;
+  /* Get the time of the current measurement relative to the first node of the last solution */
+  // The last solution starts at the actuation time of the last solve() call, i.e., the age of the state estimate after
+  // its call. So the current measurement is the time since that call minus the age. For a negative time, the first
+  // shooting interval is extrapolated backwards.
+  const double t_since_solve = ros::Time::now().toSec() - t_mpc_prev_timestep_;
+  if (t_since_solve <= 0.0 || t_since_solve > t_mpc_step_)
+  {
+    ROS_WARN_THROTTLE(1.0, "[MPC] I-term is not updated, since the last solution is %.3f s old.", t_since_solve);
+    return;
+  }
+  const double t_target = t_since_solve - body_estimator_.age_;
 
-  tf::Quaternion q_wb_x0(mpc_solver_ptr_->xo_.at(0).at(7), mpc_solver_ptr_->xo_.at(0).at(8),
-                         mpc_solver_ptr_->xo_.at(0).at(9), mpc_solver_ptr_->xo_.at(0).at(6));
-  q_wb_x0.normalize();
-  tf::Quaternion q_wb_x1(mpc_solver_ptr_->xo_.at(1).at(7), mpc_solver_ptr_->xo_.at(1).at(8),
-                         mpc_solver_ptr_->xo_.at(1).at(9), mpc_solver_ptr_->xo_.at(1).at(6));
-  q_wb_x1.normalize();
-  tf::Quaternion target_q_wb = q_wb_x0.slerp(q_wb_x1, t_target / t_mpc_step_);
+  /* Get the predicted velocities at the time of the current measurement */
+  // The velocities are linear in time for a constant acceleration on the shooting interval, so the interpolation
+  // between the first two nodes is exact in that case
+  const std::vector<double>& xo_0 = mpc_solver_ptr_->xo_.at(0);
+  const std::vector<double>& xo_1 = mpc_solver_ptr_->xo_.at(1);
+  tf::Vector3 vel_w_x0(xo_0.at(3), xo_0.at(4), xo_0.at(5));  // idx: 3,4,5 = vx,vy,vz
+  tf::Vector3 vel_w_x1(xo_1.at(3), xo_1.at(4), xo_1.at(5));
+  tf::Vector3 target_vel_w = vel_w_x0 + (vel_w_x1 - vel_w_x0) * t_target / t_mpc_step_;
+
+  tf::Vector3 omega_b_x0(xo_0.at(10), xo_0.at(11), xo_0.at(12));  // idx: 10,11,12 = wx,wy,wz
+  tf::Vector3 omega_b_x1(xo_1.at(10), xo_1.at(11), xo_1.at(12));
+  tf::Vector3 target_omega_b = omega_b_x0 + (omega_b_x1 - omega_b_x0) * t_target / t_mpc_step_;
 
   /* Update I-term */
-  wrench_est_i_term_.update(target_pos_w, target_q_wb, pos_w, q_wb);
+  wrench_est_i_term_.update(target_vel_w, target_omega_b, vel_w, omega_b);
 }
 
 void nmpc::TiltMtServoDistNMPC::updateDisturbWrench() const
@@ -145,8 +155,10 @@ void nmpc::TiltMtServoDistNMPC::prepareMPCParams()
     updateDisturbWrench();
 
     // This form of I-term can always be activated, no need to be shut down when the external wrench appears.
-    updateITerm();
+    if (!was_warmup_)  // Skip one solution after warmup ended since its state is not predicted properly yet
+      updateITerm();
   }
+  was_warmup_ = is_warmup_;
   auto mdl_error_force_w = wrench_est_i_term_.getDistForceW();
   auto mdl_error_torque_b = wrench_est_i_term_.getDistTorqueCOG();
 
