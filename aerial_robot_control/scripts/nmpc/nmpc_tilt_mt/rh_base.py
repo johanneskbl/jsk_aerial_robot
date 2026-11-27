@@ -52,7 +52,7 @@ class RecedingHorizonBase(ABC):
         # Non-uniform grid: N_steps_short intervals of T_step_short and one interval with the rest of T_step
         # replace the first interval of T_step.
         # N_steps_short = 0 (default) for a uniform grid.
-        n_steps_short = self.params.setdefault("N_step_short", 0)
+        n_steps_short = self.params.setdefault("N_steps_short", 0)
         t_step_short = self.params.setdefault("T_step_short", 0.0)
         t_step_rest = self.params["T_step"] - n_steps_short * t_step_short
         if t_step_rest <= 0.0:
