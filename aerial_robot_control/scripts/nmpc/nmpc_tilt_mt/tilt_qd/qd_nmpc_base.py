@@ -1103,7 +1103,7 @@ class QDNMPCBase(RecedingHorizonBase):
 
         # Solver options
         ocp.solver_options.tf = self.params["T_horizon"]
-        ocp.solver_options.time_steps = np.array(self.params["time_steps"])  # Possibly non-uniform grid, see read_params()
+        ocp.solver_options.time_steps = np.array(self.params["time_steps"])  # Optionally a non-uniform grid
         ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"  # "IPOPT", "FULL_CONDENSING_HPIPM"
         ocp.solver_options.hpipm_mode = "BALANCE"  # "BALANCE", "SPEED_ABS", "SPEED", "ROBUST". Default: "BALANCE".
         # Start up flags:       [Seems only works for FULL_CONDENSING_QPOASES]

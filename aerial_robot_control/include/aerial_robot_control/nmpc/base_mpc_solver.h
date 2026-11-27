@@ -367,7 +367,8 @@ public:
     return time_tot;
   }
 
-  // Duration of the shooting interval from the node at the stage to the next one in seconds
+  // Duration of the shooting interval from the node at `stage` in seconds
+  // NOTE: Set during solver generation; can change over horizon for non-uniform grids 
   double getTimeStep(int stage) const
   {
     double time_step;

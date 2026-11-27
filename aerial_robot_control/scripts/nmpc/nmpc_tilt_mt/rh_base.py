@@ -49,17 +49,17 @@ class RecedingHorizonBase(ABC):
             raise KeyError(f"Mode or method not found in configuration file {param_path}.")
 
         # Compute the duration of each shooting interval or "step" along the horizon
-        # Non-uniform grid: N_steps_short short intervals of T_step_short and one interval with the rest of T_step
-        # replace the first interval of T_step, so that the first decisions are planned at the resolution they are
-        # executed at. N_steps_short = 0 (default) gives a uniform grid.
-        n_steps_short = self.params.setdefault("N_steps_short", 0)
+        # Non-uniform grid: N_steps_short intervals of T_step_short and one interval with the rest of T_step
+        # replace the first interval of T_step.
+        # N_steps_short = 0 (default) for a uniform grid.
+        n_steps_short = self.params.setdefault("N_step_short", 0)
         t_step_short = self.params.setdefault("T_step_short", 0.0)
         t_step_rest = self.params["T_step"] - n_steps_short * t_step_short
         if t_step_rest <= 0.0:
             raise ValueError(f"N_steps_short * T_step_short must be shorter than T_step in {param_path}.")
-        n_steps_long = int(self.params["T_horizon"] / self.params["T_step"])
+        n_steps_long = int(self.params["T_horizon"] / self.params["T_step"]) - 1
         self.params["time_steps"] = (
-            [t_step_short] * n_steps_short + [t_step_rest] + [self.params["T_step"]] * (n_steps_long - 1)
+            [t_step_short] * n_steps_short + [t_step_rest] + [self.params["T_step"]] * n_steps_long
         )
 
         # Compute number of shooting intervals or "steps" (or "nodes") along the horizon

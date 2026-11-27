@@ -415,17 +415,18 @@ void nmpc::TiltMtServoNMPC::initMPCPhysicalParams()
   /* Set acados parameters */
   mpc_solver_ptr_->setParameters(acados_p);
 
-  /* Set the duration of each shooting interval for a non-uniform grid */
-  // The discrete dynamics of a model generated with a non-uniform grid take it as the last parameter, see
-  // _get_discrete_dynamics() in qd_nmpc_base.py. The grid is uniform if the first and the last interval are equal.
+  /* Non-uniform grid: Set duration of each shooting interval */
+  // NOTE: This seems wasteful but with the DISCRETE integrator type we need to have
+  // the time step as acados per-stage parameter. Here we set this parameter to the
+  // stored time step list from the generated solver.
   int& NN = mpc_solver_ptr_->NN_;
   if (mpc_solver_ptr_->getTimeStep(0) != mpc_solver_ptr_->getTimeStep(NN - 1))
   {
-    std::vector<int> idx_dt = { mpc_solver_ptr_->NP_ - 1 };
+    std::vector<int> idx_dt_p = { mpc_solver_ptr_->NP_ - 1 };
     for (int i = 0; i < NN; i++)
     {
       std::vector<double> dt = { mpc_solver_ptr_->getTimeStep(i) };
-      mpc_solver_ptr_->setParamSparseOneStage(i, idx_dt, dt);
+      mpc_solver_ptr_->setParamSparseOneStage(i, idx_dt_p, dt);
     }
   }
 }
