@@ -49,8 +49,8 @@ controller:
     a_vel_min: -11 # 11 / 3 (from Claude due to real / urdf); 8 (from Eugenio)  # rad/s
     a_vel_max: 11  # rad/s
 
-    Qp_xy: 300
-    Qp_z: 400
+    Qp_xy: 600
+    Qp_z: 800
     Qv_xy: 10
     Qv_z: 10
     Qq_xy: 600
@@ -58,7 +58,7 @@ controller:
     Qw_xy: 5
     Qw_z: 5
     Qa: 10.0  # NEEDS TO BE ZERO FOR NULLSPACE CONTROL!
-    Qad: 1
+    Qad: 1.0
     Qt: 1.0  # NEEDS TO BE ZERO FOR NULLSPACE CONTROL!
     Qtd: 0.001
     Qfu: 0.01 # Generated body force

@@ -110,25 +110,35 @@ void nmpc::TiltMtServoDistNMPC::updateITerm()
   // its call. So the current measurement is the time since that call minus the age. For a negative time, the first
   // shooting interval is extrapolated backwards.
   const double t_since_solve = ros::Time::now().toSec() - t_mpc_prev_timestep_;
-  if (t_since_solve <= 0.0 || t_since_solve > t_mpc_step_)
+  if (t_since_solve <= 0.0 || t_since_solve > 2.0 * t_mpc_samp_)
   {
     ROS_WARN_THROTTLE(1.0, "[MPC] I-term is not updated, since the last solution is %.3f s old.", t_since_solve);
     return;
   }
   const double t_target = t_since_solve - body_estimator_.age_;
 
+  /* Find the shooting interval [t_k, t_k + dt_k] of the last solution that contains the current measurement */
+  int k = 0;
+  double t_k = 0.0;
+  while (k < mpc_solver_ptr_->NN_ - 1 && t_target > t_k + mpc_solver_ptr_->getTimeStep(k))
+  {
+    t_k += mpc_solver_ptr_->getTimeStep(k);
+    k++;
+  }
+  const double ratio = (t_target - t_k) / mpc_solver_ptr_->getTimeStep(k);  // Negative for backward extrapolation
+
   /* Get the predicted velocities at the time of the current measurement */
   // The velocities are linear in time for a constant acceleration on the shooting interval, so the interpolation
-  // between the first two nodes is exact in that case
-  const std::vector<double>& xo_0 = mpc_solver_ptr_->xo_.at(0);
-  const std::vector<double>& xo_1 = mpc_solver_ptr_->xo_.at(1);
+  // between its two nodes is exact in that case
+  const std::vector<double>& xo_0 = mpc_solver_ptr_->xo_.at(k);
+  const std::vector<double>& xo_1 = mpc_solver_ptr_->xo_.at(k + 1);
   tf::Vector3 vel_w_x0(xo_0.at(3), xo_0.at(4), xo_0.at(5));  // idx: 3,4,5 = vx,vy,vz
   tf::Vector3 vel_w_x1(xo_1.at(3), xo_1.at(4), xo_1.at(5));
-  tf::Vector3 target_vel_w = vel_w_x0 + (vel_w_x1 - vel_w_x0) * t_target / t_mpc_step_;
+  tf::Vector3 target_vel_w = vel_w_x0 + (vel_w_x1 - vel_w_x0) * ratio;
 
   tf::Vector3 omega_b_x0(xo_0.at(10), xo_0.at(11), xo_0.at(12));  // idx: 10,11,12 = wx,wy,wz
   tf::Vector3 omega_b_x1(xo_1.at(10), xo_1.at(11), xo_1.at(12));
-  tf::Vector3 target_omega_b = omega_b_x0 + (omega_b_x1 - omega_b_x0) * t_target / t_mpc_step_;
+  tf::Vector3 target_omega_b = omega_b_x0 + (omega_b_x1 - omega_b_x0) * ratio;
 
   /* Update I-term */
   wrench_est_i_term_.update(target_vel_w, target_omega_b, vel_w, omega_b);

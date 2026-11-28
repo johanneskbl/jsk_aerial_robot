@@ -238,7 +238,7 @@ void nmpc::TiltMtServoThrustDistNMPC::publishRecording()
 
   /* Append thrust states to the recording messages */
   const int idx_thrust = 13 + joint_num_;
-  for (int i = 0; i <= mpc_solver_ptr_->NN_; ++i)
+  for (int i = 0; i < static_cast<int>(ref_msg.states.size()); ++i)
   {
     const std::vector<double>& xr = mpc_solver_ptr_->xr_[i];
     const std::vector<double>& xo = mpc_solver_ptr_->xo_[i];
