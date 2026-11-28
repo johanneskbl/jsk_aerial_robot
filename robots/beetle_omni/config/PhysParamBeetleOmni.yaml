@@ -2,6 +2,8 @@ physical:  # with original ball and battery
 
   # ================ ONLY USED IN PYTHON SIM ===================
   # ================== FOR C++, CHANGE URDF ====================
+  # C++ methods get all physical model parameters from robot_model.cpp which
+  # gets them from URDF
   mass: 3.0386  # kg
   gravity: 9.798  #9.80665 # m/s^2   Tokyo 9.798; in Gazebo: 9.80665
   inertia_diag: [0.0627958, 0.0620796, 0.0948795]  # kg m^2
