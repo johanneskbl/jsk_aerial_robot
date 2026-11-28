@@ -55,12 +55,15 @@ class RecedingHorizonBase(ABC):
         n_steps_short = self.params.setdefault("N_steps_short", 0)
         t_step_short = self.params.setdefault("T_step_short", 0.0)
         t_step_rest = self.params["T_step"] - n_steps_short * t_step_short
-        if t_step_rest <= 0.0:
+        if t_step_rest < 0.0:
             raise ValueError(f"N_steps_short * T_step_short must be shorter than T_step in {param_path}.")
         n_steps_long = int(self.params["T_horizon"] / self.params["T_step"]) - 1
-        self.params["time_steps"] = (
-            [t_step_short] * n_steps_short + [t_step_rest] + [self.params["T_step"]] * n_steps_long
-        )
+        if t_step_rest == 0.0:
+            self.params["time_steps"] = [t_step_short] * n_steps_short + [self.params["T_step"]] * n_steps_long
+        else:
+            self.params["time_steps"] = (
+                [t_step_short] * n_steps_short + [t_step_rest] + [self.params["T_step"]] * n_steps_long
+            )
 
         # Compute number of shooting intervals or "steps" (or "nodes") along the horizon
         self.params["N_steps"] = len(self.params["time_steps"])
